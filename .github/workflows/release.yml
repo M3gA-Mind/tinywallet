@@ -86,8 +86,8 @@ jobs:
           set -euo pipefail
 
           metadata="$(cargo metadata --format-version 1 --no-deps)"
-          crate_name="$(jq -r '.packages[0].name' <<< "$metadata")"
-          current_version="$(jq -r '.packages[0].version' <<< "$metadata")"
+          crate_name="$(jq -r '.packages[] | select(.name == "tinywallet") | .name' <<< "$metadata")"
+          current_version="$(jq -r '.packages[] | select(.name == "tinywallet") | .version' <<< "$metadata")"
           if [[ -z "$current_version" || "$current_version" == "null" ]]; then
             echo "Could not resolve the current crate version" >&2
             exit 1
@@ -150,14 +150,14 @@ jobs:
           # platform job fails to resolve. That produces a tagged release with
           # zero artifacts, which is exactly what happened on tinyvoice v0.1.4.
           bump crates/tinywallet-bus/Cargo.toml
-          # The two crates the bus re-exports from, bumped for the same reason:
+          # The implementation siblings are bumped for the same reason:
           # a manifest this step misses leaves `Cargo.lock` disagreeing with the
           # tree at the tag and every `--locked` bundle job fails to resolve.
           # Their path dependencies carry no version requirement, so there is no
           # inter-crate pin to rewrite alongside the version.
           bump crates/tinywallet-crypto/Cargo.toml
           bump crates/tinywallet-x402/Cargo.toml
-          # The wallet flows crate, a host-linked sibling like the two above.
+          # The wallet flows implementation, also versioned in lockstep.
           bump crates/tinywallet-web3/Cargo.toml
           # Refreshes every workspace member in the lockfile. `cargo update -p`
           # cannot do this: these are path dependencies, and the later
@@ -178,16 +178,11 @@ jobs:
           git commit -m "Release ${RELEASE_TAG}"
           git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
 
-      # Scoped to `tinywallet-crypto`, which is the only member with no path
-      # dependency of its own. `cargo package` rewrites a path dependency to a
-      # registry lookup, so packaging `tinywallet-bus`, `tinywallet-x402`,
-      # `tinywallet` or `tinywallet-module` (each takes a sibling by path) fails with "no matching
-      # package named `tinywallet-bus` found, location searched: crates.io
-      # index" — a crate that is `publish = false` will never be there. Nothing
-      # is uploaded either way; this step exists to catch a manifest that could
-      # not be packaged at all.
+      # The pure contract is the packageable leaf. Implementation crates use
+      # unpublished siblings by path, which cargo package rewrites to registry
+      # dependencies. Verify the contract with every feature; nothing uploads.
       - name: Package crate
-        run: cargo package --locked --package tinywallet-crypto
+        run: cargo package --locked --package tinywallet-bus --all-features
 
       - name: Push release commit and tag
         env:
