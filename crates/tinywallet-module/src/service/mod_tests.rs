@@ -1214,6 +1214,7 @@ fn multibyte_malformed_hex_returns_invalid_input_without_panicking() {
     ));
 }
 
+#[test]
 fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
     fn varint(mut value: u64) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -1289,7 +1290,6 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
 }
 
 #[test]
-
 fn malformed_secrets_and_wire_values_take_their_named_error_paths() {
     let invalid_mnemonic = SecretMaterial {
         mnemonic: "not a valid recovery phrase".to_string(),
@@ -1354,7 +1354,6 @@ fn malformed_secrets_and_wire_values_take_their_named_error_paths() {
 }
 
 #[test]
-
 fn helper_rejections_cover_chain_and_signature_mismatches() {
     use super::{Failure, evm_transaction, recovery_of, single_ed25519, solana_transfer};
 
@@ -1391,8 +1390,7 @@ fn helper_rejections_cover_chain_and_signature_mismatches() {
     );
 }
 
-#[test]
-
+#[tokio::test]
 async fn bus_service_methods_cover_the_public_wire_handlers() {
     use tinywallet::wire::{ExportRequest, SignMessageRequest, SignRequest};
 
