@@ -1,9 +1,8 @@
 //! End-to-end test for loading the built `TinyWallet` module into `TinyBus`.
 //!
-//! The only test that exercises the real thing: the built `cdylib`, the ABI
-//! descriptor, manifest admission, the dynamic loader, and a broker routing
-//! actual frames. Everything else in this crate calls Rust functions directly
-//! and would keep passing if the artifact stopped loading altogether.
+//! One of the native tests that exercises the real thing: the built `cdylib`,
+//! the ABI descriptor, manifest admission, the dynamic loader, and a broker
+//! routing actual frames. The signing round-trip is in `module_e2e.rs`.
 //!
 //! What it proves that a unit test cannot: a transaction signed *through the
 //! loaded module* is byte-for-byte the transaction the library produces signing
@@ -44,6 +43,9 @@ use tinywallet_bus::wire::{
     X402ServiceHandle, X402SummaryRequest,
 };
 use tinywallet_module::{BUS_NAME, HOST_INTERFACE, HOST_OBJECT_PATH, OBJECT_PATH};
+
+// Public Solana mint-shaped address used only by the mocked token fixture; not a credential.
+const SOLANA_FIXTURE_MINT: &str = "EPjFWdd5AufqSSqeM2qWw89b7aQf1nZ5V9u7vG3Gf6D";
 
 /// Every method the manifest must declare, in order.
 ///
@@ -213,7 +215,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
                     "chainId": tinywallet_web3::crypto::service::DEBRIDGE_SOLANA_CHAIN_ID,
                     "tokenIn": "So11111111111111111111111111111111111111112",
                     "tokenInAmount": "100",
-                    "tokenOut": "EPjFWdd5AufqSSqeM2qWw89b7aQf1nZ5V9u7vG3Gf6D"
+                    "tokenOut": SOLANA_FIXTURE_MINT
                 }),
             },),
         )

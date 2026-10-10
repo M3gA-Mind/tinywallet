@@ -1,9 +1,8 @@
 //! End-to-end test for loading the built `TinyWallet` module into `TinyBus`.
 //!
-//! The only test that exercises the real thing: the built `cdylib`, the ABI
-//! descriptor, manifest admission, the dynamic loader, and a broker routing
-//! actual frames. Everything else in this crate calls Rust functions directly
-//! and would keep passing if the artifact stopped loading altogether.
+//! One of the native tests that exercises the real thing: the built `cdylib`,
+//! the ABI descriptor, manifest admission, the dynamic loader, and a broker
+//! routing actual frames. The lifecycle round-trip is in `lifecycle_e2e.rs`.
 //!
 //! What it proves that a unit test cannot: a transaction signed *through the
 //! loaded module* is byte-for-byte the transaction the library produces signing
