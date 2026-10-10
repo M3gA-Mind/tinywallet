@@ -491,3 +491,7 @@ impl WalletSigner for ModuleSigner {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "web3_tests.rs"]
+mod tests;

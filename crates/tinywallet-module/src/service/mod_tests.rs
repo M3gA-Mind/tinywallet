@@ -1506,3 +1506,105 @@ async fn web3_routes_fail_closed_when_the_host_callback_is_unavailable() {
             if name == "ai.tinyhumans.tinywallet.Error.HostUnavailable"
     ));
 }
+
+#[tokio::test]
+async fn user_scoped_operations_fail_closed_before_configuration() {
+    use tinywallet_bus::wire::{
+        Web3CloseRequest, Web3ExecuteRequest, Web3QuoteRequest, Web3ServiceHandle,
+        X402CloseRequest, X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest,
+        X402RecordPaymentRequest, X402ServiceHandle, X402SummaryRequest,
+    };
+
+    let wallet = super::Wallet::default();
+    let web3_handle = Web3ServiceHandle {
+        handle: "stale-web3".to_string(),
+    };
+    let x402_handle = X402ServiceHandle {
+        handle: "stale-x402".to_string(),
+    };
+    let web3_quote = || Web3QuoteRequest {
+        service: web3_handle.clone(),
+        owner: None,
+        params: serde_json::json!({}),
+    };
+    let x402_config = X402ConfigResponse {
+        workspace_dir: "/unused".to_string(),
+        session_id: "unused".to_string(),
+        per_request_max_atomic: 1,
+        daily_max_atomic: 1,
+        monthly_max_atomic: 1,
+    };
+
+    assert!(wallet.web3_configure(()).await.is_err());
+    assert!(wallet.web3_routes(()).await.is_err());
+    assert!(wallet.web3_swap_quote(web3_quote()).await.is_err());
+    assert!(wallet.web3_bridge_quote(web3_quote()).await.is_err());
+    assert!(wallet.web3_dapp_quote(web3_quote()).await.is_err());
+    assert!(
+        wallet
+            .web3_execute(Web3ExecuteRequest {
+                service: web3_handle.clone(),
+                owner: None,
+                quote_id: "missing".to_string(),
+                confirmed: true,
+                secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .web3_close(Web3CloseRequest {
+                service: web3_handle,
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_prepare_payment(X402PreparePaymentRequest {
+                service: x402_handle.clone(),
+                url: "https://example.invalid".to_string(),
+                payment_required: String::new(),
+                owner: None,
+                secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_record_payment(X402RecordPaymentRequest {
+                service: x402_handle.clone(),
+                payment_id: "missing".to_string(),
+                response_status: 200,
+                settlement_response: None,
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_spending_summary(X402SummaryRequest {
+                service: x402_handle.clone(),
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_configure(X402ConfigureRequest {
+                config: x402_config
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_close(X402CloseRequest {
+                service: x402_handle,
+            })
+            .await
+            .is_err()
+    );
+}

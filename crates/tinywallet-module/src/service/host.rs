@@ -101,3 +101,7 @@ fn extract_response<R: serde::de::DeserializeOwned>(
     serde_json::from_value(value)
         .map_err(|error| format!("decoding host callback response {expected}: {error}"))
 }
+
+#[cfg(test)]
+#[path = "host_tests.rs"]
+mod tests;

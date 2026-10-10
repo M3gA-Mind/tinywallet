@@ -166,6 +166,18 @@ impl X402Runtime {
             recipient: proof.recipient.clone(),
             network: proof.network.clone(),
         };
+        self.store_pending(
+            payment_id,
+            PendingPayment {
+                payment: proof,
+                created_at: Instant::now(),
+                thread_id,
+            },
+        )?;
+        Ok(response)
+    }
+
+    fn store_pending(&self, payment_id: String, payment: PendingPayment) -> Result<(), String> {
         let mut pending = self
             .pending
             .lock()
@@ -178,15 +190,8 @@ impl X402Runtime {
         {
             pending.remove(&oldest);
         }
-        pending.insert(
-            payment_id,
-            PendingPayment {
-                payment: proof,
-                created_at: Instant::now(),
-                thread_id,
-            },
-        );
-        Ok(response)
+        pending.insert(payment_id, payment);
+        Ok(())
     }
 
     /// Commit the reserved amount to the module-owned ledger after the host
@@ -349,3 +354,7 @@ impl PaymentSigner for ModulePaymentSigner {
 fn wipe(secret: &mut SecretMaterial) {
     zeroize::Zeroize::zeroize(&mut secret.mnemonic);
 }
+
+#[cfg(test)]
+#[path = "x402_tests.rs"]
+mod tests;

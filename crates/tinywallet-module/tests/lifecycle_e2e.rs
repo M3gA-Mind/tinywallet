@@ -148,6 +148,58 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         quote["quote"]["request"]["senderAddress"],
         "0x9858EfFD232B4033E47d90003D41EC34EcaEda94"
     );
+    let bridge_quote: serde_json::Value = proxy
+        .call(
+            "Web3BridgeQuote",
+            (tinywallet_bus::wire::Web3QuoteRequest {
+                service: web3_service.clone(),
+                owner: None,
+                params: serde_json::json!({
+                    "srcChainId": 1,
+                    "srcChainTokenIn": "0x0",
+                    "srcChainTokenInAmount": "100",
+                    "dstChainId": 10,
+                    "dstChainTokenOut": "0x1"
+                }),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bridge_quote["kind"], "bridge");
+    let dapp_quote: serde_json::Value = proxy
+        .call(
+            "Web3DappQuote",
+            (tinywallet_bus::wire::Web3QuoteRequest {
+                service: web3_service.clone(),
+                owner: None,
+                params: serde_json::json!({
+                    "contractAddress": "0x1111111111111111111111111111111111111111",
+                    "calldata": "0xabcd",
+                    "valueRaw": "0"
+                }),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dapp_quote["kind"], "dapp_call");
+    let unconfirmed = proxy
+        .call_confidential::<serde_json::Value>(
+            "Web3Execute",
+            (tinywallet_bus::wire::Web3ExecuteRequest {
+                service: web3_service.clone(),
+                owner: None,
+                quote_id: dapp_quote["quoteId"].as_str().unwrap().to_string(),
+                confirmed: false,
+                secret: SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                    chain: Chain::Evm,
+                },
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(unconfirmed.to_string().contains("InvalidInput"));
     let solana_quote: serde_json::Value = proxy
         .call(
             "Web3SwapQuote",
@@ -641,26 +693,11 @@ async fn admit_module() -> (
     let artifact =
         std::env::var_os("TINYWALLET_TEST_MODULE").expect("TINYWALLET_TEST_MODULE must be set");
     let artifact = PathBuf::from(artifact);
-    // The admitted fixture lives beside a digest manifest. Load a separate
-    // copy without that trust file so this path really tests an unattested
-    // artifact rather than accidentally reusing the approved directory.
-    let untrusted_dir = artifact
-        .parent()
-        .expect("test artifact has a parent directory")
-        .join(format!(
-            "tinywallet-lifecycle-unattested-{}",
-            std::process::id()
-        ));
-    fs::create_dir(&untrusted_dir).expect("create untrusted fixture directory");
-    let untrusted_artifact =
-        untrusted_dir.join(artifact.file_name().expect("test artifact has a filename"));
-    fs::copy(&artifact, &untrusted_artifact).expect("copy untrusted test module");
     let bus = MemoryBus::new();
     let broker = Broker::new();
     let broker_task = broker.spawn(bus.clone());
     let modules = ModuleHost::new(broker);
 
-    let artifact = PathBuf::from(artifact);
     let staged = tempfile::Builder::new()
         .prefix("tinywallet-attested-")
         .tempdir_in(artifact.parent().unwrap())
