@@ -457,7 +457,10 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
     }
 
     const RECIPIENT: &str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-    let mut transfer = bytes_field(2, &address_bytes(RECIPIENT));
+    let owner = tinywallet::key::derive(Chain::Tron, VECTOR, "m/44'/195'/0'/0/0").unwrap();
+    let owner_secret = owner.secret_bytes().to_vec();
+    let mut transfer = bytes_field(1, &address_bytes(owner.address()));
+    transfer.extend(bytes_field(2, &address_bytes(RECIPIENT)));
     let mut amount = varint(3 << 3);
     amount.extend(varint(1_000_000));
     transfer.extend(amount);
@@ -478,7 +481,7 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
         },
     };
     let public_key = PublicKey {
-        key_hex: compressed_public(&evm_key()),
+        key_hex: compressed_public(&owner_secret),
     };
     let unsigned = build_unsigned(&SigningRequest {
         transaction: spec.clone(),
@@ -490,7 +493,7 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
     let signed = attach_signature(&AttachRequest {
         transaction: spec,
         public_key,
-        signatures: vec![host_sign(&unsigned.payloads[0].bytes_hex, &evm_key())],
+        signatures: vec![host_sign(&unsigned.payloads[0].bytes_hex, &owner_secret)],
     })
     .unwrap();
     assert_eq!(signed.txid.as_deref(), Some(expected_txid.as_str()));
