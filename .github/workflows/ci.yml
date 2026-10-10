@@ -34,30 +34,37 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # stable
         with:
           toolchain: stable
-      - name: Host-linked crates pull no signing stack
+      - name: Bus normal and build dependencies are contract-only
+        run: |
+          python3 scripts/check_bus_boundaries_tests.py
+          python3 scripts/check-bus-boundaries.py
+      - name: Implementation crates pull no signing stack
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "$(cargo tree -e normal -i bitcoin -p tinywallet --all-features 2>/dev/null)" ]; then
-            echo "control failed: tinywallet no longer depends on bitcoin" >&2
+            echo "control failed: tinywallet no longer depends on bitcoin, so this guard proves nothing" >&2
             exit 1
           fi
+          status=0
           for crate in tinywallet-crypto tinywallet-x402 tinywallet-bus tinywallet-web3; do
             for dep in bitcoin k256 coins-bip32 coins-bip39; do
               if [ -n "$(cargo tree -e normal -i "$dep" -p "$crate" --all-features 2>/dev/null)" ]; then
                 echo "$crate depends on $dep; it must stay signing-free" >&2
-                exit 1
+                status=1
               fi
             done
           done
+          exit "$status"
       - name: Rail-neutral web3 modules name no chain
         shell: bash
         run: |
           set -uo pipefail
-          if grep -rnE 'tinywallet_crypto|WalletChain|EvmNetwork' crates/tinywallet-web3/src/quote crates/tinywallet-web3/src/seams; then
+          if grep -rnE 'tinywallet_crypto|WalletChain|EvmNetwork' \
+            crates/tinywallet-web3/src/quote crates/tinywallet-web3/src/seams; then
             echo "quote/ and seams/ must stay free of crypto vocabulary" >&2
             exit 1
           fi

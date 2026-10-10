@@ -33,14 +33,16 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 6);
+    assert_eq!(METHODS.len(), 8);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
+        names::methods::CONSTRUCT_EVM_TRANSACTION,
         names::methods::DERIVE_ACCOUNT,
         names::methods::EXPORT_KEY,
         names::methods::SIGN_MESSAGE,
         names::methods::SIGN_TRANSACTION,
+        names::methods::VALIDATE_ADDRESS,
     ] {
         assert!(
             METHODS.contains(&member),

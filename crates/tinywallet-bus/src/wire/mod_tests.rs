@@ -190,7 +190,7 @@ fn every_transaction_names_its_own_chain() {
     // `chain()` is the single source of truth now that the requests carry no
     // `chain` field, so a wrong arm here would route a transaction to the
     // wrong chain's builder — with a real key already loaded.
-    use tinywallet_crypto::Chain;
+    use crate::Chain;
 
     let cases = [
         (
@@ -238,4 +238,31 @@ fn every_transaction_names_its_own_chain() {
     for (spec, expected) in cases {
         assert_eq!(spec.chain(), expected);
     }
+}
+
+#[test]
+fn address_validation_errors_preserve_wire_and_share_implementation_types() {
+    use super::ValidateAddressResponse;
+    use crate::{Chain, Error};
+    let reply = ValidateAddressResponse {
+        result: Err(Error::EmptyAddress { chain: Chain::Evm }),
+    };
+    let wire = serde_json::to_value(&reply).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({"result":{"Err":{"EmptyAddress":{"chain":"evm"}}}})
+    );
+    assert_eq!(
+        serde_json::from_value::<ValidateAddressResponse>(wire).unwrap(),
+        reply
+    );
+}
+
+#[test]
+fn address_validation_rejects_misspelled_sender_and_preserves_default_recipient() {
+    let request = serde_json::json!({"chain":"btc", "address":"1BoatSLRHtKNngkdXEeobR76b53LETtpyT", "is_sender":true});
+    assert!(serde_json::from_value::<super::ValidateAddressRequest>(request).is_err());
+    let recipient: super::ValidateAddressRequest =
+        serde_json::from_value(serde_json::json!({"chain":"btc", "address":"fixture"})).unwrap();
+    assert!(!recipient.sender);
 }
