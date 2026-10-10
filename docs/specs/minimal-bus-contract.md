@@ -2,7 +2,7 @@
 
 The loadable module is the execution boundary. The bus crate owns serialized
 identifiers, errors, transfer targets, method declarations and wire DTOs only.
-It depends on serde and thiserror, with no implementation dependency under any
+It depends on serde, serde_json and thiserror, with no implementation dependency under any
 feature. Crypto re-exports those shared types and owns validation, hashing,
 encoding and transaction verification. x402 and web3 retain their algorithms.
 
@@ -20,7 +20,7 @@ Existing members retain their arities, confidentiality and wire representations.
 
 Hosts retain credential custody and approval policy. They may adopt this contract
 only with a compatible published module artifact and verified digest. Contract
-1.3 adds an optional typed Host interface for account facts, explicit Web3/x402
+1.4 adds an optional typed Host interface for account facts, explicit Web3/x402
 approval, chain transport, authenticated wallet-backend calls, and x402 workspace
 budget configuration. The module now owns stateful swap/bridge/dapp quotes and
 execution, x402 challenge parsing and payment signing, budget reservations, and

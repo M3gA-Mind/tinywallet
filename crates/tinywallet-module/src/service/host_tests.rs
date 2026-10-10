@@ -1,3 +1,5 @@
+//! Contract decoding and missing-host behavior for module callbacks.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;

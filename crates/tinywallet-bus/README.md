@@ -2,8 +2,8 @@
 
 The minimal TinyBus contract for TinyWallet: names, version, shared chain
 identifiers, error vocabulary, transfer types and request/result DTOs. Normal
-and build dependencies are limited to serde and thiserror plus their derive
-closure. No feature links crypto, x402, web3, transport or native libraries.
+and build dependencies are limited to serde, serde_json and thiserror plus their approved
+serialization and derive closure. No feature links crypto, x402, web3, transport or native libraries.
 
 Contract 1.1 adds `ValidateAddress`. It returns the trimmed address or the same
 structured errors as the implementation, including Bitcoin's narrower sender
