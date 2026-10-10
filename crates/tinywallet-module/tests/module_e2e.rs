@@ -156,11 +156,14 @@ async fn refuses_a_confidential_call_to_an_unattested_module() {
         error.to_string().to_lowercase().contains("attest"),
         "expected an attestation refusal, got: {error}"
     );
-    let signed: SignedTransaction = proxy
-        .call("SignTransaction", (request,))
+    let error = proxy
+        .call::<SignedTransaction>("SignTransaction", (request,))
         .await
-        .expect("ordinary nonconfidential calls remain available");
-    assert_ne!(signed.raw, "");
+        .expect_err("recovery-phrase methods must reject ordinary bus calls");
+    assert!(
+        error.to_string().contains("ConfidentialityRequired"),
+        "expected a confidentiality refusal, got: {error}"
+    );
 
     broker_task.abort();
 }
