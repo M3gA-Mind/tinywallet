@@ -109,6 +109,19 @@ fn the_wrong_owner_gets_the_not_found_text_and_leaves_the_quote() {
 }
 
 #[test]
+fn inspection_checks_the_owner_without_consuming_the_quote() {
+    let store = store();
+    store.insert(Probe::live("q", Some(owner("A"))));
+
+    assert_eq!(
+        store.get_for("q", Some(&owner("B"))).unwrap_err(),
+        "quote 'q' not found"
+    );
+    assert_eq!(store.get_for("q", Some(&owner("A"))).unwrap().id, "q");
+    assert_eq!(store.take_for("q", Some(&owner("A"))).unwrap().id, "q");
+}
+
+#[test]
 fn an_anonymous_caller_cannot_take_a_chat_quote_nor_the_reverse() {
     let store = store();
     store.insert(Probe::live("chat", Some(owner("A"))));

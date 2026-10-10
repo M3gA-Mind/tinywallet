@@ -39,7 +39,9 @@ use tinywallet::{Chain, tx};
 use tinywallet_bus::wire::{
     AuthorizationResult, AuthorizeX402PaymentRequest, ChainTransportRequest, ChainTransportResult,
     HostResponse, SecretMaterial, WalletAccountsResponse, WalletBackendRequest,
-    WalletBackendResponse, X402ConfigResponse, X402PreparePaymentRequest, X402RecordPaymentRequest,
+    WalletBackendResponse, Web3CloseRequest, Web3ServiceHandle, X402CloseRequest,
+    X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest, X402RecordPaymentRequest,
+    X402ServiceHandle, X402SummaryRequest,
 };
 use tinywallet_module::{BUS_NAME, HOST_INTERFACE, HOST_OBJECT_PATH, OBJECT_PATH};
 
@@ -63,9 +65,13 @@ const EXPECTED_METHODS: &[&str] = &[
     "Web3BridgeQuote",
     "Web3DappQuote",
     "Web3Execute",
+    "Web3Configure",
+    "Web3Close",
     "X402PreparePayment",
     "X402RecordPayment",
     "X402SpendingSummary",
+    "X402Configure",
+    "X402Close",
 ];
 
 /// The BIP-39 test vector mnemonic. Never use it for real funds.
@@ -90,13 +96,30 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         submitted_tx,
         approved_x402,
         x402_approved,
+        x402_gate,
         modules,
         broker_task,
-        _staged,
+        staged,
     ) = admit_module().await;
     wait_until_serving(&client).await;
 
     let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME).unwrap();
+    let mut x402_service: X402ServiceHandle = proxy
+        .call(
+            "X402Configure",
+            (X402ConfigureRequest {
+                config: X402ConfigResponse {
+                    workspace_dir: staged.path().join("workspace").display().to_string(),
+                    session_id: "module-e2e".to_string(),
+                    per_request_max_atomic: 1_000_000,
+                    daily_max_atomic: 10_000_000,
+                    monthly_max_atomic: 100_000_000,
+                },
+            },),
+        )
+        .await
+        .unwrap();
+    let mut web3_service: Web3ServiceHandle = proxy.call("Web3Configure", ((),)).await.unwrap();
 
     let routes: serde_json::Value = proxy.call("Web3Routes", ((),)).await.unwrap();
     assert_eq!(routes, serde_json::json!({"routes": ["evm", "solana"]}));
@@ -104,6 +127,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .call(
             "Web3SwapQuote",
             (tinywallet_bus::wire::Web3QuoteRequest {
+                service: web3_service.clone(),
                 owner: Some(tinywallet_bus::wire::QuoteOwner {
                     thread_id: "thread-1".to_string(),
                     client_id: "client-1".to_string(),
@@ -124,10 +148,85 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         quote["quote"]["request"]["senderAddress"],
         "0x9858EfFD232B4033E47d90003D41EC34EcaEda94"
     );
+    let solana_quote: serde_json::Value = proxy
+        .call(
+            "Web3SwapQuote",
+            (tinywallet_bus::wire::Web3QuoteRequest {
+                service: web3_service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "solana-owner".to_string(),
+                    client_id: "client-1".to_string(),
+                }),
+                params: serde_json::json!({
+                    "chainId": tinywallet_web3::crypto::service::DEBRIDGE_SOLANA_CHAIN_ID,
+                    "tokenIn": "So11111111111111111111111111111111111111112",
+                    "tokenInAmount": "100",
+                    "tokenOut": "EPjFWdd5AufqSSqeM2qWw89b7aQf1nZ5V9u7vG3Gf6D"
+                }),
+            },),
+        )
+        .await
+        .unwrap();
+    let wrong_solana_owner = proxy
+        .call_confidential::<serde_json::Value>(
+            "Web3Execute",
+            (tinywallet_bus::wire::Web3ExecuteRequest {
+                service: web3_service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "other-signer".to_string(),
+                    client_id: "client-1".to_string(),
+                }),
+                quote_id: solana_quote["quoteId"].as_str().unwrap().to_string(),
+                confirmed: true,
+                secret: SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/501'/0'/0'".to_string(),
+                    chain: Chain::Solana,
+                },
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        wrong_solana_owner
+            .to_string()
+            .contains("Web3OperationFailed")
+    );
+    assert!(
+        approved_web3.lock().unwrap().is_none(),
+        "a foreign Solana quote must be rejected before the host approval callback"
+    );
+    let wrong_owner = proxy
+        .call_confidential::<serde_json::Value>(
+            "Web3Execute",
+            (tinywallet_bus::wire::Web3ExecuteRequest {
+                service: web3_service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "other-thread".to_string(),
+                    client_id: "client-1".to_string(),
+                }),
+                quote_id: quote["quoteId"].as_str().unwrap().to_string(),
+                confirmed: true,
+                secret: SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                    chain: Chain::Evm,
+                },
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(wrong_owner.to_string().contains("Web3OperationFailed"));
+    assert!(
+        approved_web3.lock().unwrap().is_none(),
+        "wrong quote owner must not reach approval"
+    );
+
     let execution: serde_json::Value = proxy
         .call_confidential(
             "Web3Execute",
             (tinywallet_bus::wire::Web3ExecuteRequest {
+                service: web3_service.clone(),
                 owner: Some(tinywallet_bus::wire::QuoteOwner {
                     thread_id: "thread-1".to_string(),
                     client_id: "client-1".to_string(),
@@ -177,6 +276,51 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         submitted.len() > 100,
         "module should submit a signed EVM transaction"
     );
+
+    let quote_to_invalidate: serde_json::Value = proxy
+        .call(
+            "Web3SwapQuote",
+            (tinywallet_bus::wire::Web3QuoteRequest {
+                service: web3_service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "thread-1".to_string(),
+                    client_id: "client-1".to_string(),
+                }),
+                params: serde_json::json!({
+                    "chainId": 1,
+                    "tokenIn": "0x0000000000000000000000000000000000000000",
+                    "tokenInAmount": "100",
+                    "tokenOut": "0x0000000000000000000000000000000000000001"
+                }),
+            },),
+        )
+        .await
+        .unwrap();
+    let closed_web3_service = web3_service.clone();
+    web3_service = proxy.call("Web3Configure", ((),)).await.unwrap();
+    assert_ne!(web3_service, closed_web3_service);
+    let stale_quote = proxy
+        .call_confidential::<serde_json::Value>(
+            "Web3Execute",
+            (tinywallet_bus::wire::Web3ExecuteRequest {
+                service: closed_web3_service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "thread-1".to_string(),
+                    client_id: "client-1".to_string(),
+                }),
+                quote_id: quote_to_invalidate["quoteId"].as_str().unwrap().to_string(),
+                confirmed: true,
+                secret: SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                    chain: Chain::Evm,
+                },
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(stale_quote.to_string().contains("Web3OperationFailed"));
+
     let challenge = BASE64.encode(
         serde_json::to_vec(&serde_json::json!({
             "x402Version": 2,
@@ -199,6 +343,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .call_confidential::<serde_json::Value>(
             "X402PreparePayment",
             (X402PreparePaymentRequest {
+                service: x402_service.clone(),
                 url: "https://fixture.test/resource".to_string(),
                 payment_required: challenge.clone(),
                 owner: None,
@@ -212,7 +357,15 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .await
         .unwrap_err();
     assert!(denied.to_string().contains("X402OperationFailed"));
-    let denied_summary: serde_json::Value = proxy.call("X402SpendingSummary", ((),)).await.unwrap();
+    let denied_summary: serde_json::Value = proxy
+        .call(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
     assert_eq!(denied_summary["reserved_atomic"], 0);
     x402_approved.store(true, Ordering::SeqCst);
     let mut expensive_challenge: serde_json::Value =
@@ -223,6 +376,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .call_confidential::<serde_json::Value>(
             "X402PreparePayment",
             (X402PreparePaymentRequest {
+                service: x402_service.clone(),
                 url: "https://fixture.test/resource".to_string(),
                 payment_required: expensive_challenge,
                 owner: None,
@@ -236,7 +390,15 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .await
         .unwrap_err();
     assert!(too_expensive.to_string().contains("X402OperationFailed"));
-    let budget_summary: serde_json::Value = proxy.call("X402SpendingSummary", ((),)).await.unwrap();
+    let budget_summary: serde_json::Value = proxy
+        .call(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
     assert_eq!(budget_summary["reserved_atomic"], 0);
     assert_eq!(
         approved_x402
@@ -252,8 +414,9 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .call_confidential(
             "X402PreparePayment",
             (X402PreparePaymentRequest {
+                service: x402_service.clone(),
                 url: "https://fixture.test/resource".to_string(),
-                payment_required: challenge,
+                payment_required: challenge.clone(),
                 owner: None,
                 secret: SecretMaterial {
                     mnemonic: VECTOR.to_string(),
@@ -281,6 +444,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .call::<()>(
             "X402RecordPayment",
             (X402RecordPaymentRequest {
+                service: x402_service.clone(),
                 payment_id: payment["payment_id"].as_str().unwrap().to_string(),
                 response_status: 200,
                 settlement_response: None,
@@ -288,9 +452,137 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         )
         .await
         .unwrap();
-    let spending: serde_json::Value = proxy.call("X402SpendingSummary", ((),)).await.unwrap();
+    let spending: serde_json::Value = proxy
+        .call(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
     assert_eq!(spending["session_total_atomic"], 100);
     assert_eq!(spending["reserved_atomic"], 0);
+
+    // Hold an old prepare after it has reserved its amount and entered the
+    // host approval callback. Reconfiguration must wait for that call to
+    // finish, then release its reservation against the old ledger before
+    // installing the new session.
+    let old_service = x402_service.clone();
+    let pending_service = old_service.clone();
+    x402_gate.blocked.store(true, Ordering::SeqCst);
+    let prepare_proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME).unwrap();
+    let prepare = tokio::spawn(async move {
+        prepare_proxy
+            .call_confidential::<serde_json::Value>(
+                "X402PreparePayment",
+                (X402PreparePaymentRequest {
+                    service: pending_service,
+                    url: "https://fixture.test/resource".to_string(),
+                    payment_required: challenge,
+                    owner: None,
+                    secret: SecretMaterial {
+                        mnemonic: VECTOR.to_string(),
+                        derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                        chain: Chain::Evm,
+                    },
+                },),
+            )
+            .await
+    });
+    x402_gate.started.notified().await;
+    let configure_proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME).unwrap();
+    let staged_workspace = staged.path().join("workspace").display().to_string();
+    let configure = tokio::spawn(async move {
+        configure_proxy
+            .call::<X402ServiceHandle>(
+                "X402Configure",
+                (X402ConfigureRequest {
+                    config: X402ConfigResponse {
+                        workspace_dir: staged_workspace,
+                        session_id: "module-e2e-switched-user".to_string(),
+                        per_request_max_atomic: 1_000_000,
+                        daily_max_atomic: 10_000_000,
+                        monthly_max_atomic: 100_000_000,
+                    },
+                },),
+            )
+            .await
+    });
+    tokio::task::yield_now().await;
+    x402_gate.resume.notify_one();
+    let pending = prepare.await.unwrap().unwrap();
+    x402_service = configure.await.unwrap().unwrap();
+    x402_gate.blocked.store(false, Ordering::SeqCst);
+    assert_ne!(x402_service, old_service);
+    let old_summary = proxy
+        .call::<serde_json::Value>(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: old_service.clone(),
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(old_summary.to_string().contains("X402OperationFailed"));
+    let new_summary: serde_json::Value = proxy
+        .call(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(new_summary["reserved_atomic"], 0);
+    let stale_record = proxy
+        .call::<()>(
+            "X402RecordPayment",
+            (X402RecordPaymentRequest {
+                service: old_service,
+                payment_id: pending["payment_id"].as_str().unwrap().to_string(),
+                response_status: 200,
+                settlement_response: None,
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(stale_record.to_string().contains("X402OperationFailed"));
+    let legacy_address: serde_json::Value = proxy
+        .call(
+            "ValidateAddress",
+            (tinywallet_bus::wire::ValidateAddressRequest {
+                chain: Chain::Evm,
+                address: "0x0000000000000000000000000000000000000001".to_string(),
+                sender: false,
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        legacy_address["result"]["Ok"],
+        "0x0000000000000000000000000000000000000001"
+    );
+
+    proxy
+        .call::<()>(
+            "X402Close",
+            (X402CloseRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    let closed = proxy
+        .call::<serde_json::Value>(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: x402_service,
+            },),
+        )
+        .await
+        .unwrap_err();
+    assert!(closed.to_string().contains("HostUnavailable"));
     host_bad_response.store(true, Ordering::SeqCst);
     let error = proxy
         .call::<serde_json::Value>("Web3Routes", ((),))
@@ -305,6 +597,20 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         "incompatible callback replies must fail closed without a local fallback"
     );
     host_bad_response.store(false, Ordering::SeqCst);
+    proxy
+        .call::<()>(
+            "Web3Close",
+            (Web3CloseRequest {
+                service: web3_service,
+            },),
+        )
+        .await
+        .unwrap();
+    let web3_closed = proxy
+        .call::<serde_json::Value>("Web3Routes", ((),))
+        .await
+        .unwrap_err();
+    assert!(web3_closed.to_string().contains("HostUnavailable"));
 
     validates_addresses_inside_the_artifact(&proxy).await;
     constructs_evm_transactions_inside_the_artifact(&proxy).await;
@@ -327,6 +633,7 @@ async fn admit_module() -> (
     Arc<Mutex<Option<String>>>,
     Arc<Mutex<Option<AuthorizeX402PaymentRequest>>>,
     Arc<AtomicBool>,
+    Arc<X402TestGate>,
     ModuleHost,
     tokio::task::JoinHandle<tinybus::Result<()>>,
     tempfile::TempDir,
@@ -360,6 +667,7 @@ async fn admit_module() -> (
     let submitted_tx = Arc::new(Mutex::new(None));
     let approved_x402 = Arc::new(Mutex::new(None));
     let x402_approved = Arc::new(AtomicBool::new(true));
+    let x402_gate = Arc::new(X402TestGate::default());
     host.serve_at(
         HOST_OBJECT_PATH.try_into().unwrap(),
         TestHost {
@@ -368,7 +676,7 @@ async fn admit_module() -> (
             submitted_tx: submitted_tx.clone(),
             approved_x402: approved_x402.clone(),
             x402_approved: x402_approved.clone(),
-            x402_config_path: staged.path().join("workspace").display().to_string(),
+            x402_gate: x402_gate.clone(),
         },
     )
     .await
@@ -388,7 +696,7 @@ async fn admit_module() -> (
         "the compiled manifest must require the typed host callback contract"
     );
     assert!(loaded.manifest.requires[0].optional);
-    assert_eq!(tinywallet_bus::HOST_METHODS.len(), 6);
+    assert_eq!(tinywallet_bus::HOST_METHODS.len(), 5);
 
     let declared: Vec<&str> = loaded
         .manifest
@@ -425,6 +733,7 @@ async fn admit_module() -> (
         submitted_tx,
         approved_x402,
         x402_approved,
+        x402_gate,
         modules,
         broker_task,
         staged,
@@ -437,7 +746,14 @@ struct TestHost {
     submitted_tx: Arc<Mutex<Option<String>>>,
     approved_x402: Arc<Mutex<Option<AuthorizeX402PaymentRequest>>>,
     x402_approved: Arc<AtomicBool>,
-    x402_config_path: String,
+    x402_gate: Arc<X402TestGate>,
+}
+
+#[derive(Default)]
+struct X402TestGate {
+    blocked: AtomicBool,
+    started: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
 }
 
 #[expect(
@@ -452,30 +768,31 @@ impl TestHost {
         request: AuthorizeX402PaymentRequest,
     ) -> tinybus::Result<HostResponse> {
         *self.approved_x402.lock().unwrap() = Some(request);
+        if self.x402_gate.blocked.load(Ordering::SeqCst) {
+            self.x402_gate.started.notify_one();
+            self.x402_gate.resume.notified().await;
+        }
         Ok(HostResponse::Authorization(AuthorizationResult {
             approved: self.x402_approved.load(Ordering::SeqCst),
             reason: Some("fixture approval policy".to_string()),
         }))
     }
 
-    async fn x402_config(&self) -> tinybus::Result<HostResponse> {
-        Ok(HostResponse::X402Config(X402ConfigResponse {
-            workspace_dir: self.x402_config_path.clone(),
-            session_id: "module-e2e".to_string(),
-            per_request_max_atomic: 1_000_000,
-            daily_max_atomic: 10_000_000,
-            monthly_max_atomic: 100_000_000,
-        }))
-    }
-
     async fn wallet_accounts(&self) -> tinybus::Result<HostResponse> {
         Ok(HostResponse::WalletAccounts(WalletAccountsResponse {
             configured: true,
-            accounts: vec![tinywallet_bus::wire::WalletAccountInfo {
-                chain: Chain::Evm,
-                address: "0x9858EfFD232B4033E47d90003D41EC34EcaEda94".to_string(),
-                derivation_path: "m/44'/60'/0'/0/0".to_string(),
-            }],
+            accounts: vec![
+                tinywallet_bus::wire::WalletAccountInfo {
+                    chain: Chain::Evm,
+                    address: "0x9858EfFD232B4033E47d90003D41EC34EcaEda94".to_string(),
+                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                },
+                tinywallet_bus::wire::WalletAccountInfo {
+                    chain: Chain::Solana,
+                    address: "11111111111111111111111111111111".to_string(),
+                    derivation_path: "m/44'/501'/0'/0'".to_string(),
+                },
+            ],
         }))
     }
 
@@ -525,14 +842,20 @@ impl TestHost {
         let data = match request {
             WalletBackendRequest::Routes => serde_json::json!({"routes": ["evm", "solana"]}),
             WalletBackendRequest::SwapTransaction { body }
-            | WalletBackendRequest::BridgeTransaction { body } => serde_json::json!({
-                "request": body,
-                "tx": {
-                    "to": "0x0000000000000000000000000000000000000002",
-                    "data": "0x1234",
-                    "value": "0"
-                }
-            }),
+            | WalletBackendRequest::BridgeTransaction { body } => {
+                let tx = if body["chainId"]
+                    == tinywallet_web3::crypto::service::DEBRIDGE_SOLANA_CHAIN_ID
+                {
+                    serde_json::json!({"data":"deadbeef"})
+                } else {
+                    serde_json::json!({
+                        "to": "0x0000000000000000000000000000000000000002",
+                        "data": "0x1234",
+                        "value": "0"
+                    })
+                };
+                serde_json::json!({"request": body, "tx": tx})
+            }
         };
         Ok(HostResponse::WalletBackend(WalletBackendResponse { data }))
     }
