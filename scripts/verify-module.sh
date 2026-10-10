@@ -2,9 +2,10 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$root"
 if [[ "${1:-}" == --archive ]]; then shift; fi
 archive="${1:?usage: verify-module.sh --archive <module-archive>}"
+archive="$(cd "$(dirname "$archive")" && pwd -P)/$(basename "$archive")"
+cd "$root"
 work="$(mktemp -d "${TMPDIR:-/tmp}/tinywallet-module-verify.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 case "$archive" in
