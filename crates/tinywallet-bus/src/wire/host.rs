@@ -138,7 +138,8 @@ pub struct WalletAccountsResponse {
     pub accounts: Vec<WalletAccountInfo>,
 }
 
-/// Workspace and budget policy supplied by the composing host at setup.
+/// Workspace and budget policy supplied by the composing host when it opens
+/// an x402 service. Reconfiguration closes the prior service first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct X402ConfigResponse {
@@ -154,6 +155,22 @@ pub struct X402ConfigResponse {
     pub monthly_max_atomic: u64,
 }
 
+/// Open or replace the module's active x402 service with host-owned policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402ConfigureRequest {
+    /// Workspace and spending policy for the new service.
+    pub config: X402ConfigResponse,
+}
+
+/// Opaque module-issued capability for one configured x402 service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402ServiceHandle {
+    /// Must accompany every operation on this configured service.
+    pub handle: String,
+}
+
 /// Quote owner stamped by the composing host before it crosses into the
 /// module. `TinyBus` callbacks cannot inherit the caller's task-local state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,11 +182,29 @@ pub struct QuoteOwner {
     pub client_id: String,
 }
 
+/// Opaque module-issued capability for one configured Web3 quote service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Web3ServiceHandle {
+    /// Must accompany quote preparation and execution requests.
+    pub handle: String,
+}
+
+/// Close one Web3 quote service and discard its unexecuted quotes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Web3CloseRequest {
+    /// Handle returned by `Web3Configure`.
+    pub service: Web3ServiceHandle,
+}
+
 /// Generic quote parameters plus the caller identity needed for module-owned
 /// quote isolation. The operation-specific schema is validated in `TinyWallet`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Web3QuoteRequest {
+    /// Handle returned by `Web3Configure`.
+    pub service: Web3ServiceHandle,
     /// Quote owner, absent for direct non-conversation calls.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<QuoteOwner>,
@@ -182,6 +217,8 @@ pub struct Web3QuoteRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Web3ExecuteRequest {
+    /// Handle returned by `Web3Configure`.
+    pub service: Web3ServiceHandle,
     /// Quote owner supplied by the caller for owner-gated execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<QuoteOwner>,
@@ -256,6 +293,8 @@ pub struct AuthorizeX402PaymentRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct X402PreparePaymentRequest {
+    /// Handle returned by `X402Configure`.
+    pub service: X402ServiceHandle,
     /// URL the payment buys access to.
     pub url: String,
     /// Raw `PAYMENT-REQUIRED` challenge header value.
@@ -289,6 +328,8 @@ pub struct X402PreparePaymentResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct X402RecordPaymentRequest {
+    /// Handle returned by `X402Configure`.
+    pub service: X402ServiceHandle,
     /// Pending id returned by the preparation operation.
     pub payment_id: String,
     /// HTTP status from the paid retry.
@@ -296,6 +337,22 @@ pub struct X402RecordPaymentRequest {
     /// Raw optional `PAYMENT-RESPONSE` settlement header value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settlement_response: Option<String>,
+}
+
+/// Close the active x402 service and release any uncommitted reservations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402CloseRequest {
+    /// Handle returned by `X402Configure`.
+    pub service: X402ServiceHandle,
+}
+
+/// Read ledger totals for one configured x402 service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402SummaryRequest {
+    /// Handle returned by `X402Configure`.
+    pub service: X402ServiceHandle,
 }
 
 /// Module-owned budget and ledger summary.
@@ -324,8 +381,6 @@ pub struct X402SpendingSummary {
 pub enum HostResponse {
     /// Public account facts.
     WalletAccounts(WalletAccountsResponse),
-    /// Module ledger path and spending-budget configuration.
-    X402Config(X402ConfigResponse),
     /// Approval decision.
     Authorization(AuthorizationResult),
     /// Chain provider result.

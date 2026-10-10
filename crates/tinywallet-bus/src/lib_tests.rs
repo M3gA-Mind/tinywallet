@@ -34,7 +34,7 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 16);
+    assert_eq!(METHODS.len(), 20);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
@@ -49,9 +49,13 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         names::methods::WEB3_BRIDGE_QUOTE,
         names::methods::WEB3_DAPP_QUOTE,
         names::methods::WEB3_EXECUTE,
+        names::methods::WEB3_CLOSE,
+        names::methods::WEB3_CONFIGURE,
         names::methods::X402_PREPARE_PAYMENT,
         names::methods::X402_RECORD_PAYMENT,
         names::methods::X402_SPENDING_SUMMARY,
+        names::methods::X402_CLOSE,
+        names::methods::X402_CONFIGURE,
     ] {
         assert!(
             METHODS.contains(&member),
@@ -66,7 +70,7 @@ fn host_callbacks_are_the_used_typed_capabilities() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.as_slice(), HOST_METHODS);
-    assert_eq!(HOST_METHODS.len(), 6);
+    assert_eq!(HOST_METHODS.len(), 5);
     assert_eq!(HOST_INTERFACE, "ai.tinyhumans.tinywallet.Host");
     assert_eq!(HOST_OBJECT_PATH, "/ai/tinyhumans/tinywallet/Host");
     assert!(HOST_METHODS.contains(&names::host_methods::AUTHORIZE_WEB3_EXECUTION));
@@ -74,7 +78,6 @@ fn host_callbacks_are_the_used_typed_capabilities() {
     assert!(HOST_METHODS.contains(&names::host_methods::CHAIN_TRANSPORT));
     assert!(HOST_METHODS.contains(&names::host_methods::WALLET_ACCOUNTS));
     assert!(HOST_METHODS.contains(&names::host_methods::WALLET_BACKEND));
-    assert!(HOST_METHODS.contains(&names::host_methods::X402_CONFIG));
 }
 
 #[test]
