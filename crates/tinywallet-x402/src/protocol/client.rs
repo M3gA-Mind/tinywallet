@@ -3,6 +3,7 @@
 
 use log::{debug, warn};
 use reqwest::header::{HeaderMap, HeaderValue};
+use std::future::Future;
 use std::sync::Arc;
 
 use super::LOG_PREFIX;
@@ -237,9 +238,39 @@ pub async fn handle_402_and_pay(
     response_headers: &HeaderMap,
     request_url: &str,
 ) -> Result<X402PaymentResult, X402Error> {
+    handle_402_and_pay_authorized(builder, response_headers, request_url, |_, _, _, _| async {
+        Ok(())
+    })
+    .await
+}
+
+/// Parse and atomically reserve one challenge before asking the caller to
+/// approve it, then build the payment only after approval.
+///
+/// The callback receives the challenge's resource URL and selected, validated
+/// payment terms after the budget hold exists. Returning an error drops the
+/// reservation before this method returns. This lets a composing module put
+/// its host approval boundary between budget admission and secret-bearing
+/// signing without reimplementing challenge selection or budget accounting.
+///
+/// # Errors
+///
+/// Returns the same protocol, budget, ledger, and signing errors as
+/// [`handle_402_and_pay`], plus [`X402Error::Wallet`] when authorization refuses
+/// the selected payment.
+pub async fn handle_402_and_pay_authorized<F, Fut>(
+    builder: &dyn PaymentBuilder,
+    response_headers: &HeaderMap,
+    request_url: &str,
+    authorize: F,
+) -> Result<X402PaymentResult, X402Error>
+where
+    F: FnOnce(String, PaymentRequirements, PaymentChain, u64) -> Fut,
+    Fut: Future<Output = Result<(), String>>,
+{
     let (challenge, idx, chain) = handle_402(response_headers)?;
-    let requirement = &challenge.accepts[idx];
-    let amount = parse_amount(requirement)?;
+    let requirement = challenge.accepts[idx].clone();
+    let amount = parse_amount(&requirement)?;
 
     // Check the budget and hold the amount in one critical section, before
     // anything is signed: a check on its own would let concurrent payments that
@@ -265,12 +296,21 @@ pub async fn handle_402_and_pay(
         }
     };
 
+    authorize(
+        challenge.resource.url.clone(),
+        requirement.clone(),
+        chain,
+        amount,
+    )
+    .await
+    .map_err(X402Error::Wallet)?;
+
     debug!(
         "{LOG_PREFIX} paying {} atomic {} to {} for {} chain={:?}",
         amount, requirement.asset, requirement.pay_to, request_url, chain
     );
 
-    let payment = builder.build(&challenge, requirement, chain).await?;
+    let payment = builder.build(&challenge, &requirement, chain).await?;
     let header_value = encode_payment(&payment)?;
 
     Ok(X402PaymentResult {

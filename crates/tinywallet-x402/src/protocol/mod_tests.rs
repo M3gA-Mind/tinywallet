@@ -360,6 +360,63 @@ async fn a_payment_within_budget_yields_the_header_and_ledger_metadata() {
 }
 
 #[tokio::test]
+async fn approval_runs_after_budget_reservation_and_denial_releases_it() {
+    let _guard = ledger::TEST_LOCK.lock().await;
+    let _dir = init_ledger(SpendingBudget::default());
+    let builder = StubBuilder::default();
+    let headers = challenge_headers(&challenge(vec![solana_requirement()]));
+    let error = handle_402_and_pay_authorized(
+        &builder,
+        &headers,
+        "https://x402.example.test/a",
+        |url, requirement, chain, amount| async move {
+            assert_eq!(url, "https://x402.example.test/thing");
+            assert_eq!(requirement.pay_to, crate::test_support::SOLANA_RECIPIENT);
+            assert_eq!(chain, PaymentChain::Solana);
+            assert_eq!(amount, 10_000);
+            assert_eq!(
+                ledger::with_ledger(ledger::PaymentLedger::reserved_atomic).unwrap(),
+                10_000,
+                "the module must hold the amount before asking the host to approve"
+            );
+            Err("fixture refused approval".to_string())
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.to_string(), "x402 wallet: fixture refused approval");
+    assert_eq!(
+        ledger::with_ledger(ledger::PaymentLedger::reserved_atomic).unwrap(),
+        0,
+        "a refusal must release the reservation"
+    );
+    assert!(builder.chains.lock().unwrap().is_empty());
+
+    let _dir = init_ledger(SpendingBudget {
+        per_request_max_atomic: 9_999,
+        daily_max_atomic: 1_000_000,
+        monthly_max_atomic: 1_000_000,
+    });
+    let approved = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let callback = approved.clone();
+    let error = handle_402_and_pay_authorized(
+        &builder,
+        &headers,
+        "https://x402.example.test/a",
+        move |_, _, _, _| async move {
+            callback.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(error, X402Error::AmountExceedsCap { .. }));
+    assert!(!approved.load(std::sync::atomic::Ordering::SeqCst));
+    ledger::reset_global();
+}
+
+#[tokio::test]
 async fn an_unparseable_amount_is_a_protocol_error() {
     let _guard = ledger::TEST_LOCK.lock().await;
     let _dir = init_ledger(SpendingBudget::default());
