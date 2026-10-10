@@ -518,6 +518,18 @@ async fn signs_a_transaction_confidentially_inside_the_module(proxy: &tinybus::P
 /// Raw key export is available only on its named confidential member.
 async fn exports_a_key_only_through_the_confidential_method(proxy: &tinybus::Proxy) {
     let material = secret_material("m/44'/60'/0'/0/0");
+    let ordinary_call = proxy
+        .call::<ExportedKey>(
+            "ExportKey",
+            (ExportRequest {
+                secret: material.clone(),
+            },),
+        )
+        .await;
+    assert!(
+        ordinary_call.is_err(),
+        "raw key export must be rejected on the ordinary bus channel"
+    );
     let expected = tinywallet::key::derive(Chain::Evm, VECTOR, &material.derivation_path).unwrap();
     let actual: ExportedKey = proxy
         .call_confidential("ExportKey", (ExportRequest { secret: material },))
