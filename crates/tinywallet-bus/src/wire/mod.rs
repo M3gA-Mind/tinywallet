@@ -171,8 +171,10 @@ pub struct UnsignedTransaction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SignedTransaction {
-    /// The broadcast-ready transaction, in whatever encoding the chain's RPC
-    /// expects: hex for Bitcoin, EVM and Tron, base64 for Solana.
+    /// The signed bytes in the chain's RPC encoding: hex for Bitcoin and EVM,
+    /// base64 for Solana. Tron returns the 65-byte signature as hex because its
+    /// node builds the transaction; the host retains that transaction and adds
+    /// this signature before broadcasting.
     pub raw: String,
     /// The transaction id or hash a node will report, when the chain lets it be
     /// computed locally.
