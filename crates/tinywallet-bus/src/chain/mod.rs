@@ -72,7 +72,10 @@ impl fmt::Display for Chain {
 /// Returned by [`Chain::from_str`] when the input names no known chain.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("unknown chain '{0}'")]
-pub struct UnknownChain(pub String);
+pub struct UnknownChain(
+    /// The unrecognized input, after trimming and lowercasing.
+    pub String,
+);
 
 impl FromStr for Chain {
     type Err = UnknownChain;

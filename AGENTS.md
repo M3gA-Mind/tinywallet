@@ -51,7 +51,7 @@ docs/
 | Crate | Owns | Must not depend on |
 | --- | --- | --- |
 | `tinywallet-crypto` | addresses, reference data, `rpc::Transport`, Tron verification; re-exports shared bus vocabulary | x402, `bitcoin`, `k256`, `coins-*` |
-| `tinywallet-x402` | x402 wire types, EIP-712, ABI calldata; later the ledger, protocol and tools | the bus, `bitcoin`, `k256`, `coins-*` |
+| `tinywallet-x402` | x402 wire types, EIP-712, ABI calldata; later the ledger, protocol and tools | TinyBus transport, `bitcoin`, `k256`, `coins-*` |
 | `tinywallet-web3` | the wallet, swap, bridge and dapp flows, their host seams and (feature `tools`) their agent tools | `bitcoin`, `k256`, `coins-*`; keys never enter it |
 | `tinywallet-bus` | names, contract version, identifiers, errors and wire types | any implementation, transport, runtime or native library |
 | `tinywallet` (root) | `key/`, `tx/`, `client/`; the only place `bitcoin` lives | |

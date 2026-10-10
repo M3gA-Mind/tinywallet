@@ -461,6 +461,7 @@ pub struct SignMessageRequest {
 
 /// Address validation facts requested from the compiled module.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidateAddressRequest {
     /// Chain whose address rules apply.
     pub chain: Chain,

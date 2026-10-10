@@ -16,14 +16,20 @@ Lost replies/retries therefore produce identical public results without side
 effects or orphaned resources. A host changing returned fields must obtain a new
 construction result and approval for those fields.
 
-The request JSON budget is 64 KiB; a counting writer rejects serialization
-before allocating a request copy. Calldata is at most 16 KiB. Recipient/public
+The canonical serialized DTO budget is 64 KiB; a counting writer rejects
+serialization before allocating a request copy. This check runs after TinyBus
+decoding and does not limit the original frame, including JSON whitespace and
+escape spelling; transport admission remains TinyBus's responsibility. Calldata is at most 16 KiB. Recipient/public
 key, decimal fields and generated calldata have explicit or validation-implied
 bounds, so repeated transaction/fact fields cannot produce unbounded output.
 Gas multiplication and maximum native debit use checked u128 arithmetic,
 matching the existing EVM legacy transaction implementation. ERC-20 amounts
 retain full uint256 range through the owning ABI implementation. Facts show the
 canonical decimal amounts and exact calldata that the payload commits to.
+The constructor derives all approval fields from the validated intent and exact
+transaction it returns; the contract DTO alone performs no validation when
+deserializing arbitrary input. Hosts must trust only an admitted, compatible
+module and approve the exact transaction subsequently sent for signing.
 
 RPC querying, network fee estimation, provider callbacks, quote lifecycle,
 x402 payments, spending budgets, durable ledger and sign-out cleanup remain

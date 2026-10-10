@@ -16,7 +16,9 @@ explicit contract calls can carry zero value and arbitrary bounded hex calldata.
 ERC-20 transfers require positive canonical uint256 amounts and carry zero
 native value. Checked fee arithmetic refuses overflows instead of wrapping.
 
-A 64 KiB serialized request limit and 16 KiB calldata limit bound work/output.
+A 64 KiB canonical serialized DTO limit and 16 KiB calldata limit bound
+module work/output after decoding. The DTO limit does not cap the original
+transport frame or alternative JSON whitespace/escape spelling.
 Secret fields and approval flags are rejected by strict serde request DTOs.
 The operation holds no state and performs no I/O, signing or broadcast. Replays
 return the same result. Host credentials/approvals remain external; the host

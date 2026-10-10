@@ -1086,6 +1086,23 @@ async fn setup_serves_typed_validation_over_the_real_in_memory_bus() -> tinybus:
         response.result,
         Err(tinywallet_bus::Error::InvalidAddress { .. })
     ));
+    let response: ValidateAddressResponse = proxy
+        .call(
+            "ValidateAddress",
+            (ValidateAddressRequest {
+                chain: Chain::Btc,
+                address: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT".into(),
+                sender: true,
+            },),
+        )
+        .await?;
+    assert!(matches!(
+        response.result,
+        Err(tinywallet_bus::Error::UnsupportedAddressType {
+            chain: Chain::Btc,
+            ..
+        })
+    ));
     task.abort();
     Ok(())
 }

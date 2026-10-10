@@ -510,6 +510,24 @@ async fn validates_addresses_inside_the_artifact(proxy: &tinybus::Proxy) {
         response.result,
         Err(tinywallet_bus::Error::InvalidAddress { .. })
     ));
+    let response: ValidateAddressResponse = proxy
+        .call(
+            "ValidateAddress",
+            (ValidateAddressRequest {
+                chain: Chain::Btc,
+                address: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT".into(),
+                sender: true,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        response.result,
+        Err(tinywallet_bus::Error::UnsupportedAddressType {
+            chain: Chain::Btc,
+            ..
+        })
+    ));
 }
 
 /// Verify native/token/call construction and signature-ready bytes through the loaded ABI.

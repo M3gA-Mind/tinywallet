@@ -2,7 +2,9 @@
 use super::{PublicKey, TransactionSpec, UnsignedTransaction};
 use serde::{Deserialize, Serialize};
 
-/// Maximum JSON request bytes admitted by transaction construction.
+/// Maximum canonical serialized DTO bytes processed by transaction construction.
+///
+/// Applied after `TinyBus` decoding; this is not the transport frame limit.
 pub const MAX_CONSTRUCTION_BYTES: usize = 65_536;
 /// Maximum contract calldata bytes admitted by transaction construction.
 pub const MAX_CALLDATA_BYTES: usize = 16_384;
@@ -95,7 +97,8 @@ pub struct ConstructedEvmTransaction {
     pub transaction: TransactionSpec,
     /// Payload computed over these exact fields.
     pub unsigned: UnsignedTransaction,
-    /// Facts for the host to approve before signing.
+    /// Facts derived by the module from `transaction`, for host approval before signing.
+    /// Deserializing this vocabulary alone does not validate a response.
     pub approval: EvmApprovalFacts,
 }
 

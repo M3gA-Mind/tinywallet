@@ -257,3 +257,12 @@ fn address_validation_errors_preserve_wire_and_share_implementation_types() {
         reply
     );
 }
+
+#[test]
+fn address_validation_rejects_misspelled_sender_and_preserves_default_recipient() {
+    let request = serde_json::json!({"chain":"btc", "address":"1BoatSLRHtKNngkdXEeobR76b53LETtpyT", "is_sender":true});
+    assert!(serde_json::from_value::<super::ValidateAddressRequest>(request).is_err());
+    let recipient: super::ValidateAddressRequest =
+        serde_json::from_value(serde_json::json!({"chain":"btc", "address":"fixture"})).unwrap();
+    assert!(!recipient.sender);
+}

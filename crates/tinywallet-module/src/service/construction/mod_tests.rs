@@ -19,6 +19,7 @@ fn request() -> EvmConstructionRequest {
 fn native_facts_and_payload_match_existing_builder_and_sender_derivation() {
     let request = request();
     let result = construct(&request).unwrap();
+    assert_approval_matches_transaction(&result);
     let expected = build_unsigned(&SigningRequest {
         transaction: result.transaction.clone(),
         public_key: request.public_key,
@@ -44,6 +45,7 @@ fn full_uint256_token_value_is_encoded_without_native_value_or_host_calldata() {
         amount_raw: " 000340282366920938463463374607431768211456 ".into(),
     };
     let result = construct(&request).unwrap();
+    assert_approval_matches_transaction(&result);
     assert_eq!(
         result.approval.token_amount_raw.as_deref(),
         Some("340282366920938463463374607431768211456")
@@ -74,6 +76,7 @@ fn explicit_contract_call_preserves_destination_value_and_normalized_calldata() 
         data_hex: " 0xAAbb ".into(),
     };
     let result = construct(&request).unwrap();
+    assert_approval_matches_transaction(&result);
     assert_eq!(result.approval.calldata_hex, "0xaabb");
     assert_eq!(result.approval.native_value_wei, "5");
     assert_eq!(result.approval.max_native_debit_wei, "630000000000005");
@@ -156,4 +159,54 @@ fn request_budget_refuses_before_allocating_serialized_output() {
     assert!(std::io::Write::write_all(&mut budget, b"x").is_err());
     assert!(std::io::Write::flush(&mut budget).is_ok());
     assert!(std::io::Write::write_all(&mut Budget(usize::MAX), b"x").is_err());
+}
+
+#[test]
+fn construction_rejects_chain_ids_that_cannot_fit_every_supported_recovery_id() {
+    let mut request = request();
+    let largest = (u64::MAX - 38) / 2;
+    request.chain_id = largest;
+    assert!(construct(&request).is_ok());
+    for chain_id in [largest + 1, u64::MAX] {
+        request.chain_id = chain_id;
+        assert!(
+            construct(&request).is_err(),
+            "chain id {chain_id} cannot be signed"
+        );
+    }
+}
+
+fn assert_approval_matches_transaction(result: &ConstructedEvmTransaction) {
+    let TransactionSpec::Evm {
+        to,
+        value_wei,
+        data_hex,
+        nonce,
+        gas_limit,
+        gas_price_wei,
+        chain_id,
+    } = &result.transaction
+    else {
+        panic!("construction must return an EVM transaction");
+    };
+    let approval = &result.approval;
+    assert_eq!(approval.chain_id, *chain_id);
+    assert_eq!(approval.nonce, *nonce);
+    assert_eq!(approval.gas_limit, *gas_limit);
+    assert_eq!(&approval.gas_price_wei, gas_price_wei);
+    assert_eq!(&approval.native_value_wei, value_wei);
+    assert_eq!(&approval.calldata_hex, data_hex);
+    assert_eq!(
+        approval
+            .token_contract
+            .as_ref()
+            .unwrap_or(&approval.recipient),
+        to
+    );
+    let fee = u128::from(*gas_limit) * gas_price_wei.parse::<u128>().unwrap();
+    assert_eq!(approval.max_fee_wei, fee.to_string());
+    assert_eq!(
+        approval.max_native_debit_wei,
+        (fee + value_wei.parse::<u128>().unwrap()).to_string()
+    );
 }

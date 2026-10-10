@@ -13,7 +13,10 @@ confidential signing operations retain their arities and wire forms.
 The previous algorithm re-exports (`address`, `asset`, `rpc`, `tx`, `eip712`,
 `abi`) are removed as promised for the next minor package release. Legacy
 feature names remain accepted for transition, but they enable no behavior.
-Implementations re-export `Chain`, `UnknownChain`, `Error`, `Result`, and
+This is a source API break for the pre-1.0 bus crate; the release workflow must
+use a minor package bump before hosts adopt it. The compatibility promise below
+applies to shared vocabulary identity and its wire forms, not removed algorithm
+imports. Implementations re-export `Chain`, `UnknownChain`, `Error`, `Result`, and
 `TronTransfer` from this crate, preserving shared type identity and JSON forms.
 
 Host integrations must use module calls and wait for a compatible released

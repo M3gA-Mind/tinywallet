@@ -28,11 +28,7 @@ impl std::io::Write for Budget {
 pub(super) fn construct(
     request: &EvmConstructionRequest,
 ) -> Result<ConstructedEvmTransaction, Failure> {
-    serde_json::to_writer(&mut Budget(0), request)
-        .map_err(|_| invalid("construction request exceeds byte limit"))?;
-    if request.chain_id == 0 || request.gas_limit == 0 {
-        return Err(invalid("chain id and gas limit must be greater than zero"));
-    }
+    validate_request(request)?;
     let public = compressed_public_key(&request.public_key.key_hex)?;
     let sender = tinywallet::key::evm_address_from_public_key(&public)
         .map_err(|_| invalid("public key is not a valid compressed SEC1 point"))?;
@@ -126,6 +122,19 @@ pub(super) fn construct(
             calldata_hex: calldata,
         },
     })
+}
+
+fn validate_request(request: &EvmConstructionRequest) -> Result<(), Failure> {
+    serde_json::to_writer(&mut Budget(0), request)
+        .map_err(|_| invalid("construction request exceeds byte limit"))?;
+    if request.chain_id == 0 || request.gas_limit == 0 {
+        return Err(invalid("chain id and gas limit must be greater than zero"));
+    }
+    // All supported recovery identifiers must fit the legacy EIP-155 v field.
+    if request.chain_id > (u64::MAX - 38) / 2 {
+        return Err(invalid("chain id overflows EIP-155 v"));
+    }
+    Ok(())
 }
 
 fn address(raw: &str) -> Result<String, Failure> {
