@@ -1131,7 +1131,30 @@ async fn module_builds_and_attaches_a_bitcoin_fixture_without_a_node() {
         .await
         .unwrap();
     assert!(signed.txid.is_none());
-    assert_ne!(signed.raw, "");
+    let raw = super::decode_hex(&signed.raw).unwrap();
+    let signed_transaction: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw).unwrap();
+    assert_eq!(
+        signed_transaction.version,
+        bitcoin::transaction::Version::TWO
+    );
+    assert_eq!(
+        signed_transaction.lock_time,
+        bitcoin::absolute::LockTime::ZERO
+    );
+    assert_eq!(signed_transaction.input.len(), 1);
+    assert_eq!(
+        signed_transaction.input[0].previous_output.txid.to_string(),
+        "11".repeat(32)
+    );
+    assert_eq!(signed_transaction.input[0].previous_output.vout, 0);
+    assert_eq!(signed_transaction.input[0].witness.len(), 2);
+    assert_eq!(signed_transaction.output.len(), 2);
+    assert_eq!(signed_transaction.output[0].value.to_sat(), 100);
+    assert_eq!(signed_transaction.output[1].value.to_sat(), 890);
+    assert_eq!(
+        signed_transaction.output[0].script_pubkey,
+        signed_transaction.output[1].script_pubkey
+    );
     let mut unfunded = transaction;
     if let TransactionSpec::Btc { utxos, .. } = &mut unfunded {
         utxos.clear();
@@ -1212,4 +1235,264 @@ fn multibyte_malformed_hex_returns_invalid_input_without_panicking() {
         super::decode_hex("€a"),
         Err(super::Failure::InvalidInput(_))
     ));
+}
+
+#[test]
+fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
+    fn varint(mut value: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            bytes.push(byte);
+            if value == 0 {
+                return bytes;
+            }
+        }
+    }
+    fn bytes_field(number: u64, payload: &[u8]) -> Vec<u8> {
+        let mut field = varint((number << 3) | 2);
+        field.extend(varint(payload.len() as u64));
+        field.extend(payload);
+        field
+    }
+    fn address_bytes(address: &str) -> Vec<u8> {
+        let encoded = tinywallet::address::tron::to_hex(address).unwrap();
+        (0..encoded.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&encoded[index..index + 2], 16).unwrap())
+            .collect()
+    }
+
+    const RECIPIENT: &str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+    let owner = tinywallet::key::derive(Chain::Tron, VECTOR, "m/44'/195'/0'/0/0").unwrap();
+    let owner_secret = owner.secret_bytes().to_vec();
+    let mut transfer = bytes_field(1, &address_bytes(owner.address()));
+    transfer.extend(bytes_field(2, &address_bytes(RECIPIENT)));
+    let mut amount = varint(3 << 3);
+    amount.extend(varint(1_000_000));
+    transfer.extend(amount);
+
+    let mut any = bytes_field(1, b"type.googleapis.com/protocol.TransferContract");
+    any.extend(bytes_field(2, &transfer));
+    let mut contract = varint(1 << 3);
+    contract.extend(varint(1));
+    contract.extend(bytes_field(2, &any));
+    let raw_data_hex = hex(&bytes_field(11, &contract));
+    let expected_txid = tx::tron::recompute_txid(&raw_data_hex).unwrap();
+    let spec = TransactionSpec::Tron {
+        raw_data_hex,
+        expected_to: RECIPIENT.to_string(),
+        expected_txid: expected_txid.clone(),
+        transfer: tinywallet::wire::TronTransfer::Native {
+            amount_sun: 1_000_000,
+        },
+    };
+    let public_key = PublicKey {
+        key_hex: compressed_public(&owner_secret),
+    };
+    let unsigned = build_unsigned(&SigningRequest {
+        transaction: spec.clone(),
+        public_key: public_key.clone(),
+    })
+    .unwrap();
+    assert_eq!(unsigned.payloads.len(), 1);
+    assert_eq!(unsigned.payloads[0].scheme, Scheme::Secp256k1Prehash);
+    let signed = attach_signature(&AttachRequest {
+        transaction: spec,
+        public_key,
+        signatures: vec![host_sign(&unsigned.payloads[0].bytes_hex, &owner_secret)],
+    })
+    .unwrap();
+    assert_eq!(signed.txid.as_deref(), Some(expected_txid.as_str()));
+    // The module returns only Tron’s 65-byte signature. The host retains the
+    // verified raw transaction data and attaches this signature before send.
+    assert_eq!(signed.raw.len(), 130);
+    assert!(signed.raw.bytes().all(|byte| byte.is_ascii_hexdigit()));
+}
+
+#[test]
+fn malformed_secrets_and_wire_values_take_their_named_error_paths() {
+    let invalid_mnemonic = SecretMaterial {
+        mnemonic: "not a valid recovery phrase".to_string(),
+        derivation_path: "m/44'/60'/0'/0/0".to_string(),
+        chain: Chain::Evm,
+    };
+    assert!(matches!(
+        super::derive(&invalid_mnemonic),
+        Err(super::Failure::InvalidInput(_))
+    ));
+
+    let invalid_path = secret(Chain::Evm, "not/a/path");
+    assert!(matches!(
+        super::derive(&invalid_path),
+        Err(super::Failure::InvalidInput(_))
+    ));
+
+    let unhardened_solana_path = secret(Chain::Solana, "m/44'/501'/0/0'");
+    assert!(matches!(
+        super::derive(&unhardened_solana_path),
+        Err(super::Failure::InvalidInput(_))
+    ));
+
+    assert!(matches!(
+        super::public_key_hex(Chain::Evm, &[0; 32]),
+        Err(super::Failure::BuildFailed(_))
+    ));
+    assert!(matches!(
+        super::ed25519_signing_key(&[0; 31]),
+        Err(super::Failure::BuildFailed(_))
+    ));
+    assert!(matches!(
+        super::decode_hex("abc"),
+        Err(super::Failure::InvalidInput(_))
+    ));
+    assert!(matches!(
+        super::decode_hex("gg"),
+        Err(super::Failure::InvalidInput(_))
+    ));
+    assert!(matches!(
+        super::fixed_hex::<2>("0", "fixture"),
+        Err(super::Failure::InvalidInput(_))
+    ));
+    assert!(matches!(
+        super::fixed_hex::<2>("zzzz", "fixture"),
+        Err(super::Failure::InvalidInput(_))
+    ));
+
+    let mut bad_amount = evm_spec();
+    if let TransactionSpec::Evm { value_wei, .. } = &mut bad_amount {
+        *value_wei = "not an integer".to_string();
+    }
+    assert!(matches!(
+        build_unsigned(&SigningRequest {
+            transaction: bad_amount,
+            public_key: PublicKey {
+                key_hex: compressed_public(&evm_key())
+            },
+        }),
+        Err(super::Failure::InvalidInput(_))
+    ));
+}
+
+#[test]
+fn helper_rejections_cover_chain_and_signature_mismatches() {
+    use super::{Failure, evm_transaction, recovery_of, single_ed25519, solana_transfer};
+
+    let bitcoin = TransactionSpec::Btc {
+        from: String::new(),
+        to: String::new(),
+        amount_sat: 0,
+        fee_sat: 0,
+        utxos: vec![],
+    };
+    assert!(matches!(
+        evm_transaction(&bitcoin),
+        Err(Failure::InvalidInput(_))
+    ));
+    assert!(matches!(
+        solana_transfer(&evm_spec()),
+        Err(Failure::InvalidInput(_))
+    ));
+    assert!(matches!(single_ed25519(&[]), Err(Failure::InvalidInput(_))));
+    assert_eq!(
+        recovery_of(&Signature::Ed25519 {
+            signature_hex: "00".repeat(64),
+        }),
+        0
+    );
+    assert!(matches!(super::unknown_kind(), Failure::InvalidInput(_)));
+
+    let solana = tinywallet::key::derive(Chain::Solana, VECTOR, "m/44'/501'/0'/0'").unwrap();
+    assert_eq!(
+        super::public_key_hex(Chain::Solana, solana.secret_bytes())
+            .unwrap()
+            .len(),
+        64
+    );
+}
+
+#[tokio::test]
+async fn bus_service_methods_cover_the_public_wire_handlers() {
+    use tinywallet::wire::{ExportRequest, SignMessageRequest, SignRequest};
+
+    let wallet = super::Wallet;
+    let key = evm_key();
+    let public_key = PublicKey {
+        key_hex: compressed_public(&key),
+    };
+    let spec = evm_spec();
+
+    let unsigned = wallet
+        .build_unsigned(SigningRequest {
+            transaction: spec.clone(),
+            public_key: public_key.clone(),
+        })
+        .await
+        .unwrap();
+    let signed = wallet
+        .attach_signature(AttachRequest {
+            transaction: spec.clone(),
+            public_key,
+            signatures: vec![host_sign(&unsigned.payloads[0].bytes_hex, &key)],
+        })
+        .await
+        .unwrap();
+    assert!(signed.raw.starts_with("0x"));
+
+    let material = secret(Chain::Evm, "m/44'/60'/0'/0/0");
+    let account = wallet.derive_account(material.clone()).await.unwrap();
+    assert_eq!(
+        account.address,
+        "0x9858EfFD232B4033E47d90003D41EC34EcaEda94"
+    );
+
+    let one_shot = wallet
+        .sign_transaction(SignRequest {
+            secret: material.clone(),
+            transaction: spec,
+        })
+        .await
+        .unwrap();
+    assert_eq!(one_shot, signed);
+
+    let exported = wallet
+        .export_key(ExportRequest { secret: material })
+        .await
+        .unwrap();
+    assert_eq!(exported.address, account.address);
+    assert_eq!(exported.secret_key_hex, hex(&key));
+
+    let message_signature = wallet
+        .sign_message(SignMessageRequest {
+            secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
+            message_hex: hex(&[0x42; 32]),
+            scheme: Scheme::Secp256k1Prehash,
+        })
+        .await
+        .unwrap();
+    assert!(matches!(message_signature, Signature::Secp256k1 { .. }));
+
+    let rejected = wallet
+        .export_key(ExportRequest {
+            secret: SecretMaterial {
+                mnemonic: "invalid phrase must not leak".to_string(),
+                derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                chain: Chain::Evm,
+            },
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        rejected.wire_name(),
+        "ai.tinyhumans.tinywallet.Error.InvalidInput"
+    );
+    assert!(
+        !rejected
+            .to_string()
+            .contains("invalid phrase must not leak")
+    );
 }

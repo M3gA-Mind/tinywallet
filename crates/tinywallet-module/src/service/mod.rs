@@ -142,6 +142,7 @@ impl Wallet {
     ///
     /// Confidential: the request carries a recovery phrase. The reply does not
     /// — both of its fields are public information.
+    #[tinybus(confidential)]
     async fn derive_account(&self, mut secret: SecretMaterial) -> BusResult<DerivedAccount> {
         let result = derive_account(&secret);
         wipe(&mut secret);
@@ -152,6 +153,7 @@ impl Wallet {
     ///
     /// Confidential. This is the method a host should use for everything it
     /// can: the phrase arrives, is used, and is wiped inside one call.
+    #[tinybus(confidential)]
     async fn sign_transaction(&self, mut request: SignRequest) -> BusResult<SignedTransaction> {
         let result = sign_transaction(&request);
         wipe(&mut request.secret);
@@ -169,12 +171,14 @@ impl Wallet {
     /// prefer `SignTransaction` wherever the request can be expressed as a
     /// `TransactionSpec`. See `SignMessageRequest` for when this is the right
     /// call and why it is still better than the alternative.
+    #[tinybus(confidential)]
     async fn sign_message(&self, mut request: SignMessageRequest) -> BusResult<Signature> {
         let result = sign_message(&request);
         wipe(&mut request.secret);
         result.map_err(into_bus_error)
     }
 
+    #[tinybus(confidential)]
     async fn export_key(&self, mut request: ExportRequest) -> BusResult<ExportedKey> {
         let result = export_key(&request);
         wipe(&mut request.secret);
