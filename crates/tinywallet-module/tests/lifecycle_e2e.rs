@@ -1230,9 +1230,21 @@ async fn refuses_confidential_secret_delivery_to_an_unattested_artifact() {
     // copy without that trust file so this path really tests an unattested
     // artifact rather than accidentally reusing the approved directory.
     let untrusted_dir = tempfile::tempdir().expect("create untrusted fixture directory");
-    let untrusted_artifact = untrusted_dir
-        .path()
-        .join(artifact.file_name().expect("test artifact has a filename"));
+    let physical_dir = untrusted_dir.path().join("module");
+    fs::create_dir(&physical_dir).expect("create untrusted module directory");
+    // macOS temporary roots can include symlink components. Exercise that
+    // fixture shape on every Unix runner, without weakening loader admission.
+    #[cfg(unix)]
+    let fixture_dir = {
+        let alias = untrusted_dir.path().join("module-alias");
+        std::os::unix::fs::symlink(&physical_dir, &alias).expect("link fixture directory");
+        alias
+    };
+    #[cfg(not(unix))]
+    let fixture_dir = physical_dir;
+    let fixture_dir = fs::canonicalize(fixture_dir).expect("resolve fixture directory aliases");
+    let untrusted_artifact =
+        fixture_dir.join(artifact.file_name().expect("test artifact has a filename"));
     fs::copy(&artifact, &untrusted_artifact).expect("copy untrusted test module");
     let bus = MemoryBus::new();
     let broker = Broker::new();
