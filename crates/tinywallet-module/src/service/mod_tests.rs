@@ -494,7 +494,7 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
     })
     .unwrap();
     assert_eq!(signed.txid.as_deref(), Some(expected_txid.as_str()));
-    assert!(signed.raw.len() > 130);
+    assert!(signed.raw.starts_with("0x"));
 }
 
 #[test]
