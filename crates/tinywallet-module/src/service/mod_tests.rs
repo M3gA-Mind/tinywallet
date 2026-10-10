@@ -458,13 +458,13 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
 
     const RECIPIENT: &str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
     let mut transfer = bytes_field(2, &address_bytes(RECIPIENT));
-    let mut amount = varint((3 << 3) | 0);
+    let mut amount = varint(3 << 3);
     amount.extend(varint(1_000_000));
     transfer.extend(amount);
 
     let mut any = bytes_field(1, b"type.googleapis.com/protocol.TransferContract");
     any.extend(bytes_field(2, &transfer));
-    let mut contract = varint((1 << 3) | 0);
+    let mut contract = varint(1 << 3);
     contract.extend(varint(1));
     contract.extend(bytes_field(2, &any));
     let raw_data_hex = hex(&bytes_field(11, &contract));
