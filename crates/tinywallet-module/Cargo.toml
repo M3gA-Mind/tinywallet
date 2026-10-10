@@ -17,6 +17,14 @@ crate-type = ["rlib", "cdylib"]
 # definition: a host that spells `BUS_NAME` itself and a module that spells it
 # itself is exactly the drift this crate exists to remove.
 tinywallet-bus = { path = "../tinywallet-bus" }
+tinywallet-crypto = { path = "../tinywallet-crypto", default-features = false, features = ["net"] }
+tinywallet-web3 = { path = "../tinywallet-web3" }
+tinywallet-x402 = { path = "../tinywallet-x402", features = ["pay"] }
+# Only used for the standard header map passed into TinyWallet's parser; no
+# module operation opens an HTTP client or makes a direct network request.
+reqwest = { version = "0.13", default-features = false }
+hex = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 # The pure wallet library stays independently publishable and bus-agnostic.
 # Every chain feature is on here: carrying them is the entire point of the
 # module, since it is what lets the host drop them.
@@ -45,6 +53,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # Method arguments and returns are the `tinywallet::wire` contract, decoded from
 # and encoded to JSON frames.
 serde_json = "1"
+serde = "1"
+async-trait = "0.1"
 # Base58 for a Solana transaction id, which is its 64-byte signature. The
 # library's own encoder takes a 32-byte address, so it does not fit here.
 bs58 = "0.5"
@@ -54,6 +64,9 @@ bs58 = "0.5"
 # chains need the recovery id, and the non-recoverable API cannot produce it.
 bitcoin = { version = "0.32", default-features = false, features = ["std", "secp-recovery"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# The native loader fixture stages and hashes the actual cdylib to attest it.
+sha2 = "0.11"
+tempfile = "3"
 # Wiping the recovery phrase once the call that needed it has returned. This
 # does not make the module safe against a reader of its address space — nothing
 # can, since a loaded module shares the host's — and it does not reach the JSON
@@ -65,6 +78,7 @@ zeroize = "1"
 workspace = true
 
 [dev-dependencies]
+base64 = "0.23"
 # The loader E2E builds request documents directly rather than through the wire
 # types, so a rename on either side shows up as the contract change it is.
 serde_json = "1"

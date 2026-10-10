@@ -715,7 +715,7 @@ fn a_message_signature_equals_what_the_transaction_path_produces() {
 #[tokio::test]
 async fn module_validation_preserves_trimmed_addresses_and_bitcoin_sender_rules() {
     use tinywallet_bus::wire::ValidateAddressRequest;
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let response = wallet
         .validate_address(ValidateAddressRequest {
             chain: Chain::Evm,
@@ -744,7 +744,7 @@ async fn module_validation_preserves_trimmed_addresses_and_bitcoin_sender_rules(
 
 #[tokio::test]
 async fn service_entrypoints_preserve_split_signatures_and_confidential_results() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let material = secret(Chain::Evm, "m/44'/60'/0'/0/0");
     let account = wallet.derive_account(material.clone()).await.unwrap();
     let exported = wallet
@@ -798,7 +798,7 @@ async fn service_entrypoints_preserve_split_signatures_and_confidential_results(
 
 #[tokio::test]
 async fn service_rejected_secret_material_never_echoes_the_phrase_or_path() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let invalid = SecretMaterial {
         chain: Chain::Evm,
         mnemonic: "private-invalid-phrase".into(),
@@ -839,7 +839,7 @@ async fn service_rejected_secret_material_never_echoes_the_phrase_or_path() {
 
 #[tokio::test]
 async fn service_refuses_malformed_transaction_fields_and_signature_bytes() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let public = PublicKey {
         key_hex: compressed_public(&evm_key()),
     };
@@ -933,7 +933,7 @@ async fn a_valid_tron_contract_survives_module_build_sign_and_attach() {
             amount_sun: 1_000_000,
         },
     };
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let material = secret(Chain::Tron, "m/44'/195'/0'/0/0");
     let derived = tinywallet::key::derive(
         material.chain,
@@ -1109,7 +1109,7 @@ async fn setup_serves_typed_validation_over_the_real_in_memory_bus() -> tinybus:
 
 #[tokio::test]
 async fn module_builds_and_attaches_a_bitcoin_fixture_without_a_node() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let material = secret(Chain::Btc, "m/84'/0'/0'/0/0");
     let account = wallet.derive_account(material.clone()).await.unwrap();
     let transaction = TransactionSpec::Btc {
@@ -1211,5 +1211,15 @@ fn multibyte_malformed_hex_returns_invalid_input_without_panicking() {
     assert!(matches!(
         super::decode_hex("€a"),
         Err(super::Failure::InvalidInput(_))
+    ));
+}
+
+#[tokio::test]
+async fn web3_routes_fail_closed_when_the_host_callback_is_unavailable() {
+    let error = super::Wallet::default().web3_routes(()).await.unwrap_err();
+    assert!(matches!(
+        error,
+        tinybus::Error::MethodFailed { name, .. }
+            if name == "ai.tinyhumans.tinywallet.Error.HostUnavailable"
     ));
 }

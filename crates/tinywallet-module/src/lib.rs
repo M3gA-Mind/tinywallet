@@ -8,11 +8,12 @@
 //! plus every chain's transaction encoder. A host that loads this module runs
 //! the wallet without linking any of them.
 //!
-//! Public construction requests carry no secret. Confidential signing requests
-//! remain restricted to attested module channels as documented in
-//! `docs/specs/tinybus-module.md`; the interface itself lives in the private
-//! `service` module, whose docs are visible with `cargo doc --document-private-items`.
+//! Public construction and quote requests carry no secret. Confidential
+//! signing and payment requests are restricted to attested module channels as
+//! documented in `docs/specs/tinybus-module.md`; the interface itself lives in
+//! the private `service` module, whose docs are visible with
+//! `cargo doc --document-private-items`.
 
 mod service;
 
-pub use service::{BUS_NAME, OBJECT_PATH};
+pub use service::{BUS_NAME, HOST_INTERFACE, HOST_OBJECT_PATH, OBJECT_PATH};

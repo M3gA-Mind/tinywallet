@@ -1,0 +1,310 @@
+//! `TinyBus` bridge for the module-owned x402 payment and ledger algorithms.
+
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use async_trait::async_trait;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use tinywallet_bus::wire::{
+    AuthorizeX402PaymentRequest, SecretMaterial, X402ConfigResponse, X402PreparePaymentRequest,
+    X402PreparePaymentResponse, X402RecordPaymentRequest, X402SpendingSummary,
+};
+use tinywallet_x402::crypto::{CryptoPayments, PaymentAccount, PaymentSigner, SignScheme};
+use tinywallet_x402::ledger::{self, PaymentRecord, PaymentStatus, SpendingBudget};
+use tinywallet_x402::protocol::{handle_402_and_pay_authorized, parse_settlement_response};
+use tinywallet_x402::wire::PaymentChain;
+
+use super::host::HostCallbacks;
+use super::web3::{HostTransport, with_execution_context};
+
+const PENDING_TTL: Duration = Duration::from_secs(10 * 60);
+const MAX_PENDING: usize = 64;
+
+static NEXT_PAYMENT: AtomicU64 = AtomicU64::new(1);
+
+/// Stateful module-owned x402 ledger and outstanding payment reservations.
+pub(crate) struct X402Runtime {
+    callbacks: HostCallbacks,
+    pending: Mutex<HashMap<String, PendingPayment>>,
+    config: X402ConfigResponse,
+}
+
+struct PendingPayment {
+    payment: tinywallet_x402::protocol::X402PaymentResult,
+    created_at: Instant,
+    thread_id: Option<String>,
+}
+
+impl std::fmt::Debug for X402Runtime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("X402Runtime")
+            .field(
+                "pending",
+                &self.pending.lock().map(|pending| pending.len()).ok(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl X402Runtime {
+    /// Initialize the module's JSONL ledger from host-owned workspace and
+    /// spending policy. Missing configuration disables x402 without affecting
+    /// the independently usable wallet and Web3 operations.
+    pub(crate) async fn new(callbacks: HostCallbacks) -> Result<Self, String> {
+        let config = callbacks.x402_config().await?;
+        let budget = SpendingBudget {
+            per_request_max_atomic: config.per_request_max_atomic,
+            daily_max_atomic: config.daily_max_atomic,
+            monthly_max_atomic: config.monthly_max_atomic,
+        };
+        ledger::init_global(Path::new(&config.workspace_dir), &config.session_id, budget);
+        Ok(Self {
+            callbacks,
+            pending: Mutex::new(HashMap::new()),
+            config,
+        })
+    }
+
+    /// Parse a challenge, reserve its budget, and build the proof inside the
+    /// wallet module. The host receives only the retry header and a pending id.
+    pub(crate) async fn prepare(
+        &self,
+        mut request: X402PreparePaymentRequest,
+    ) -> Result<X402PreparePaymentResponse, String> {
+        let header = HeaderValue::from_str(&request.payment_required)
+            .map_err(|error| format!("invalid payment challenge header: {error}"));
+        let header = match header {
+            Ok(header) => header,
+            Err(error) => {
+                wipe(&mut request.secret);
+                return Err(error);
+            }
+        };
+        self.prune_pending();
+        let mut headers = HeaderMap::new();
+        let header_name = HeaderName::from_static("payment-required");
+        headers.insert(header_name, header);
+        let thread_id = request.owner.as_ref().map(|owner| owner.thread_id.clone());
+        let url = request.url.clone();
+        let callbacks = self.callbacks.clone();
+        let proof = with_execution_context(request.owner, request.secret, None, async {
+            let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
+            let transport = Arc::new(HostTransport(self.callbacks.clone()));
+            let builder = CryptoPayments::new(signer, transport);
+            handle_402_and_pay_authorized(
+                &builder,
+                &headers,
+                &url,
+                move |url, requirement, _chain, amount_atomic| async move {
+                    let authorization = callbacks
+                        .authorize_x402_payment(AuthorizeX402PaymentRequest {
+                            url,
+                            network: requirement.network,
+                            asset: requirement.asset,
+                            recipient: requirement.pay_to,
+                            amount_atomic,
+                        })
+                        .await?;
+                    if authorization.approved {
+                        Ok(())
+                    } else {
+                        Err(authorization
+                            .reason
+                            .unwrap_or_else(|| "x402 payment was not approved".to_string()))
+                    }
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())
+        })
+        .await?;
+        let payment_id = format!("x402_{}", NEXT_PAYMENT.fetch_add(1, Ordering::Relaxed));
+        let response = X402PreparePaymentResponse {
+            payment_id: payment_id.clone(),
+            payment_header: proof.header_value.clone(),
+            amount_atomic: proof.amount_atomic,
+            asset: proof.asset.clone(),
+            recipient: proof.recipient.clone(),
+            network: proof.network.clone(),
+        };
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| "x402 pending-payment store is unavailable".to_string())?;
+        if pending.len() >= MAX_PENDING
+            && let Some(oldest) = pending
+                .iter()
+                .min_by_key(|(_, value)| value.created_at)
+                .map(|(key, _)| key.clone())
+        {
+            pending.remove(&oldest);
+        }
+        pending.insert(
+            payment_id,
+            PendingPayment {
+                payment: proof,
+                created_at: Instant::now(),
+                thread_id,
+            },
+        );
+        Ok(response)
+    }
+
+    /// Commit the reserved amount to the module-owned ledger after the host
+    /// retries the paid request.
+    pub(crate) fn record(&self, request: X402RecordPaymentRequest) -> Result<(), String> {
+        let pending = self
+            .pending
+            .lock()
+            .map_err(|_| "x402 pending-payment store is unavailable".to_string())?
+            .remove(&request.payment_id)
+            .ok_or_else(|| "x402 payment handle was missing or expired".to_string())?;
+        if pending.created_at.elapsed() >= PENDING_TTL {
+            return Err("x402 payment handle was missing or expired".to_string());
+        }
+        let receipt = request
+            .settlement_response
+            .as_deref()
+            .and_then(|value| parse_settlement_response(value).ok());
+        let status = if !(200..300).contains(&request.response_status)
+            || receipt.as_ref().is_some_and(|receipt| !receipt.success)
+        {
+            PaymentStatus::Failed
+        } else {
+            PaymentStatus::Settled
+        };
+        let tx_signature = receipt
+            .filter(|receipt| receipt.success && !receipt.transaction.is_empty())
+            .map(|receipt| receipt.transaction);
+        let record = PaymentRecord {
+            id: request.payment_id,
+            url: pending.payment.url.clone(),
+            asset: pending.payment.asset.clone(),
+            amount_atomic: pending.payment.amount_atomic,
+            amount_display: format!("{} atomic", pending.payment.amount_atomic),
+            recipient: pending.payment.recipient.clone(),
+            network: pending.payment.network.clone(),
+            tx_signature,
+            status,
+            timestamp: chrono::Utc::now(),
+            session_id: self.config.session_id.clone(),
+            thread_id: pending.thread_id,
+        };
+        pending.payment.reservation.commit(record);
+        Ok(())
+    }
+
+    /// Read the module-owned budget totals and currently held reservations.
+    pub(crate) fn summary() -> Result<X402SpendingSummary, String> {
+        ledger::with_ledger(|ledger| {
+            let summary = ledger.summary();
+            let budget = ledger.budget();
+            X402SpendingSummary {
+                session_total_atomic: summary.session_total_atomic,
+                daily_total_atomic: summary.daily_total_atomic,
+                monthly_total_atomic: summary.monthly_total_atomic,
+                reserved_atomic: ledger.reserved_atomic(),
+                per_request_max_atomic: budget.per_request_max_atomic,
+                daily_max_atomic: budget.daily_max_atomic,
+                monthly_max_atomic: budget.monthly_max_atomic,
+            }
+        })
+    }
+
+    fn prune_pending(&self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.retain(|_, payment| payment.created_at.elapsed() < PENDING_TTL);
+        }
+    }
+}
+
+struct ModulePaymentSigner;
+
+#[async_trait]
+impl PaymentSigner for ModulePaymentSigner {
+    async fn account(&self, chain: PaymentChain) -> Result<PaymentAccount, String> {
+        let mut secret = super::web3::clone_secret()?;
+        let expected_chain = match chain {
+            PaymentChain::Evm => tinywallet_bus::Chain::Evm,
+            PaymentChain::Solana => tinywallet_bus::Chain::Solana,
+        };
+        if secret.chain != expected_chain {
+            wipe(&mut secret);
+            return Err("x402 wallet secret does not match the selected payment chain".to_string());
+        }
+        let derived = super::derive_account(&secret).map_err(super::failure_message);
+        wipe(&mut secret);
+        let derived = derived?;
+        let pubkey = if chain == PaymentChain::Solana {
+            Some(
+                hex::decode(&derived.public_key.key_hex)
+                    .map_err(|error| format!("invalid derived Solana public key: {error}"))?
+                    .try_into()
+                    .map_err(|_| "derived Solana public key was not 32 bytes".to_string())?,
+            )
+        } else {
+            None
+        };
+        Ok(PaymentAccount {
+            address: derived.address,
+            pubkey,
+        })
+    }
+
+    async fn sign(
+        &self,
+        chain: PaymentChain,
+        message: &[u8],
+        scheme: SignScheme,
+    ) -> Result<Vec<u8>, String> {
+        let mut secret = super::web3::clone_secret()?;
+        let (expected_chain, scheme) = match (chain, scheme) {
+            (PaymentChain::Evm, SignScheme::Secp256k1Digest) => (
+                tinywallet_bus::Chain::Evm,
+                tinywallet_bus::wire::Scheme::Secp256k1Prehash,
+            ),
+            (PaymentChain::Solana, SignScheme::Ed25519) => (
+                tinywallet_bus::Chain::Solana,
+                tinywallet_bus::wire::Scheme::Ed25519,
+            ),
+            _ => {
+                wipe(&mut secret);
+                return Err("x402 payment requested an unsupported signing scheme".to_string());
+            }
+        };
+        if secret.chain != expected_chain {
+            wipe(&mut secret);
+            return Err("x402 wallet secret does not match the selected payment chain".to_string());
+        }
+        let mut request = tinywallet_bus::wire::SignMessageRequest {
+            secret,
+            message_hex: hex::encode(message),
+            scheme,
+        };
+        let signature = super::sign_message(&request).map_err(super::failure_message);
+        wipe(&mut request.secret);
+        match signature? {
+            tinywallet_bus::wire::Signature::Secp256k1 {
+                rs_hex,
+                recovery_id,
+            } => {
+                let mut signature = hex::decode(rs_hex)
+                    .map_err(|error| format!("invalid module secp256k1 signature: {error}"))?;
+                signature.push(recovery_id);
+                Ok(signature)
+            }
+            tinywallet_bus::wire::Signature::Ed25519 { signature_hex } => {
+                hex::decode(signature_hex)
+                    .map_err(|error| format!("invalid module Ed25519 signature: {error}"))
+            }
+            _ => Err("module returned an unsupported signature variant".to_string()),
+        }
+    }
+}
+
+fn wipe(secret: &mut SecretMaterial) {
+    zeroize::Zeroize::zeroize(&mut secret.mnemonic);
+}

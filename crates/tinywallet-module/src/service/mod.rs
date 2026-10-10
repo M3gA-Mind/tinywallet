@@ -1,53 +1,29 @@
 //! `TinyBus` service boundary for the wallet surface.
 //!
-//! One object, `/ai/tinyhumans/tinywallet/Wallet`, exporting two flows:
+//! One object, `/ai/tinyhumans/tinywallet/Wallet`, serves the established
+//! stateless build/sign API and the module-owned Web3/x402 services. Legacy
+//! `BuildUnsigned` and `AttachSignature` keep key custody in a host that signs
+//! outside the module. Confidential `DeriveAccount`, `SignTransaction`,
+//! `ExportKey`, and `SignMessage` keep their existing wire forms and arities.
 //!
-//! ```text
-//! // The host holds the key.
-//! BuildUnsigned(SigningRequest)   -> UnsignedTransaction
-//! AttachSignature(AttachRequest)  -> SignedTransaction
+//! The added Web3 flow stores bounded, expiring quotes inside this module,
+//! obtains account facts, authenticated service responses, endpoint transport,
+//! and explicit approval through typed Host callbacks, then constructs and
+//! signs in the module. EVM approval happens at the signer seam with nonce,
+//! gas, chain, and transaction fields from the exact transaction being signed.
+//! Solana approval receives the complete unsigned transaction bytes.
 //!
-//! // This module holds the key. Confidential calls only.
-//! DeriveAccount(SecretMaterial)   -> DerivedAccount
-//! SignTransaction(SignRequest)    -> SignedTransaction
-//! ExportKey(ExportRequest)        -> ExportedKey
-//! SignMessage(SignMessageRequest) -> Signature
-//! ```
+//! The x402 flow parses and validates a challenge, reserves the module-owned
+//! spending budget before host approval, signs only after approval, and retains
+//! the reservation under a bounded pending handle until the host reports the
+//! paid retry result. Budget policy and workspace location come from the host;
+//! quote/payment algorithms, reservation state, signing, and ledger storage
+//! remain in this module and its implementation crates.
 //!
-//! # Two flows, because there are two kinds of host
-//!
-//! The first pair keeps the key in the host: it asks what needs signing, signs
-//! locally, and hands back only a signature. That is the right arrangement
-//! whenever the backend is *reachable* — a service in its own process, across a
-//! socket — and the only one available when the bus cannot say what is on the
-//! other end.
-//!
-//! The second set exists because tinybus can now say. A confidential message is
-//! delivered to a module whose artifact the host hashed against a digest an
-//! operator asserted, or to nobody: never to a transport peer, never fanned out
-//! to a subscriber, never printed by a monitor. For a host that loads this
-//! module that is strictly better — it stops linking the derivation and signing
-//! stack at all, and the key stops being reassembled in a process whose main job
-//! is something else.
-//!
-//! **This is admission control, not isolation.** A loaded module shares the
-//! host's address space and can read host memory directly; it never needed the
-//! bus to reach a secret. What the rule buys is that the bus will not be the
-//! delivery mechanism for code nobody allowlisted. Neither flow is deprecated,
-//! and a backend whose compromise must not reach a key belongs in a separate
-//! process — where it is ineligible for the second set by construction.
-//!
-//! # No state between calls, in either flow
-//!
-//! A confidential call is one method, not two, for the same reason
-//! `AttachSignature` re-sends its fields: a module that held key material
-//! between calls would need a store, a bound on it, and an expiry for callers
-//! that never return. `SignTransaction` derives, builds, signs and assembles
-//! before it returns, so there is no window to bound.
-//!
-//! Rebuilding rather than remembering is safe because building is
-//! deterministic: the same fields yield the transaction the digests were
-//! computed over.
+//! Secret material enters only on confidential calls to an attested artifact.
+//! This is bus admission control, not process isolation: a loaded module shares
+//! the host's address space. A backend whose compromise must not reach a key
+//! belongs in a separate process and cannot use the confidential path.
 //!
 //! # Everything travels inline
 //!
@@ -73,12 +49,17 @@ use tinywallet::wire::{
 };
 use tinywallet::{Chain, key, tx};
 
+mod host;
+mod web3;
+mod x402;
+
 /// Well-known name and object path exported by the `TinyWallet` module.
 ///
 /// Re-exported from the contract crate rather than declared here: a host reads
 /// them from `tinywallet-bus`, and two independent spellings of the same string
 /// fail as a `NameHasNoOwner` at call time rather than as a compile error.
 pub use tinywallet_bus::{BUS_NAME, OBJECT_PATH};
+pub use tinywallet_bus::{HOST_INTERFACE, HOST_OBJECT_PATH};
 
 /// The request was malformed or internally inconsistent. A caller can fix it.
 const INVALID_INPUT_ERROR: &str = "ai.tinyhumans.tinywallet.Error.InvalidInput";
@@ -90,7 +71,11 @@ const BUILD_FAILED_ERROR: &str = "ai.tinyhumans.tinywallet.Error.BuildFailed";
 // is one this module cannot act on rather than a capability that is missing.
 
 /// The served object. Holds nothing: every call is self-contained.
-struct Wallet;
+#[derive(Default)]
+struct Wallet {
+    web3: Option<web3::Web3Runtime>,
+    x402: Option<x402::X402Runtime>,
+}
 
 mod construction;
 
@@ -107,6 +92,201 @@ mod construction;
     reason = "the generated TinyBus async trait requires async methods for synchronous cryptographic operations"
 )]
 impl Wallet {
+    /// List swap and bridge routes through the host's authenticated backend
+    /// transport. Route parsing and all follow-on quote behavior stay here.
+    async fn web3_routes(&self, _request: ()) -> BusResult<serde_json::Value> {
+        let Some(web3) = &self.web3 else {
+            return Err(host_unavailable());
+        };
+        web3.service
+            .routes()
+            .await
+            .map_err(host_call_failed)
+            .and_then(|value| {
+                serde_json::to_value(value).map_err(|error| host_build_failed(error.to_string()))
+            })
+    }
+
+    /// Prepare a module-owned single-chain swap quote.
+    async fn web3_swap_quote(
+        &self,
+        request: tinywallet_bus::wire::Web3QuoteRequest,
+    ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
+        let Some(web3) = &self.web3 else {
+            return Err(host_unavailable());
+        };
+        web3::with_quote_owner(request.owner, async {
+            let params =
+                serde_json::from_value::<tinywallet_web3::crypto::service::SwapQuoteParams>(
+                    request.params,
+                )
+                .map_err(|error| invalid_input(error.to_string()))?;
+            web3.service
+                .quote_swap(params)
+                .await
+                .map_err(web3_operation_failed)
+        })
+        .await
+    }
+
+    /// Prepare a module-owned cross-chain bridge quote.
+    async fn web3_bridge_quote(
+        &self,
+        request: tinywallet_bus::wire::Web3QuoteRequest,
+    ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
+        let Some(web3) = &self.web3 else {
+            return Err(host_unavailable());
+        };
+        web3::with_quote_owner(request.owner, async {
+            let params = serde_json::from_value::<
+                tinywallet_web3::crypto::service::BridgeQuoteParams,
+            >(request.params)
+            .map_err(|error| invalid_input(error.to_string()))?;
+            web3.service
+                .quote_bridge(params)
+                .await
+                .map_err(web3_operation_failed)
+        })
+        .await
+    }
+
+    /// Prepare a module-owned EVM dapp-call quote.
+    async fn web3_dapp_quote(
+        &self,
+        request: tinywallet_bus::wire::Web3QuoteRequest,
+    ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
+        let Some(web3) = &self.web3 else {
+            return Err(host_unavailable());
+        };
+        web3::with_quote_owner(request.owner, async {
+            let params =
+                serde_json::from_value::<tinywallet_web3::crypto::service::DappCallParams>(
+                    request.params,
+                )
+                .map_err(|error| invalid_input(error.to_string()))?;
+            web3.service
+                .prepare_dapp_call(params)
+                .await
+                .map_err(web3_operation_failed)
+        })
+        .await
+    }
+
+    /// Approve, sign and broadcast one previously prepared Web3 quote.
+    ///
+    /// The secret arrives only on this confidential member and is consumed by
+    /// the module's signer; the host approves transaction facts but never
+    /// builds or signs the transaction.
+    #[tinybus(confidential)]
+    async fn web3_execute(
+        &self,
+        mut request: tinywallet_bus::wire::Web3ExecuteRequest,
+    ) -> BusResult<tinywallet_web3::crypto::service::Web3ExecutionResult> {
+        let Some(web3) = &self.web3 else {
+            wipe(&mut request.secret);
+            return Err(host_unavailable());
+        };
+        if !request.confirmed {
+            wipe(&mut request.secret);
+            return Err(invalid_input(
+                "web3 execution requires confirmed: true".to_string(),
+            ));
+        }
+        let approval = match web3.execution_approval(&request.quote_id) {
+            Ok(approval) => approval,
+            Err(error) => {
+                wipe(&mut request.secret);
+                return Err(web3_operation_failed(error));
+            }
+        };
+        if let Some(intent @ tinywallet_bus::wire::Web3ExecutionIntent::Solana { .. }) =
+            &approval.solana_intent
+        {
+            let decision = match web3
+                .callbacks
+                .authorize_web3_execution(tinywallet_bus::wire::AuthorizeWeb3ExecutionRequest {
+                    quote_id: approval.quote_id.clone(),
+                    operation: approval.operation.clone(),
+                    transaction: intent.clone(),
+                })
+                .await
+            {
+                Ok(decision) => decision,
+                Err(error) => {
+                    wipe(&mut request.secret);
+                    return Err(host_call_failed(error));
+                }
+            };
+            if !decision.approved {
+                wipe(&mut request.secret);
+                return Err(BusError::MethodFailed {
+                    name: "ai.tinyhumans.tinywallet.Error.AuthorizationDenied".to_string(),
+                    message: decision
+                        .reason
+                        .unwrap_or_else(|| "wallet transaction was not approved".to_string()),
+                });
+            }
+        }
+        let secret = std::mem::replace(
+            &mut request.secret,
+            SecretMaterial {
+                mnemonic: String::new(),
+                derivation_path: String::new(),
+                chain: Chain::Evm,
+            },
+        );
+        let quote_id = request.quote_id;
+        let result = web3::with_execution_context(request.owner, secret, Some(approval), async {
+            web3.service
+                .execute_quote(tinywallet_web3::crypto::service::ExecuteQuoteParams {
+                    quote_id,
+                    confirmed: request.confirmed,
+                })
+                .await
+                .map_err(web3_operation_failed)
+        })
+        .await;
+        wipe(&mut request.secret);
+        result
+    }
+
+    /// Parse a 402 challenge, reserve its budget, and build the payment proof.
+    /// The host retries HTTP using the returned header and commits the outcome.
+    #[tinybus(confidential)]
+    async fn x402_prepare_payment(
+        &self,
+        request: tinywallet_bus::wire::X402PreparePaymentRequest,
+    ) -> BusResult<tinywallet_bus::wire::X402PreparePaymentResponse> {
+        let Some(x402) = &self.x402 else {
+            let mut request = request;
+            wipe(&mut request.secret);
+            return Err(host_unavailable());
+        };
+        x402.prepare(request).await.map_err(x402_operation_failed)
+    }
+
+    /// Record a paid retry result and release its module-owned reservation.
+    async fn x402_record_payment(
+        &self,
+        request: tinywallet_bus::wire::X402RecordPaymentRequest,
+    ) -> BusResult<()> {
+        let Some(x402) = &self.x402 else {
+            return Err(host_unavailable());
+        };
+        x402.record(request).map_err(x402_operation_failed)
+    }
+
+    /// Report current module-owned x402 totals and reservation state.
+    async fn x402_spending_summary(
+        &self,
+        _request: (),
+    ) -> BusResult<tinywallet_bus::wire::X402SpendingSummary> {
+        let Some(_x402) = &self.x402 else {
+            return Err(host_unavailable());
+        };
+        x402::X402Runtime::summary().map_err(x402_operation_failed)
+    }
+
     /// Construct native, ERC-20 or explicit contract transactions and exact approval facts.
     async fn construct_evm_transaction(
         &self,
@@ -142,6 +322,7 @@ impl Wallet {
     ///
     /// Confidential: the request carries a recovery phrase. The reply does not
     /// — both of its fields are public information.
+    #[tinybus(confidential)]
     async fn derive_account(&self, mut secret: SecretMaterial) -> BusResult<DerivedAccount> {
         let result = derive_account(&secret);
         wipe(&mut secret);
@@ -152,6 +333,7 @@ impl Wallet {
     ///
     /// Confidential. This is the method a host should use for everything it
     /// can: the phrase arrives, is used, and is wiped inside one call.
+    #[tinybus(confidential)]
     async fn sign_transaction(&self, mut request: SignRequest) -> BusResult<SignedTransaction> {
         let result = sign_transaction(&request);
         wipe(&mut request.secret);
@@ -169,12 +351,14 @@ impl Wallet {
     /// prefer `SignTransaction` wherever the request can be expressed as a
     /// `TransactionSpec`. See `SignMessageRequest` for when this is the right
     /// call and why it is still better than the alternative.
+    #[tinybus(confidential)]
     async fn sign_message(&self, mut request: SignMessageRequest) -> BusResult<Signature> {
         let result = sign_message(&request);
         wipe(&mut request.secret);
         result.map_err(into_bus_error)
     }
 
+    #[tinybus(confidential)]
     async fn export_key(&self, mut request: ExportRequest) -> BusResult<ExportedKey> {
         let result = export_key(&request);
         wipe(&mut request.secret);
@@ -398,6 +582,12 @@ fn into_bus_error(failure: Failure) -> BusError {
     BusError::MethodFailed {
         name: name.to_string(),
         message,
+    }
+}
+
+fn failure_message(failure: Failure) -> String {
+    match failure {
+        Failure::InvalidInput(message) | Failure::BuildFailed(message) => message,
     }
 }
 
@@ -796,9 +986,56 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 async fn setup(connection: Connection) -> BusResult<()> {
-    connection.serve_at(OBJECT_PATH.try_into()?, Wallet).await?;
+    let callbacks = host::HostCallbacks::new(&connection)?;
+    let wallet = Wallet {
+        web3: Some(web3::Web3Runtime::new(callbacks.clone())),
+        x402: x402::X402Runtime::new(callbacks).await.ok(),
+    };
+    connection.serve_at(OBJECT_PATH.try_into()?, wallet).await?;
     connection.request_name(BUS_NAME).await?;
     Ok(())
+}
+
+fn host_unavailable() -> BusError {
+    BusError::MethodFailed {
+        name: "ai.tinyhumans.tinywallet.Error.HostUnavailable".to_string(),
+        message: "wallet host callback interface is unavailable".to_string(),
+    }
+}
+
+fn host_call_failed(message: String) -> BusError {
+    BusError::MethodFailed {
+        name: "ai.tinyhumans.tinywallet.Error.HostCallFailed".to_string(),
+        message,
+    }
+}
+
+fn invalid_input(message: String) -> BusError {
+    BusError::MethodFailed {
+        name: INVALID_INPUT_ERROR.to_string(),
+        message,
+    }
+}
+
+fn web3_operation_failed(message: String) -> BusError {
+    BusError::MethodFailed {
+        name: "ai.tinyhumans.tinywallet.Error.Web3OperationFailed".to_string(),
+        message,
+    }
+}
+
+fn x402_operation_failed(message: String) -> BusError {
+    BusError::MethodFailed {
+        name: "ai.tinyhumans.tinywallet.Error.X402OperationFailed".to_string(),
+        message,
+    }
+}
+
+fn host_build_failed(message: String) -> BusError {
+    BusError::MethodFailed {
+        name: BUILD_FAILED_ERROR.to_string(),
+        message,
+    }
 }
 
 // Isolate the generated public C symbols so the lint exception cannot hide
@@ -827,10 +1064,18 @@ mod exports {
             "SignMessage",
             "ValidateAddress",
             "ConstructEvmTransaction",
+            "Web3Routes",
+            "Web3SwapQuote",
+            "Web3BridgeQuote",
+            "Web3DappQuote",
+            "Web3Execute",
+            "X402PreparePayment",
+            "X402RecordPayment",
+            "X402SpendingSummary",
         ],
         signals = [],
         requires = [],
-        optional = [],
+        optional = ["ai.tinyhumans.tinywallet.Host"],
         lazy = false,
     }
 }
