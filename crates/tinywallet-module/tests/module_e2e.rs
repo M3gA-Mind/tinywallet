@@ -110,8 +110,10 @@ async fn refuses_a_confidential_call_to_an_unattested_module() {
     // allowlisted. Copy it into a directory without that manifest to exercise
     // the deliberately un-attested load_file path.
     let artifact = std::path::PathBuf::from(artifact);
-    let untrusted_dir =
-        std::env::temp_dir().join(format!("tinywallet-unattested-{}", std::process::id()));
+    let untrusted_dir = artifact
+        .parent()
+        .expect("test artifact has a parent directory")
+        .join(format!("tinywallet-unattested-{}", std::process::id()));
     std::fs::create_dir(&untrusted_dir).expect("create un-attested fixture directory");
     let untrusted_artifact = untrusted_dir.join(
         artifact

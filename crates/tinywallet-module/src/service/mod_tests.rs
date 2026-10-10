@@ -570,6 +570,43 @@ fn malformed_secrets_and_wire_values_take_their_named_error_paths() {
 }
 
 #[test]
+fn helper_rejections_cover_chain_and_signature_mismatches() {
+    use super::{Failure, evm_transaction, recovery_of, single_ed25519, solana_transfer};
+
+    let bitcoin = TransactionSpec::Btc {
+        from: String::new(),
+        to: String::new(),
+        amount_sat: 0,
+        fee_sat: 0,
+        utxos: vec![],
+    };
+    assert!(matches!(
+        evm_transaction(&bitcoin),
+        Err(Failure::InvalidInput(_))
+    ));
+    assert!(matches!(
+        solana_transfer(&evm_spec()),
+        Err(Failure::InvalidInput(_))
+    ));
+    assert!(matches!(single_ed25519(&[]), Err(Failure::InvalidInput(_))));
+    assert_eq!(
+        recovery_of(&Signature::Ed25519 {
+            signature_hex: "00".repeat(64),
+        }),
+        0
+    );
+    assert!(matches!(super::unknown_kind(), Failure::InvalidInput(_)));
+
+    let solana = tinywallet::key::derive(Chain::Solana, VECTOR, "m/44'/501'/0'/0'").unwrap();
+    assert_eq!(
+        super::public_key_hex(Chain::Solana, solana.secret_bytes())
+            .unwrap()
+            .len(),
+        64
+    );
+}
+
+#[test]
 fn base64_matches_its_specification_for_every_padding_case() {
     // Hand-rolled, so the three chunk remainders each need a vector.
     assert_eq!(super::base64(b""), "");
