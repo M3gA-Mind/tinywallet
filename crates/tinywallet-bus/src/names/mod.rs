@@ -10,6 +10,38 @@ pub const BUS_NAME: &str = "ai.tinyhumans.tinywallet.Wallet";
 /// The object path the module serves its interface at.
 pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinywallet/Wallet";
 
+/// The host callback interface the wallet module uses for custody and I/O.
+pub const HOST_INTERFACE: &str = "ai.tinyhumans.tinywallet.Host";
+
+/// The object path at which the host serves [`HOST_INTERFACE`].
+pub const HOST_OBJECT_PATH: &str = "/ai/tinyhumans/tinywallet/Host";
+
+/// One constant per callback member of the host interface.
+pub mod host_methods {
+    /// Host account state and public addresses.
+    pub const WALLET_ACCOUNTS: &str = "WalletAccounts";
+    /// Chain RPC or REST transport.
+    pub const CHAIN_TRANSPORT: &str = "ChainTransport";
+    /// Authenticated `TinyHumans` backend transport.
+    pub const WALLET_BACKEND: &str = "WalletBackend";
+    /// Authorize the exact facts in one stored Web3 quote.
+    pub const AUTHORIZE_WEB3_EXECUTION: &str = "AuthorizeWeb3Execution";
+    /// Host workspace and configured budget passed to the module-owned ledger.
+    pub const X402_CONFIG: &str = "X402Config";
+    /// Approval for exact x402 challenge terms before signing.
+    pub const AUTHORIZE_X402_PAYMENT: &str = "AuthorizeX402Payment";
+}
+
+/// Every callback member of the host interface.
+pub const HOST_METHODS: &[&str] = &[
+    host_methods::AUTHORIZE_WEB3_EXECUTION,
+    host_methods::AUTHORIZE_X402_PAYMENT,
+    host_methods::CHAIN_TRANSPORT,
+    host_methods::WALLET_ACCOUNTS,
+    host_methods::WALLET_BACKEND,
+    host_methods::X402_CONFIG,
+];
+
 /// One constant per member of [`BUS_NAME`].
 pub mod methods {
     /// Constructs an EVM transaction with exact facts for host approval.
@@ -28,6 +60,22 @@ pub mod methods {
     pub const EXPORT_KEY: &str = "ExportKey";
     /// Validates a recipient or Bitcoin sender address inside the module.
     pub const VALIDATE_ADDRESS: &str = "ValidateAddress";
+    /// Lists supported swap and bridge routes.
+    pub const WEB3_ROUTES: &str = "Web3Routes";
+    /// Prepares a single-chain swap quote.
+    pub const WEB3_SWAP_QUOTE: &str = "Web3SwapQuote";
+    /// Prepares a cross-chain bridge quote.
+    pub const WEB3_BRIDGE_QUOTE: &str = "Web3BridgeQuote";
+    /// Prepares an EVM dapp-call quote.
+    pub const WEB3_DAPP_QUOTE: &str = "Web3DappQuote";
+    /// Executes a stored quote after module-side signing and host approval.
+    pub const WEB3_EXECUTE: &str = "Web3Execute";
+    /// Parses a challenge, reserves budget and builds a confidential payment.
+    pub const X402_PREPARE_PAYMENT: &str = "X402PreparePayment";
+    /// Records a retry result and commits or releases its module reservation.
+    pub const X402_RECORD_PAYMENT: &str = "X402RecordPayment";
+    /// Reports ledger totals and spending limits.
+    pub const X402_SPENDING_SUMMARY: &str = "X402SpendingSummary";
 }
 
 /// Every member of [`BUS_NAME`], in the interface's sorted dispatch order.
@@ -40,6 +88,14 @@ pub const METHODS: &[&str] = &[
     methods::SIGN_MESSAGE,
     methods::SIGN_TRANSACTION,
     methods::VALIDATE_ADDRESS,
+    methods::WEB3_BRIDGE_QUOTE,
+    methods::WEB3_DAPP_QUOTE,
+    methods::WEB3_EXECUTE,
+    methods::WEB3_ROUTES,
+    methods::WEB3_SWAP_QUOTE,
+    methods::X402_PREPARE_PAYMENT,
+    methods::X402_RECORD_PAYMENT,
+    methods::X402_SPENDING_SUMMARY,
 ];
 
 /// The members that carry a recovery phrase or a private key.
@@ -53,4 +109,6 @@ pub const CONFIDENTIAL_METHODS: &[&str] = &[
     methods::EXPORT_KEY,
     methods::SIGN_MESSAGE,
     methods::SIGN_TRANSACTION,
+    methods::WEB3_EXECUTE,
+    methods::X402_PREPARE_PAYMENT,
 ];

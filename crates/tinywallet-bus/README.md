@@ -21,8 +21,12 @@ imports. Implementations re-export `Chain`, `UnknownChain`, `Error`, `Result`, a
 
 Host integrations must use module calls and wait for a compatible released
 artifact pinned with its verified digest. They must not replace the removed
-re-exports with direct crypto/x402/web3 dependencies. Further web3, budget,
-ledger and x402 execution members remain separate migration work.
+re-exports with direct crypto/x402/web3 dependencies. The optional Host
+interface in contract 1.3 exposes typed account, custody, approval, transport,
+backend, and x402 policy callbacks; it does not move quote, payment, budget, or
+ledger algorithms into the host. Web3 quote and execution plus x402 prepare,
+record, and summary are module members. Secret-bearing calls are confidential
+and require an attested artifact.
 
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are

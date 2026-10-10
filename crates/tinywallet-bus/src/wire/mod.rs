@@ -14,22 +14,20 @@
 //! still not link a single chain library. It is the same carve-out
 //! `tinydocs::spec` makes for documents.
 //!
-//! # The split: building is not signing
+//! # Signing and module-owned operations
 //!
-//! Every type here exists to serve one rule — **key material never crosses this
-//! boundary**. A backend receives transaction fields and returns the bytes that
-//! need signing; the host signs them; the backend reassembles. Two round trips
-//! instead of one, in exchange for a private key that never leaves the process
-//! that owns it.
+//! The legacy split signing flow keeps key material out of its requests: a
+//! [`SigningRequest`] carries transaction facts, and an [`AttachRequest`]
+//! carries those facts again with signatures. The loadable module also exposes
+//! confidential methods that carry secrets only to an attested artifact. The
+//! shared contract marks those members explicitly so a host cannot mistake
+//! them for ordinary bus calls.
 //!
-//! That constraint is what shapes the API. A [`SigningRequest`] carries no
-//! secret, and an [`AttachRequest`] carries the original fields **again**
-//! alongside the signatures, rather than a handle to something the backend
-//! remembered. A backend holding half-built transactions between calls would
-//! need a store, bounds on that store, and an expiry policy for callers that
-//! never come back — all of which is avoided by rebuilding. Building is
-//! deterministic, so rebuilding from the same fields yields the same
-//! transaction the digests were computed over.
+//! Web3 and x402 DTOs describe module-owned quotes, execution approvals, and
+//! payment lifecycle operations. Hosts provide typed account, transport,
+//! backend, approval, and configuration callbacks; they do not receive generic
+//! algorithm dispatch requests. The implementation crates retain signing,
+//! quote/payment algorithms, budget reservations, and ledger state.
 //!
 //! # Signature shapes
 //!
@@ -40,6 +38,17 @@
 //! transaction and have it fail somewhere deep in reassembly.
 
 use serde::{Deserialize, Serialize};
+
+mod host;
+
+pub use host::{
+    AuthorizationResult, AuthorizeWeb3ExecutionRequest, AuthorizeX402PaymentRequest,
+    ChainTransportRequest, ChainTransportResult, HostResponse, NetworkRequest, QuoteOwner,
+    WalletAccountInfo, WalletAccountsResponse, WalletBackendRequest, WalletBackendResponse,
+    Web3ExecuteRequest, Web3ExecutionIntent, Web3QuoteRequest, X402ConfigResponse,
+    X402PreparePaymentRequest, X402PreparePaymentResponse, X402RecordPaymentRequest,
+    X402SpendingSummary,
+};
 
 use crate::Chain;
 
