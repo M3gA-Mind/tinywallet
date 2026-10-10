@@ -427,6 +427,77 @@ fn a_tron_transaction_paying_a_decoy_recipient_is_refused_on_the_signing_side() 
 }
 
 #[test]
+fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
+    fn varint(mut value: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            bytes.push(byte);
+            if value == 0 {
+                return bytes;
+            }
+        }
+    }
+    fn bytes_field(number: u64, payload: &[u8]) -> Vec<u8> {
+        let mut field = varint((number << 3) | 2);
+        field.extend(varint(payload.len() as u64));
+        field.extend(payload);
+        field
+    }
+    fn address_bytes(address: &str) -> Vec<u8> {
+        let encoded = tinywallet::address::tron::to_hex(address).unwrap();
+        (0..encoded.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&encoded[index..index + 2], 16).unwrap())
+            .collect()
+    }
+
+    const RECIPIENT: &str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+    let mut transfer = bytes_field(2, &address_bytes(RECIPIENT));
+    let mut amount = varint((3 << 3) | 0);
+    amount.extend(varint(1_000_000));
+    transfer.extend(amount);
+
+    let mut any = bytes_field(1, b"type.googleapis.com/protocol.TransferContract");
+    any.extend(bytes_field(2, &transfer));
+    let mut contract = varint((1 << 3) | 0);
+    contract.extend(varint(1));
+    contract.extend(bytes_field(2, &any));
+    let raw_data_hex = hex(&bytes_field(11, &contract));
+    let expected_txid = tx::tron::recompute_txid(&raw_data_hex).unwrap();
+    let spec = TransactionSpec::Tron {
+        raw_data_hex,
+        expected_to: RECIPIENT.to_string(),
+        expected_txid: expected_txid.clone(),
+        transfer: tinywallet::wire::TronTransfer::Native {
+            amount_sun: 1_000_000,
+        },
+    };
+    let public_key = PublicKey {
+        key_hex: compressed_public(&evm_key()),
+    };
+    let unsigned = build_unsigned(&SigningRequest {
+        transaction: spec.clone(),
+        public_key: public_key.clone(),
+    })
+    .unwrap();
+    assert_eq!(unsigned.payloads.len(), 1);
+    assert_eq!(unsigned.payloads[0].scheme, Scheme::Secp256k1Prehash);
+    let signed = attach_signature(&AttachRequest {
+        transaction: spec,
+        public_key,
+        signatures: vec![host_sign(&unsigned.payloads[0].bytes_hex, &evm_key())],
+    })
+    .unwrap();
+    assert_eq!(signed.txid.as_deref(), Some(expected_txid.as_str()));
+    assert_eq!(signed.raw.len(), 130);
+}
+
+#[test]
 fn the_exported_names_are_the_published_ones() {
     // A host resolves the module by these strings; changing either is a
     // breaking change that no type system catches.
