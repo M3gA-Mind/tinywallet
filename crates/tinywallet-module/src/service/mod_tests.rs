@@ -1131,7 +1131,30 @@ async fn module_builds_and_attaches_a_bitcoin_fixture_without_a_node() {
         .await
         .unwrap();
     assert!(signed.txid.is_none());
-    assert_ne!(signed.raw, "");
+    let raw = super::decode_hex(&signed.raw).unwrap();
+    let signed_transaction: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw).unwrap();
+    assert_eq!(
+        signed_transaction.version,
+        bitcoin::transaction::Version::TWO
+    );
+    assert_eq!(
+        signed_transaction.lock_time,
+        bitcoin::absolute::LockTime::ZERO
+    );
+    assert_eq!(signed_transaction.input.len(), 1);
+    assert_eq!(
+        signed_transaction.input[0].previous_output.txid.to_string(),
+        "11".repeat(32)
+    );
+    assert_eq!(signed_transaction.input[0].previous_output.vout, 0);
+    assert_eq!(signed_transaction.input[0].witness.len(), 2);
+    assert_eq!(signed_transaction.output.len(), 2);
+    assert_eq!(signed_transaction.output[0].value.to_sat(), 100);
+    assert_eq!(signed_transaction.output[1].value.to_sat(), 890);
+    assert_eq!(
+        signed_transaction.output[0].script_pubkey,
+        signed_transaction.output[1].script_pubkey
+    );
     let mut unfunded = transaction;
     if let TransactionSpec::Btc { utxos, .. } = &mut unfunded {
         utxos.clear();
