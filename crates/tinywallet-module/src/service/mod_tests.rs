@@ -1308,6 +1308,8 @@ fn a_verified_tron_transfer_builds_and_attaches_its_signature() {
     })
     .unwrap();
     assert_eq!(signed.txid.as_deref(), Some(expected_txid.as_str()));
+    // The module returns only Tron’s 65-byte signature. The host retains the
+    // verified raw transaction data and attaches this signature before send.
     assert_eq!(signed.raw.len(), 130);
     assert!(signed.raw.bytes().all(|byte| byte.is_ascii_hexdigit()));
 }
