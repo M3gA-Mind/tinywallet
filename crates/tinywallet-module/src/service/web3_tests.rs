@@ -445,6 +445,159 @@ async fn host_adapters_and_quote_approval_cover_supported_operations() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one MemoryBus scenario covers the Web3 service lifecycle across success and faults"
+)]
+async fn wallet_web3_handlers_cover_configured_quote_and_close_lifecycle() {
+    use tinywallet_bus::wire::{Web3CloseRequest, Web3ExecuteRequest, Web3QuoteRequest};
+
+    let (callbacks, _authorize, _host, broker_task) = callbacks().await;
+    let wallet = crate::service::Wallet {
+        callbacks: Some(callbacks),
+        ..crate::service::Wallet::default()
+    };
+
+    let handle = wallet.web3_configure(()).await.unwrap();
+    let routes = wallet.web3_routes(()).await.unwrap();
+    assert_eq!(routes["routes"][0], "evm");
+    let owner = tinywallet_bus::wire::QuoteOwner {
+        thread_id: "wallet-lifecycle-thread".to_string(),
+        client_id: "wallet-lifecycle-client".to_string(),
+    };
+
+    let swap = wallet
+        .web3_swap_quote(Web3QuoteRequest {
+            service: handle.clone(),
+            owner: Some(owner.clone()),
+            params: serde_json::json!({
+                "chainId": 1,
+                "tokenIn": "0x0000000000000000000000000000000000000000",
+                "tokenInAmount": "1",
+                "tokenOut": "0x0000000000000000000000000000000000000001"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_ne!(swap.quote_id, "");
+
+    let execution = wallet
+        .web3_execute(Web3ExecuteRequest {
+            service: handle.clone(),
+            owner: Some(owner),
+            quote_id: swap.quote_id.clone(),
+            confirmed: true,
+            secret: SecretMaterial {
+                mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+                derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                chain: tinywallet_bus::Chain::Evm,
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(execution.quote_id, swap.quote_id);
+    assert_eq!(execution.transaction_hash, "0xfeedface");
+
+    for result in [
+        wallet
+            .web3_bridge_quote(Web3QuoteRequest {
+                service: handle.clone(),
+                owner: None,
+                params: serde_json::json!({
+                    "srcChainId": 1,
+                    "srcChainTokenIn": "0x0",
+                    "srcChainTokenInAmount": "1",
+                    "dstChainId": 10,
+                    "dstChainTokenOut": "0x1"
+                }),
+            })
+            .await,
+        wallet
+            .web3_dapp_quote(Web3QuoteRequest {
+                service: handle.clone(),
+                owner: None,
+                params: serde_json::json!({
+                    "contractAddress": "0x1111111111111111111111111111111111111111",
+                    "calldata": "0xabcd",
+                    "valueRaw": "0",
+                    "evmNetwork": "ethereum_mainnet"
+                }),
+            })
+            .await,
+    ] {
+        assert!(result.is_ok());
+    }
+
+    let bad_params = wallet
+        .web3_swap_quote(Web3QuoteRequest {
+            service: handle.clone(),
+            owner: None,
+            params: serde_json::json!({"unknown": true}),
+        })
+        .await
+        .unwrap_err();
+    assert!(bad_params.to_string().contains("InvalidInput"));
+
+    let wrong_handle = tinywallet_bus::wire::Web3ServiceHandle {
+        handle: "stale-web3-service".to_string(),
+    };
+    let stale = wallet
+        .web3_close(Web3CloseRequest {
+            service: wrong_handle.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert!(stale.to_string().contains("Web3OperationFailed"));
+
+    let unconfirmed = wallet
+        .web3_execute(Web3ExecuteRequest {
+            service: handle.clone(),
+            owner: None,
+            quote_id: swap.quote_id.clone(),
+            confirmed: false,
+            secret: SecretMaterial {
+                mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+                derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                chain: tinywallet_bus::Chain::Evm,
+            },
+        })
+        .await
+        .unwrap_err();
+    assert!(unconfirmed.to_string().contains("InvalidInput"));
+
+    let missing_quote = wallet
+        .web3_execute(Web3ExecuteRequest {
+            service: handle.clone(),
+            owner: None,
+            quote_id: "missing-quote".to_string(),
+            confirmed: true,
+            secret: SecretMaterial {
+                mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+                derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                chain: tinywallet_bus::Chain::Evm,
+            },
+        })
+        .await
+        .unwrap_err();
+    assert!(missing_quote.to_string().contains("Web3OperationFailed"));
+
+    wallet
+        .web3_close(Web3CloseRequest {
+            service: handle.clone(),
+        })
+        .await
+        .unwrap();
+    assert!(wallet.web3_routes(()).await.is_err());
+    assert!(
+        wallet
+            .web3_close(Web3CloseRequest { service: handle })
+            .await
+            .is_err()
+    );
+    broker_task.abort();
+}
+
+#[tokio::test]
 async fn module_signer_checks_approval_and_secret_chain_before_signing() {
     use tinywallet_bus::wire::{Scheme, SecretMaterial, TransactionSpec};
     use tinywallet_web3::crypto::seams::WalletSigner;
