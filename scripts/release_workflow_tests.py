@@ -24,6 +24,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(paths, [], "cargo package must not resolve unpublished sibling crates from crates.io")
         self.assertEqual(package["name"], "tinywallet-bus")
 
+    def test_existing_tag_recovery_does_not_skip_bundle_job(self):
+        job = self.workflow.split("  module-release:\n", 1)[1]
+        condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)[1]
+        self.assertIn("always()", condition, "a skipped versioning ancestor must not implicitly skip recovery bundles")
+        self.assertIn("needs.release-target.result == 'success'", condition, "recovery must still require successful target resolution")
+
     def test_release_identity_comes_from_the_root_library(self):
         selectors = re.findall(r"jq -r '([^']+)' <<< \"\$metadata\"", self.workflow)
         self.assertGreaterEqual(len(selectors), 2)
