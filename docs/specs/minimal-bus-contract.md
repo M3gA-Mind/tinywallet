@@ -18,7 +18,13 @@ Validation faults retain the existing error taxonomy and detail for product
 presentation. They must never be copied into sanitized module-failure telemetry.
 Existing members retain their arities, confidentiality and wire representations.
 
-Hosts retain credentials and approval policy. They may adopt this contract only
-with a compatible published module artifact and verified digest. Remaining web3,
-quotes, swaps, x402 payment execution, budgets and ledger operations must be
-added inside the module before their corresponding host implementations are cut.
+Hosts retain credential custody and approval policy. They may adopt this contract
+only with a compatible published module artifact and verified digest. Contract
+1.3 adds an optional typed Host interface for account facts, explicit Web3/x402
+approval, chain transport, authenticated wallet-backend calls, and x402 workspace
+budget configuration. The module now owns stateful swap/bridge/dapp quotes and
+execution, x402 challenge parsing and payment signing, budget reservations, and
+the payment ledger. EVM approval receives the exact transaction including the
+RPC-derived nonce and gas fields; Solana approval receives the complete unsigned
+transaction bytes. Secret material is carried only by confidential calls to an
+attested wallet module. Existing 1.2 members retain their arities and wire forms.

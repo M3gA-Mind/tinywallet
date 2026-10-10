@@ -207,4 +207,12 @@ see [minimal bus contracts](docs/specs/minimal-bus-contract.md).
 Contract 1.2 adds bounded stateless EVM construction with exact host approval
 facts, preserving existing confidential signing. See
 [the construction specification](docs/specs/evm-module-construction.md). RPC,
-quote/payment lifecycle and host artifact integration remain later slices.
+quote/payment lifecycle and host artifact integration move into the loadable
+module in contract 1.3. The module now owns Web3 routes and quote state,
+swap/bridge/dapp execution, x402 challenge parsing and signing, budget
+reservations, and the payment ledger. A typed optional Host interface supplies
+account facts, approval decisions, authenticated transports, and workspace
+policy; secret custody stays with the host and material crosses only on
+confidential calls to an attested module. EVM approval includes the full
+nonce/gas/chain transaction actually passed to the signer. See the module and
+bus crate documentation.
