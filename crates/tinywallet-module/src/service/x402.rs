@@ -1,7 +1,6 @@
 //! `TinyBus` bridge for the module-owned x402 payment and ledger algorithms.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,7 +9,7 @@ use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tinywallet_bus::wire::{
     AuthorizeX402PaymentRequest, SecretMaterial, X402ConfigResponse, X402PreparePaymentRequest,
-    X402PreparePaymentResponse, X402RecordPaymentRequest, X402SpendingSummary,
+    X402PreparePaymentResponse, X402RecordPaymentRequest, X402ServiceHandle, X402SpendingSummary,
 };
 use tinywallet_x402::crypto::{CryptoPayments, PaymentAccount, PaymentSigner, SignScheme};
 use tinywallet_x402::ledger::{self, PaymentRecord, PaymentStatus, SpendingBudget};
@@ -30,6 +29,7 @@ pub(crate) struct X402Runtime {
     callbacks: HostCallbacks,
     pending: Mutex<HashMap<String, PendingPayment>>,
     config: X402ConfigResponse,
+    handle: X402ServiceHandle,
 }
 
 struct PendingPayment {
@@ -51,21 +51,53 @@ impl std::fmt::Debug for X402Runtime {
 
 impl X402Runtime {
     /// Initialize the module's JSONL ledger from host-owned workspace and
-    /// spending policy. Missing configuration disables x402 without affecting
-    /// the independently usable wallet and Web3 operations.
-    pub(crate) async fn new(callbacks: HostCallbacks) -> Result<Self, String> {
-        let config = callbacks.x402_config().await?;
+    /// spending policy. This is called only by the explicit host lifecycle
+    /// operation, never during artifact setup.
+    pub(crate) fn new(callbacks: HostCallbacks, config: X402ConfigResponse) -> Self {
         let budget = SpendingBudget {
             per_request_max_atomic: config.per_request_max_atomic,
             daily_max_atomic: config.daily_max_atomic,
             monthly_max_atomic: config.monthly_max_atomic,
         };
-        ledger::init_global(Path::new(&config.workspace_dir), &config.session_id, budget);
-        Ok(Self {
+        ledger::init_global(
+            std::path::Path::new(&config.workspace_dir),
+            &config.session_id,
+            budget,
+        );
+        Self {
             callbacks,
             pending: Mutex::new(HashMap::new()),
             config,
-        })
+            handle: X402ServiceHandle {
+                handle: uuid::Uuid::new_v4().to_string(),
+            },
+        }
+    }
+
+    pub(crate) fn handle(&self) -> X402ServiceHandle {
+        self.handle.clone()
+    }
+
+    fn require_handle(&self, handle: &X402ServiceHandle) -> Result<(), String> {
+        if handle != &self.handle {
+            return Err("x402 service handle is unavailable".to_string());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn close(&mut self, handle: &X402ServiceHandle) -> Result<(), String> {
+        self.require_handle(handle)?;
+        // Dropping pending payment results releases reservations against the
+        // still-current ledger before it is cleared or replaced.
+        let pending = std::mem::take(
+            &mut *self
+                .pending
+                .lock()
+                .map_err(|_| "x402 pending-payment store is unavailable".to_string())?,
+        );
+        drop(pending);
+        ledger::clear_global();
+        Ok(())
     }
 
     /// Parse a challenge, reserve its budget, and build the proof inside the
@@ -74,6 +106,10 @@ impl X402Runtime {
         &self,
         mut request: X402PreparePaymentRequest,
     ) -> Result<X402PreparePaymentResponse, String> {
+        if let Err(error) = self.require_handle(&request.service) {
+            wipe(&mut request.secret);
+            return Err(error);
+        }
         let header = HeaderValue::from_str(&request.payment_required)
             .map_err(|error| format!("invalid payment challenge header: {error}"));
         let header = match header {
@@ -156,6 +192,7 @@ impl X402Runtime {
     /// Commit the reserved amount to the module-owned ledger after the host
     /// retries the paid request.
     pub(crate) fn record(&self, request: X402RecordPaymentRequest) -> Result<(), String> {
+        self.require_handle(&request.service)?;
         let pending = self
             .pending
             .lock()
@@ -198,7 +235,11 @@ impl X402Runtime {
     }
 
     /// Read the module-owned budget totals and currently held reservations.
-    pub(crate) fn summary() -> Result<X402SpendingSummary, String> {
+    pub(crate) fn summary(
+        &self,
+        service: &X402ServiceHandle,
+    ) -> Result<X402SpendingSummary, String> {
+        self.require_handle(service)?;
         ledger::with_ledger(|ledger| {
             let summary = ledger.summary();
             let budget = ledger.budget();

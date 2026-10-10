@@ -70,6 +70,22 @@ impl Web3Service {
     pub fn stored_quotes(&self) -> Vec<StoredQuote> {
         self.quotes.live()
     }
+
+    /// Inspect a live quote only when `owner` matches its prepare-time owner.
+    /// Approval adapters use this before requesting user approval, so quote
+    /// ownership is enforced before any externally visible prompt.
+    ///
+    /// # Errors
+    ///
+    /// Returns not-found when the quote is absent or belongs to another owner,
+    /// and the quote store's consumed or expired errors for stale quotes.
+    pub fn quote_for_owner(
+        &self,
+        quote_id: &str,
+        owner: Option<&crate::quote::QuoteOwner>,
+    ) -> Result<StoredQuote, String> {
+        self.quotes.get_for(quote_id, owner)
+    }
 }
 
 #[cfg(test)]

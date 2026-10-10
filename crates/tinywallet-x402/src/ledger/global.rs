@@ -31,6 +31,12 @@ pub fn init_global(workspace_dir: &Path, session_id: &str, budget: SpendingBudge
     debug!("{LOG_PREFIX} global ledger initialized");
 }
 
+/// Drop the process-wide ledger after its owner has released all reservations.
+pub fn clear_global() {
+    *lock() = None;
+    debug!("{LOG_PREFIX} global ledger cleared");
+}
+
 /// Run `f` over the process-wide ledger.
 ///
 /// # Errors

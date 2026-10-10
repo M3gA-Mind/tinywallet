@@ -2028,6 +2028,7 @@ dependencies = [
  "tinywallet-web3",
  "tinywallet-x402",
  "tokio",
+ "uuid",
  "zeroize",
 ]
 

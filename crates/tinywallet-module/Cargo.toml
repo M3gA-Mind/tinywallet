@@ -49,7 +49,7 @@ tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", def
 tinybus-module = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus-module" }
 # The interface macro requires every method to be `async fn`, so a runtime has
 # to exist even though nothing here awaits I/O.
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 # Method arguments and returns are the `tinywallet::wire` contract, decoded from
 # and encoded to JSON frames.
 serde_json = "1"
@@ -64,21 +64,22 @@ bs58 = "0.5"
 # chains need the recovery id, and the non-recoverable API cannot produce it.
 bitcoin = { version = "0.32", default-features = false, features = ["std", "secp-recovery"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
-# The native loader fixture stages and hashes the actual cdylib to attest it.
-sha2 = "0.11"
-tempfile = "3"
 # Wiping the recovery phrase once the call that needed it has returned. This
 # does not make the module safe against a reader of its address space — nothing
 # can, since a loaded module shares the host's — and it does not reach the JSON
 # frame the bus decoded from. It bounds how long this module's own copy stays
 # legible, which keeps it out of core dumps and swap. See `wipe`.
 zeroize = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 base64 = "0.23"
+# The native loader fixture stages and hashes the actual cdylib to attest it.
+sha2 = "0.11"
+tempfile = "3"
 # The loader E2E builds request documents directly rather than through the wire
 # types, so a rename on either side shows up as the contract change it is.
 serde_json = "1"

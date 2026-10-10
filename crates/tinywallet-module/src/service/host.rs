@@ -4,7 +4,7 @@ use tinybus::{Connection, Error as BusError, Proxy};
 use tinywallet_bus::wire::{
     AuthorizationResult, AuthorizeWeb3ExecutionRequest, AuthorizeX402PaymentRequest,
     ChainTransportRequest, ChainTransportResult, HostResponse, WalletAccountsResponse,
-    WalletBackendRequest, WalletBackendResponse, X402ConfigResponse,
+    WalletBackendRequest, WalletBackendResponse,
 };
 
 use super::{HOST_INTERFACE, HOST_OBJECT_PATH};
@@ -40,11 +40,6 @@ impl HostCallbacks {
     /// Read public account state from the host's custody store.
     pub(crate) async fn wallet_accounts(&self) -> Result<WalletAccountsResponse, String> {
         self.call("WalletAccounts", ()).await
-    }
-
-    /// Read the module ledger's workspace root and budget policy.
-    pub(crate) async fn x402_config(&self) -> Result<X402ConfigResponse, String> {
-        self.call("X402Config", ()).await
     }
 
     /// Execute one chain transport operation using host endpoint and proxy
@@ -91,7 +86,6 @@ fn extract_response<R: serde::de::DeserializeOwned>(
     let value = match (expected, response) {
         ("WalletBackend", HostResponse::WalletBackend(value)) => serde_json::to_value(value),
         ("WalletAccounts", HostResponse::WalletAccounts(value)) => serde_json::to_value(value),
-        ("X402Config", HostResponse::X402Config(value)) => serde_json::to_value(value),
         ("ChainTransport", HostResponse::ChainTransport(value)) => serde_json::to_value(value),
         ("AuthorizeWeb3Execution", HostResponse::Authorization(value)) => {
             serde_json::to_value(value)

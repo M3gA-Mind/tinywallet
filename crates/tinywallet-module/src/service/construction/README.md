@@ -32,6 +32,7 @@ deserializing arbitrary input. Hosts must trust only an admitted, compatible
 module and approve the exact transaction subsequently sent for signing.
 
 This constructor remains stateless and separate from the module-owned Web3
-quote/execution and x402 payment/budget/ledger operations added in contract 1.3.
+quote/execution and x402 payment/budget/ledger operations added in contract 1.3,
+with explicit service lifecycles added in contract 1.4.
 Host adapters, root pins and release digest adoption remain gated on
 independently reviewed compatible published artifacts.

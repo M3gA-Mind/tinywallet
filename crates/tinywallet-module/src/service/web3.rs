@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tinywallet_bus::wire::{
     AuthorizeWeb3ExecutionRequest, ChainTransportRequest, ChainTransportResult, NetworkRequest,
-    SecretMaterial, WalletBackendRequest, Web3ExecutionIntent,
+    SecretMaterial, WalletBackendRequest, Web3ExecutionIntent, Web3ServiceHandle,
 };
 use tinywallet_crypto::rpc::{NetworkId, Transport, TransportError, TransportResult};
 use tinywallet_web3::crypto::defaults::{EvmNetwork, RpcSource, SolanaCluster, default_rpc_url};
@@ -49,6 +49,7 @@ pub(crate) struct Web3Runtime {
     /// Module-owned TTL'd swap, bridge and dapp quote service.
     pub(crate) service: Arc<tinywallet_web3::crypto::service::Web3Service>,
     pub(crate) callbacks: HostCallbacks,
+    handle: Web3ServiceHandle,
 }
 
 impl Web3Runtime {
@@ -67,16 +68,33 @@ impl Web3Runtime {
                 Arc::new(HostWeb3Backend(host.clone())),
             )),
             callbacks: host,
+            handle: Web3ServiceHandle {
+                handle: uuid::Uuid::new_v4().to_string(),
+            },
         }
     }
 
-    pub(crate) fn execution_approval(&self, quote_id: &str) -> Result<Web3ApprovalContext, String> {
-        let quote = self
-            .service
-            .stored_quotes()
-            .into_iter()
-            .find(|quote| quote.quote_id == quote_id)
-            .ok_or_else(|| format!("quote '{quote_id}' not found"))?;
+    pub(crate) fn handle(&self) -> Web3ServiceHandle {
+        self.handle.clone()
+    }
+
+    pub(crate) fn require_handle(&self, handle: &Web3ServiceHandle) -> Result<(), String> {
+        if handle != &self.handle {
+            return Err("web3 service handle is unavailable".to_string());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn execution_approval(
+        &self,
+        quote_id: &str,
+        owner: Option<&tinywallet_bus::wire::QuoteOwner>,
+    ) -> Result<Web3ApprovalContext, String> {
+        let owner = owner.map(|owner| LibraryQuoteOwner {
+            thread_id: owner.thread_id.clone(),
+            client_id: owner.client_id.clone(),
+        });
+        let quote = self.service.quote_for_owner(quote_id, owner.as_ref())?;
         let solana_intent = match quote.unsigned {
             tinywallet_web3::crypto::service::UnsignedTx::Evm { .. } => None,
             tinywallet_web3::crypto::service::UnsignedTx::Solana { tx_blob_hex } => {

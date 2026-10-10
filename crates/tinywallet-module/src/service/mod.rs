@@ -70,11 +70,13 @@ const BUILD_FAILED_ERROR: &str = "ai.tinyhumans.tinywallet.Error.BuildFailed";
 // variant it does not recognise — which is `InvalidInput`, because the request
 // is one this module cannot act on rather than a capability that is missing.
 
-/// The served object. Holds nothing: every call is self-contained.
+/// The served object. User-scoped services are explicitly opened and closed;
+/// lifecycle writes wait for active operations to finish before replacing them.
 #[derive(Default)]
 struct Wallet {
-    web3: Option<web3::Web3Runtime>,
-    x402: Option<x402::X402Runtime>,
+    callbacks: Option<host::HostCallbacks>,
+    web3: tokio::sync::RwLock<Option<web3::Web3Runtime>>,
+    x402: tokio::sync::RwLock<Option<x402::X402Runtime>>,
 }
 
 mod construction;
@@ -95,7 +97,8 @@ impl Wallet {
     /// List swap and bridge routes through the host's authenticated backend
     /// transport. Route parsing and all follow-on quote behavior stay here.
     async fn web3_routes(&self, _request: ()) -> BusResult<serde_json::Value> {
-        let Some(web3) = &self.web3 else {
+        let web3 = self.web3.read().await;
+        let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
         };
         web3.service
@@ -112,9 +115,12 @@ impl Wallet {
         &self,
         request: tinywallet_bus::wire::Web3QuoteRequest,
     ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
-        let Some(web3) = &self.web3 else {
+        let web3 = self.web3.read().await;
+        let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
         };
+        web3.require_handle(&request.service)
+            .map_err(web3_operation_failed)?;
         web3::with_quote_owner(request.owner, async {
             let params =
                 serde_json::from_value::<tinywallet_web3::crypto::service::SwapQuoteParams>(
@@ -134,9 +140,12 @@ impl Wallet {
         &self,
         request: tinywallet_bus::wire::Web3QuoteRequest,
     ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
-        let Some(web3) = &self.web3 else {
+        let web3 = self.web3.read().await;
+        let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
         };
+        web3.require_handle(&request.service)
+            .map_err(web3_operation_failed)?;
         web3::with_quote_owner(request.owner, async {
             let params = serde_json::from_value::<
                 tinywallet_web3::crypto::service::BridgeQuoteParams,
@@ -155,9 +164,12 @@ impl Wallet {
         &self,
         request: tinywallet_bus::wire::Web3QuoteRequest,
     ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
-        let Some(web3) = &self.web3 else {
+        let web3 = self.web3.read().await;
+        let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
         };
+        web3.require_handle(&request.service)
+            .map_err(web3_operation_failed)?;
         web3::with_quote_owner(request.owner, async {
             let params =
                 serde_json::from_value::<tinywallet_web3::crypto::service::DappCallParams>(
@@ -182,17 +194,22 @@ impl Wallet {
         &self,
         mut request: tinywallet_bus::wire::Web3ExecuteRequest,
     ) -> BusResult<tinywallet_web3::crypto::service::Web3ExecutionResult> {
-        let Some(web3) = &self.web3 else {
+        let web3 = self.web3.read().await;
+        let Some(web3) = web3.as_ref() else {
             wipe(&mut request.secret);
             return Err(host_unavailable());
         };
+        if let Err(error) = web3.require_handle(&request.service) {
+            wipe(&mut request.secret);
+            return Err(web3_operation_failed(error));
+        }
         if !request.confirmed {
             wipe(&mut request.secret);
             return Err(invalid_input(
                 "web3 execution requires confirmed: true".to_string(),
             ));
         }
-        let approval = match web3.execution_approval(&request.quote_id) {
+        let approval = match web3.execution_approval(&request.quote_id, request.owner.as_ref()) {
             Ok(approval) => approval,
             Err(error) => {
                 wipe(&mut request.secret);
@@ -257,7 +274,8 @@ impl Wallet {
         &self,
         request: tinywallet_bus::wire::X402PreparePaymentRequest,
     ) -> BusResult<tinywallet_bus::wire::X402PreparePaymentResponse> {
-        let Some(x402) = &self.x402 else {
+        let x402 = self.x402.read().await;
+        let Some(x402) = x402.as_ref() else {
             let mut request = request;
             wipe(&mut request.secret);
             return Err(host_unavailable());
@@ -265,12 +283,41 @@ impl Wallet {
         x402.prepare(request).await.map_err(x402_operation_failed)
     }
 
+    /// Open or replace the active Web3 quote service after the host establishes
+    /// the account context. Replacing it waits for in-flight executions and
+    /// discards every quote tied to the previous credentials.
+    async fn web3_configure(
+        &self,
+        _request: (),
+    ) -> BusResult<tinywallet_bus::wire::Web3ServiceHandle> {
+        let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
+        let mut web3 = self.web3.write().await;
+        let next = web3::Web3Runtime::new(callbacks);
+        let handle = next.handle();
+        *web3 = Some(next);
+        Ok(handle)
+    }
+
+    /// Close the active Web3 service and discard all quotes for its account.
+    async fn web3_close(&self, request: tinywallet_bus::wire::Web3CloseRequest) -> BusResult<()> {
+        let mut web3 = self.web3.write().await;
+        let Some(current) = web3.as_ref() else {
+            return Err(host_unavailable());
+        };
+        current
+            .require_handle(&request.service)
+            .map_err(web3_operation_failed)?;
+        *web3 = None;
+        Ok(())
+    }
+
     /// Record a paid retry result and release its module-owned reservation.
     async fn x402_record_payment(
         &self,
         request: tinywallet_bus::wire::X402RecordPaymentRequest,
     ) -> BusResult<()> {
-        let Some(x402) = &self.x402 else {
+        let x402 = self.x402.read().await;
+        let Some(x402) = x402.as_ref() else {
             return Err(host_unavailable());
         };
         x402.record(request).map_err(x402_operation_failed)
@@ -279,12 +326,46 @@ impl Wallet {
     /// Report current module-owned x402 totals and reservation state.
     async fn x402_spending_summary(
         &self,
-        _request: (),
+        request: tinywallet_bus::wire::X402SummaryRequest,
     ) -> BusResult<tinywallet_bus::wire::X402SpendingSummary> {
-        let Some(_x402) = &self.x402 else {
+        let x402 = self.x402.read().await;
+        let Some(x402) = x402.as_ref() else {
             return Err(host_unavailable());
         };
-        x402::X402Runtime::summary().map_err(x402_operation_failed)
+        x402.summary(&request.service)
+            .map_err(x402_operation_failed)
+    }
+
+    /// Configure or replace the active x402 ledger after the host has loaded
+    /// and selected the user's workspace and spending policy.
+    async fn x402_configure(
+        &self,
+        request: tinywallet_bus::wire::X402ConfigureRequest,
+    ) -> BusResult<tinywallet_bus::wire::X402ServiceHandle> {
+        let mut x402 = self.x402.write().await;
+        if let Some(current) = x402.as_mut() {
+            current
+                .close(&current.handle())
+                .map_err(x402_operation_failed)?;
+        }
+        let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
+        let next = x402::X402Runtime::new(callbacks, request.config);
+        let handle = next.handle();
+        *x402 = Some(next);
+        Ok(handle)
+    }
+
+    /// Close the configured x402 ledger and release all uncommitted payments.
+    async fn x402_close(&self, request: tinywallet_bus::wire::X402CloseRequest) -> BusResult<()> {
+        let mut x402 = self.x402.write().await;
+        let Some(current) = x402.as_mut() else {
+            return Err(host_unavailable());
+        };
+        current
+            .close(&request.service)
+            .map_err(x402_operation_failed)?;
+        *x402 = None;
+        Ok(())
     }
 
     /// Construct native, ERC-20 or explicit contract transactions and exact approval facts.
@@ -988,8 +1069,9 @@ fn base64(bytes: &[u8]) -> String {
 async fn setup(connection: Connection) -> BusResult<()> {
     let callbacks = host::HostCallbacks::new(&connection)?;
     let wallet = Wallet {
-        web3: Some(web3::Web3Runtime::new(callbacks.clone())),
-        x402: x402::X402Runtime::new(callbacks).await.ok(),
+        callbacks: Some(callbacks.clone()),
+        web3: tokio::sync::RwLock::new(None),
+        x402: tokio::sync::RwLock::new(None),
     };
     connection.serve_at(OBJECT_PATH.try_into()?, wallet).await?;
     connection.request_name(BUS_NAME).await?;
@@ -1069,9 +1151,13 @@ mod exports {
             "Web3BridgeQuote",
             "Web3DappQuote",
             "Web3Execute",
+            "Web3Configure",
+            "Web3Close",
             "X402PreparePayment",
             "X402RecordPayment",
             "X402SpendingSummary",
+            "X402Configure",
+            "X402Close",
         ],
         signals = [],
         requires = [],
