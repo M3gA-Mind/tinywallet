@@ -60,6 +60,7 @@ jobs:
       - name: Bus normal and build dependencies are contract-only
         run: |
           python3 scripts/check_bus_boundaries_tests.py
+          python3 scripts/release_workflow_tests.py
           python3 scripts/check-bus-boundaries.py
 
       - name: Implementation crates pull no signing stack
