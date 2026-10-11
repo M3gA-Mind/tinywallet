@@ -35,6 +35,38 @@ impl std::fmt::Debug for GenerateMnemonicResponse {
     }
 }
 
+/// Requests a BIP-39 seed for a phrase whose storage key must remain compatible.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeriveMnemonicSeedRequest {
+    /// Phrase to derive. This field is secret and the call must be confidential.
+    pub mnemonic: String,
+}
+
+impl std::fmt::Debug for DeriveMnemonicSeedRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeriveMnemonicSeedRequest")
+            .field("mnemonic", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Returns the standard 64-byte BIP-39 seed from a confidential call.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeriveMnemonicSeedResponse {
+    /// Seed bytes. Treat these as secret key material.
+    pub seed: Vec<u8>,
+}
+
+impl std::fmt::Debug for DeriveMnemonicSeedResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeriveMnemonicSeedResponse")
+            .field("seed", &"<redacted>")
+            .finish()
+    }
+}
+
 /// A wallet chain family.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]

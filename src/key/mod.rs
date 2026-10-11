@@ -263,7 +263,17 @@ pub fn generate_mnemonic(word_count: usize) -> Result<String> {
 ///
 /// Shared by every chain: the seed is scheme-independent, and only what
 /// happens after it differs. The result zeroizes on drop.
-fn seed_from_mnemonic(mnemonic: &str) -> Result<Zeroizing<Vec<u8>>> {
+/// Derive the 64-byte BIP-39 seed for a phrase using the standard empty passphrase.
+///
+/// The returned seed zeroizes when dropped. This is intended for trusted host
+/// storage-key KDFs that need to preserve an existing mnemonic-derived key; it
+/// does not retain the phrase or seed.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidMnemonic`] when the phrase is not a valid English
+/// BIP-39 mnemonic.
+pub fn mnemonic_seed(mnemonic: &str) -> Result<Zeroizing<Vec<u8>>> {
     use coins_bip39::{English, Mnemonic};
 
     // The error is discarded on purpose: `coins_bip39` reports which word

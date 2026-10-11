@@ -53,8 +53,9 @@ pub use host::{
     X402ServiceHandle, X402SpendingSummary, X402SummaryRequest,
 };
 pub use wallet::{
-    BalanceInfo, ChainStatus, EvmNetwork, ExecutePreparedParams, ExecutionResult,
-    GenerateMnemonicRequest, GenerateMnemonicResponse, HostEndpointReference,
+    BalanceInfo, ChainStatus, DeriveMnemonicSeedRequest, DeriveMnemonicSeedResponse,
+    EvmNetwork, ExecutePreparedParams, ExecutionResult, GenerateMnemonicRequest,
+    GenerateMnemonicResponse, HostEndpointReference,
     NativeWalletCloseRequest, NativeWalletConfigRequest, NativeWalletConfigResponse,
     NativeWalletExecuteRequest, NativeWalletExecutionIntent, NativeWalletPrepareTransferRequest,
     NativeWalletServiceHandle, NativeWalletServiceRequest, NativeWalletTransactionRequest,
