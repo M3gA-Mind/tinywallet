@@ -870,7 +870,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
                 "scheme": "exact",
                 "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                 "amount": "100",
-                "asset": "EPjFWdd5AufqSSqeM2qWw89b7aQf1nZ5V9u7vG3Gf6D",
+                "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                 "payTo": "11111111111111111111111111111111",
                 "maxTimeoutSeconds": 60,
                 "extra": {
