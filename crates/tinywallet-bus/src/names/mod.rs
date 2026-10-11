@@ -108,6 +108,8 @@ pub mod methods {
     pub const X402_RECORD_PAYMENT: &str = "X402RecordPayment";
     /// Reports ledger totals and spending limits.
     pub const X402_SPENDING_SUMMARY: &str = "X402SpendingSummary";
+    /// Reports ledger totals, counts and spending limits for host projection.
+    pub const X402_SPENDING_SUMMARY_DETAILED: &str = "X402SpendingSummaryDetailed";
     /// Configure or replace the active module-owned x402 ledger.
     pub const X402_CONFIGURE: &str = "X402Configure";
     /// List recent payment records from the module-owned ledger.
@@ -155,6 +157,7 @@ pub const METHODS: &[&str] = &[
     methods::X402_PREPARE_PAYMENT,
     methods::X402_RECORD_PAYMENT,
     methods::X402_SPENDING_SUMMARY,
+    methods::X402_SPENDING_SUMMARY_DETAILED,
     methods::X402_UPDATE_BUDGET,
 ];
 

@@ -548,6 +548,32 @@ pub struct X402SpendingSummary {
     pub monthly_max_atomic: u64,
 }
 
+/// Complete x402 ledger totals, including counts retained by the host RPC API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402DetailedSpendingSummary {
+    /// Settled amount for the current ledger session.
+    pub session_total_atomic: u64,
+    /// Settled amount today (UTC).
+    pub daily_total_atomic: u64,
+    /// Settled amount this month (UTC).
+    pub monthly_total_atomic: u64,
+    /// Settled payment count for the current ledger session.
+    pub session_count: u64,
+    /// Settled payment count today.
+    pub daily_count: u64,
+    /// Settled payment count this month.
+    pub monthly_count: u64,
+    /// Current in-flight budget reservations.
+    pub reserved_atomic: u64,
+    /// Current per-request ceiling.
+    pub per_request_max_atomic: u64,
+    /// Current daily ceiling.
+    pub daily_max_atomic: u64,
+    /// Current monthly ceiling.
+    pub monthly_max_atomic: u64,
+}
+
 /// One typed host callback response.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
