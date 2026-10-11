@@ -1127,6 +1127,36 @@ async fn generate_mnemonic_returns_a_valid_phrase_and_rejects_invalid_counts() {
 }
 
 #[tokio::test]
+async fn derive_mnemonic_seed_returns_the_standard_seed_and_hides_invalid_phrase() {
+    let wallet = super::Wallet::default();
+    let response = wallet
+        .derive_mnemonic_seed(tinywallet_bus::wire::DeriveMnemonicSeedRequest {
+            mnemonic: VECTOR.to_string(),
+        })
+        .await
+        .expect("published BIP-39 phrase derives a seed");
+    let seed_hex = response
+        .seed
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(
+        seed_hex,
+        "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4"
+    );
+    assert!(!format!("{response:?}").contains(&seed_hex));
+
+    let invalid = "phrase with a private invalid word";
+    let error = wallet
+        .derive_mnemonic_seed(tinywallet_bus::wire::DeriveMnemonicSeedRequest {
+            mnemonic: invalid.to_string(),
+        })
+        .await
+        .expect_err("an invalid phrase must be rejected");
+    assert!(!error.to_string().contains(invalid));
+}
+
+#[tokio::test]
 async fn module_builds_and_attaches_a_bitcoin_fixture_without_a_node() {
     let wallet = super::Wallet::default();
     let material = secret(Chain::Btc, "m/84'/0'/0'/0/0");
