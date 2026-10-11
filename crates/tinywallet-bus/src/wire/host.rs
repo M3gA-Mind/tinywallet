@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::Chain;
 
-use super::SecretMaterial;
+use super::{HostEndpointReference, RpcEndpointKey, SecretMaterial, SolanaCluster};
 
 /// Host approval result for the exact transaction facts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +193,26 @@ pub struct QuoteOwner {
 pub struct Web3ServiceHandle {
     /// Must accompany quote preparation and execution requests.
     pub handle: String,
+}
+
+/// Host-owned Web3 endpoint and cluster policy, without endpoint URLs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Web3ConfigureRequest {
+    /// Solana cluster; it selects the RPC default and module-owned reference data.
+    pub solana_cluster: SolanaCluster,
+    /// Endpoints overridden in the host configuration.
+    pub overridden_endpoints: Vec<RpcEndpointKey>,
+}
+
+/// Service handle and opaque endpoint references to bind in the host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Web3ConfigureResponse {
+    /// Handle for all later operations.
+    pub service: Web3ServiceHandle,
+    /// Opaque references for the overridden endpoints; contains no URLs.
+    pub endpoint_references: Vec<HostEndpointReference>,
 }
 
 /// Close one Web3 quote service and discard its unexecuted quotes.

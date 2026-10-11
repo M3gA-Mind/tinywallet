@@ -71,6 +71,7 @@ const EXPECTED_METHODS: &[&str] = &[
     "Web3DappQuote",
     "Web3Execute",
     "Web3Configure",
+    "Web3ConfigureWithEndpoints",
     "Web3Close",
     "NativeWalletConfigure",
     "NativeWalletClose",

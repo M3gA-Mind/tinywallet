@@ -63,9 +63,27 @@ fn network_identifiers_keep_their_wire_names_and_chain_ids() {
     );
 }
 
+#[cfg(feature = "wire")]
+#[test]
+fn web3_endpoint_configuration_contains_keys_but_no_endpoint_urls() {
+    let request = super::wire::Web3ConfigureRequest {
+        solana_cluster: super::wire::SolanaCluster::Devnet,
+        overridden_endpoints: vec![super::wire::RpcEndpointKey::Evm {
+            network: super::wire::EvmNetwork::BaseMainnet,
+        }],
+    };
+    let encoded = serde_json::to_value(&request).expect("configuration serializes");
+    assert_eq!(encoded["solanaCluster"], "devnet");
+    assert!(encoded.get("url").is_none());
+    assert_eq!(
+        serde_json::from_value::<super::wire::Web3ConfigureRequest>(encoded).unwrap(),
+        request
+    );
+}
+
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
-    assert_eq!(CONTRACT_VERSION, (1, 6));
+    assert_eq!(CONTRACT_VERSION, (1, 7));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));
@@ -91,7 +109,7 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 31);
+    assert_eq!(METHODS.len(), 32);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
@@ -108,6 +126,8 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         names::methods::WEB3_EXECUTE,
         names::methods::WEB3_CLOSE,
         names::methods::WEB3_CONFIGURE,
+        names::methods::WEB3_CONFIGURE_WITH_ENDPOINTS,
+        names::methods::WEB3_CONFIGURE_WITH_ENDPOINTS,
         names::methods::NATIVE_WALLET_CONFIGURE,
         names::methods::NATIVE_WALLET_CLOSE,
         names::methods::NATIVE_WALLET_NETWORK_DEFAULTS,
@@ -166,7 +186,7 @@ fn native_wallet_members_are_additive_and_use_one_typed_argument() {
         methods::NATIVE_WALLET_TX_RECEIPT,
         methods::NATIVE_WALLET_LOOKUP_TX,
     ];
-    assert_eq!(METHODS.len(), 31);
+    assert_eq!(METHODS.len(), 32);
     assert!(native_members.iter().all(|member| METHODS.contains(member)));
     assert_eq!(HOST_METHODS.len(), 6);
     assert!(HOST_METHODS.contains(&host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION));

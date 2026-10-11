@@ -72,6 +72,8 @@ pub mod methods {
     pub const WEB3_EXECUTE: &str = "Web3Execute";
     /// Open or replace the active module-owned Web3 quote service.
     pub const WEB3_CONFIGURE: &str = "Web3Configure";
+    /// Open Web3 with host-selected cluster and opaque endpoint references.
+    pub const WEB3_CONFIGURE_WITH_ENDPOINTS: &str = "Web3ConfigureWithEndpoints";
     /// Close one Web3 quote service and discard its unexecuted quotes.
     pub const WEB3_CLOSE: &str = "Web3Close";
     /// Open a configured native wallet engine service.
@@ -132,6 +134,7 @@ pub const METHODS: &[&str] = &[
     methods::WEB3_BRIDGE_QUOTE,
     methods::WEB3_CLOSE,
     methods::WEB3_CONFIGURE,
+    methods::WEB3_CONFIGURE_WITH_ENDPOINTS,
     methods::WEB3_DAPP_QUOTE,
     methods::WEB3_EXECUTE,
     methods::WEB3_ROUTES,

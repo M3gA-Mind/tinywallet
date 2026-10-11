@@ -60,6 +60,16 @@ the existing attested-module secret path, then signs and broadcasts inside the
 module. See [native wallet engine contract](native-wallet-engine-module.md)
 for the exact DTOs and lifecycle.
 
+Contract 1.7 adds `Web3ConfigureWithEndpoints` without changing the existing
+`Web3Configure(())` member. Its typed request carries the configured Solana
+cluster and overridden endpoint keys. Its response carries the configured
+service handle and opaque endpoint references, never the URLs. Chain transport
+requests return those references so the host resolves the selected private
+endpoint. The configured Web3 endpoint adapter reports the host override source
+and uses the selected cluster for implementation-owned endpoint defaults and
+reference data. Hosts that continue to call the legacy member retain its
+historical default endpoint behavior.
+
 ## The two-call split is the security property
 
 Legacy `BuildUnsigned` and `AttachSignature` let a host hold the key, ask what
