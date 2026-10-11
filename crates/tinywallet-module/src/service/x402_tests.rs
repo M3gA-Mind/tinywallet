@@ -327,25 +327,23 @@ async fn history_and_live_budget_operations_keep_the_configured_ledger() {
             .unwrap()
             .unwrap();
     }
-    let history = runtime
-        .list_payments(X402ListPaymentsRequest {
+    let list_request = X402ListPaymentsRequest {
             service: handle.clone(),
             limit: 1,
-        })
-        .unwrap();
+        };
+    let history = runtime.list_payments(&list_request).unwrap();
     assert_eq!(history.payments.len(), 1);
     assert_eq!(history.payments[0].id, "newer");
     assert_eq!(history.payments[0].session_id, "history-budget-test");
     assert_eq!(history.payments[0].status, X402PaymentStatus::Pending);
 
-    let updated = runtime
-        .update_budget(X402UpdateBudgetRequest {
+    let update_request = X402UpdateBudgetRequest {
             service: handle.clone(),
             per_request_max_atomic: Some(11),
             daily_max_atomic: None,
             monthly_max_atomic: Some(33),
-        })
-        .unwrap();
+        };
+    let updated = runtime.update_budget(&update_request).unwrap();
     assert_eq!(updated.per_request_max_atomic, 11);
     assert_eq!(updated.daily_max_atomic, 200);
     assert_eq!(updated.monthly_max_atomic, 33);
