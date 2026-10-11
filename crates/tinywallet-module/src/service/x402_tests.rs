@@ -396,7 +396,7 @@ async fn x402_bus_methods_serve_history_budget_and_detailed_summary() {
         })
         .await
         .unwrap();
-    assert!(history.payments.is_empty());
+    assert_eq!(history.payments.len(), 0);
 
     let updated = wallet
         .x402_update_budget(X402UpdateBudgetRequest {
