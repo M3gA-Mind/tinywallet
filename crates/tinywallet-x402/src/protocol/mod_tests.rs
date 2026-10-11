@@ -33,6 +33,7 @@ use crate::wire::{
 struct StubBuilder {
     fail_with: Option<String>,
     chains: Mutex<Vec<PaymentChain>>,
+    finalized_height: Option<u64>,
 }
 
 #[async_trait]
@@ -57,6 +58,72 @@ impl PaymentBuilder for StubBuilder {
             extensions: serde_json::Map::new(),
         })
     }
+
+    async fn finalized_solana_block_height(&self) -> Result<Option<u64>, X402Error> {
+        Ok(self.finalized_height)
+    }
+}
+
+struct LegacyMetadataBuilder;
+
+#[async_trait]
+impl PaymentBuilder for LegacyMetadataBuilder {
+    async fn build(
+        &self,
+        challenge: &PaymentRequired,
+        requirement: &PaymentRequirements,
+        chain: PaymentChain,
+    ) -> Result<PaymentPayload, X402Error> {
+        let payload = match chain {
+            PaymentChain::Evm => PaymentProof::Evm(crate::wire::EvmPaymentProof {
+                signature: "0x00".into(),
+                authorization: crate::wire::EvmAuthorization {
+                    from: "from".into(),
+                    to: "to".into(),
+                    value: "1".into(),
+                    valid_after: "0".into(),
+                    valid_before: "1800000000".into(),
+                    nonce: "0x00".into(),
+                },
+            }),
+            PaymentChain::Solana => PaymentProof::Solana(SolanaPaymentProof {
+                transaction: "stub-tx".into(),
+            }),
+        };
+        Ok(PaymentPayload {
+            x402_version: X402_VERSION,
+            resource: Some(challenge.resource.clone()),
+            accepted: requirement.clone(),
+            payload,
+            extensions: serde_json::Map::new(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn legacy_payment_builders_keep_safe_default_metadata() {
+    let builder = LegacyMetadataBuilder;
+    let evm = builder
+        .build_with_metadata(&challenge(vec![]), &evm_requirement(), PaymentChain::Evm)
+        .await
+        .unwrap();
+    assert_eq!(
+        evm.authorization_valid_until,
+        chrono::DateTime::from_timestamp(1_800_000_000, 0)
+    );
+    assert_eq!(evm.solana_last_valid_block_height, None);
+
+    let solana = builder
+        .build_with_metadata(
+            &challenge(vec![]),
+            &solana_requirement(),
+            PaymentChain::Solana,
+        )
+        .await
+        .unwrap();
+    assert_eq!(solana.authorization_valid_until, None);
+    assert_eq!(solana.solana_last_valid_block_height, None);
+    assert_eq!(builder.finalized_solana_block_height().await.unwrap(), None);
 }
 
 fn headers_with(name: &'static str, value: &str) -> HeaderMap {
@@ -117,9 +184,166 @@ fn settled(amount: u64) -> PaymentRecord {
         status: PaymentStatus::Settled,
         timestamp: chrono::Utc::now(),
         authorization_valid_until: None,
+        solana_last_valid_block_height: None,
+        authorization_expired_at: None,
+        authorization_expiry_observed_height: None,
         session_id: "test-session".into(),
         thread_id: None,
     }
+}
+
+#[tokio::test]
+async fn solana_refresh_uses_height_evidence_and_preserves_pending_value() {
+    let _guard = ledger::TEST_LOCK.lock().await;
+    let _dir = init_ledger(SpendingBudget::default());
+    let mut pending = settled(100_000);
+    pending.id = "refresh-solana".into();
+    pending.status = PaymentStatus::Pending;
+    pending.timestamp = chrono::Utc::now();
+    pending.solana_last_valid_block_height = Some(9);
+    ledger::with_ledger_mut(|ledger| ledger.try_record_payment(pending))
+        .unwrap()
+        .unwrap();
+
+    refresh_solana_authorizations(&StubBuilder::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        ledger::with_ledger(|ledger| ledger.usable_pending_count(chrono::Utc::now())).unwrap(),
+        1
+    );
+
+    refresh_solana_authorizations(&StubBuilder {
+        finalized_height: Some(10),
+        ..StubBuilder::default()
+    })
+    .await
+    .unwrap();
+    let latest = ledger::with_ledger(|ledger| ledger.payment("refresh-solana").cloned())
+        .unwrap()
+        .unwrap();
+    assert_eq!(latest.status, PaymentStatus::Pending);
+    assert_eq!(latest.solana_last_valid_block_height, Some(9));
+    assert_eq!(latest.authorization_expiry_observed_height, Some(10));
+    assert!(latest.authorization_expired_at.is_some());
+    assert_eq!(
+        ledger::with_ledger(ledger::PaymentLedger::outstanding_atomic).unwrap(),
+        100_000
+    );
+    ledger::reset_global();
+}
+
+struct ReceiptDuringHeightRefresh;
+
+#[async_trait]
+impl PaymentBuilder for ReceiptDuringHeightRefresh {
+    async fn build(
+        &self,
+        _challenge: &PaymentRequired,
+        _requirement: &PaymentRequirements,
+        _chain: PaymentChain,
+    ) -> Result<PaymentPayload, X402Error> {
+        unreachable!("refresh-only fixture never builds a payment")
+    }
+
+    async fn finalized_solana_block_height(&self) -> Result<Option<u64>, X402Error> {
+        ledger::with_ledger_mut(|ledger| {
+            let mut record = ledger.payment("receipt-during-refresh").unwrap().clone();
+            record.status = PaymentStatus::Settled;
+            record.timestamp += chrono::Duration::seconds(1);
+            record.tx_signature = Some("trusted-receipt".into());
+            ledger.try_record_payment(record)
+        })
+        .unwrap()
+        .unwrap();
+        Ok(Some(10))
+    }
+}
+
+#[tokio::test]
+async fn a_receipt_arriving_during_height_refresh_cannot_be_overwritten() {
+    let _guard = ledger::TEST_LOCK.lock().await;
+    let _dir = init_ledger(SpendingBudget::default());
+    let mut pending = settled(100_000);
+    pending.id = "receipt-during-refresh".into();
+    pending.status = PaymentStatus::Pending;
+    pending.solana_last_valid_block_height = Some(9);
+    ledger::with_ledger_mut(|ledger| ledger.try_record_payment(pending))
+        .unwrap()
+        .unwrap();
+
+    refresh_solana_authorizations(&ReceiptDuringHeightRefresh)
+        .await
+        .unwrap();
+    let latest =
+        ledger::with_ledger(|ledger| ledger.payment("receipt-during-refresh").unwrap().clone())
+            .unwrap();
+    assert_eq!(latest.status, PaymentStatus::Settled);
+    assert_eq!(latest.tx_signature.as_deref(), Some("trusted-receipt"));
+    assert_eq!(latest.authorization_expired_at, None);
+    assert_eq!(
+        ledger::with_ledger(|ledger| ledger.recent_payments(2).len()).unwrap(),
+        2
+    );
+    ledger::reset_global();
+}
+
+struct ReopenLedgerDuringHeightRefresh {
+    workspace: std::path::PathBuf,
+}
+
+#[async_trait]
+impl PaymentBuilder for ReopenLedgerDuringHeightRefresh {
+    async fn build(
+        &self,
+        _challenge: &PaymentRequired,
+        _requirement: &PaymentRequirements,
+        _chain: PaymentChain,
+    ) -> Result<PaymentPayload, X402Error> {
+        unreachable!("refresh-only fixture never builds a payment")
+    }
+
+    async fn finalized_solana_block_height(&self) -> Result<Option<u64>, X402Error> {
+        // Reopening the same path restores the exact same latest payment
+        // record, but it is a distinct in-memory ledger instance. Evidence
+        // requested for the old instance must not mutate the replacement.
+        ledger::init_global(&self.workspace, "test-session", SpendingBudget::default());
+        Ok(Some(10))
+    }
+}
+
+#[tokio::test]
+async fn stale_height_evidence_cannot_mutate_a_reopened_ledger() {
+    let _guard = ledger::TEST_LOCK.lock().await;
+    let dir = init_ledger(SpendingBudget::default());
+    let mut pending = settled(100_000);
+    pending.id = "reopened-ledger-refresh".into();
+    pending.status = PaymentStatus::Pending;
+    pending.solana_last_valid_block_height = Some(9);
+    let issued_at = pending.timestamp;
+    ledger::with_ledger_mut(|ledger| ledger.try_record_payment(pending))
+        .unwrap()
+        .unwrap();
+
+    refresh_solana_authorizations(&ReopenLedgerDuringHeightRefresh {
+        workspace: dir.path().to_path_buf(),
+    })
+    .await
+    .unwrap();
+
+    let latest = ledger::with_ledger(|ledger| {
+        let current = ledger.payment("reopened-ledger-refresh").unwrap();
+        assert_eq!(current.timestamp, issued_at);
+        assert_eq!(current.authorization_expired_at, None);
+        assert_eq!(current.authorization_expiry_observed_height, None);
+        ledger.recent_payments(2).len()
+    })
+    .unwrap();
+    assert_eq!(
+        latest, 1,
+        "stale refresh evidence must not append to replacement"
+    );
+    ledger::reset_global();
 }
 
 // ---------------------------------------------------------------------------

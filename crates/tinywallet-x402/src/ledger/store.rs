@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Datelike, Months, NaiveTime, TimeZone, Utc};
 use log::{debug, warn};
 
 use super::types::{
@@ -22,9 +22,14 @@ const LOG_PREFIX: &str = "[x402::store]";
 /// successor.
 static NEXT_RESERVATION: AtomicU64 = AtomicU64::new(1);
 
+/// Identifies a particular in-memory ledger instance, even when a replacement
+/// is opened from the same workspace and contains the same persisted records.
+static NEXT_LEDGER_GENERATION: AtomicU64 = AtomicU64::new(1);
+
 /// Append-only payment history with budget enforcement.
 #[derive(Debug)]
 pub struct PaymentLedger {
+    generation: u64,
     records: Vec<PaymentRecord>,
     file_path: PathBuf,
     budget: SpendingBudget,
@@ -49,12 +54,19 @@ impl PaymentLedger {
             file_path.display()
         );
         Self {
+            generation: NEXT_LEDGER_GENERATION.fetch_add(1, Ordering::Relaxed),
             records,
             file_path,
             budget,
             session_id: session_id.to_string(),
             reservations: HashMap::new(),
         }
+    }
+
+    /// The identity of this in-memory ledger instance.
+    #[must_use]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// The session this ledger was opened for: the one
@@ -83,17 +95,30 @@ impl PaymentLedger {
             };
         }
 
-        let today = now.date_naive();
         let this_month = (now.year(), now.month());
+        let day_start = Utc.from_utc_datetime(&now.date_naive().and_time(NaiveTime::MIN));
+        let day_end = day_start
+            .checked_add_signed(chrono::Duration::days(1))
+            .unwrap_or(DateTime::<Utc>::MAX_UTC);
+        let first_of_month = now
+            .date_naive()
+            .with_day(1)
+            .unwrap_or(now.date_naive())
+            .and_time(NaiveTime::MIN);
+        let month_start = Utc.from_utc_datetime(&first_of_month);
+        let month_end = month_start
+            .checked_add_months(Months::new(1))
+            .unwrap_or(DateTime::<Utc>::MAX_UTC);
         let reserved = self.reserved_atomic();
 
         let daily = self
             .latest_records()
             .into_iter()
             .filter(|record| {
-                is_unresolved(record)
+                (is_unresolved(record) && overlaps_authorization_window(record, day_start, day_end))
                     || (record.status == PaymentStatus::Settled
-                        && record.timestamp.date_naive() == today)
+                        && record.timestamp >= day_start
+                        && record.timestamp < day_end)
             })
             .fold(reserved, |total, record| {
                 total.saturating_add(record.amount_atomic)
@@ -112,7 +137,8 @@ impl PaymentLedger {
             .latest_records()
             .into_iter()
             .filter(|record| {
-                is_unresolved(record)
+                (is_unresolved(record)
+                    && overlaps_authorization_window(record, month_start, month_end))
                     || (record.status == PaymentStatus::Settled
                         && (record.timestamp.year(), record.timestamp.month()) == this_month)
             })
@@ -212,6 +238,46 @@ impl PaymentLedger {
         Ok(())
     }
 
+    /// Persist finalized Solana block-height evidence that a pending
+    /// authorization can no longer be submitted. The chain call must happen
+    /// before this method, outside the ledger lock.
+    ///
+    /// This update is conditional on the latest record still being the same
+    /// pending authorization with the expected validity bound. A receipt or
+    /// replacement state that wins the race is never overwritten.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the expiry observation cannot be durably appended.
+    pub fn observe_solana_expiry(
+        &mut self,
+        expected_generation: u64,
+        id: &str,
+        expected_issued_at: DateTime<Utc>,
+        expected_last_valid_height: u64,
+        observed_height: u64,
+        observed_at: DateTime<Utc>,
+    ) -> Result<bool, String> {
+        if self.generation != expected_generation || observed_height <= expected_last_valid_height {
+            return Ok(false);
+        }
+        let Some(mut latest) = self.payment(id).cloned() else {
+            return Ok(false);
+        };
+        if latest.status != PaymentStatus::Pending
+            || latest.timestamp != expected_issued_at
+            || latest.solana_last_valid_block_height != Some(expected_last_valid_height)
+            || latest.authorization_expired_at.is_some()
+            || observed_at < latest.timestamp
+        {
+            return Ok(false);
+        }
+        latest.authorization_expired_at = Some(observed_at);
+        latest.authorization_expiry_observed_height = Some(observed_height);
+        self.try_record_payment(latest)?;
+        Ok(true)
+    }
+
     /// Commit a reservation into a durable record without an interval where
     /// neither the hold nor the record counts against the budget.
     ///
@@ -300,9 +366,7 @@ impl PaymentLedger {
             .into_iter()
             .filter(|record| {
                 record.status == PaymentStatus::Pending
-                    && record
-                        .authorization_valid_until
-                        .is_none_or(|valid_until| valid_until > now)
+                    && authorization_window_end(record).is_none_or(|end| end > now)
             })
             .count()
     }
@@ -405,6 +469,28 @@ fn is_unresolved(record: &PaymentRecord) -> bool {
         // budgeted until a trusted receipt resolves them.
         || (record.status == PaymentStatus::Failed
             && record.authorization_valid_until.is_some())
+}
+
+fn overlaps_authorization_window(
+    record: &PaymentRecord,
+    window_start: DateTime<Utc>,
+    window_end: DateTime<Utc>,
+) -> bool {
+    let authorization_end = authorization_window_end(record);
+    record.timestamp < window_end && authorization_end.is_none_or(|end| end >= window_start)
+}
+
+fn authorization_window_end(record: &PaymentRecord) -> Option<DateTime<Utc>> {
+    record.authorization_valid_until.or_else(|| {
+        let (Some(last_valid), Some(observed_height), Some(observed_at)) = (
+            record.solana_last_valid_block_height,
+            record.authorization_expiry_observed_height,
+            record.authorization_expired_at,
+        ) else {
+            return None;
+        };
+        (observed_height > last_valid && observed_at >= record.timestamp).then_some(observed_at)
+    })
 }
 
 fn load_from_disk(path: &Path) -> Vec<PaymentRecord> {

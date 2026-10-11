@@ -31,6 +31,20 @@ struct PendingAdmission<'a> {
     preparing: &'a Mutex<usize>,
 }
 
+impl PendingAdmission<'_> {
+    fn ensure_capacity(&self) -> Result<(), String> {
+        let preparing = self
+            .preparing
+            .lock()
+            .map_err(|_| "x402 pending-payment admission is unavailable".to_string())?;
+        let pending = ledger::with_ledger(|ledger| ledger.usable_pending_count(Utc::now()))?;
+        if pending.saturating_add(*preparing) > MAX_PENDING {
+            return Err("x402 pending-payment capacity reached".to_string());
+        }
+        Ok(())
+    }
+}
+
 impl Drop for PendingAdmission<'_> {
     fn drop(&mut self) {
         if let Ok(mut preparing) = self.preparing.lock() {
@@ -102,7 +116,6 @@ impl X402Runtime {
             wipe(&mut request.secret);
             return Err(error);
         }
-        let _admission = self.admit_request(&mut request)?;
         let header = HeaderValue::from_str(&request.payment_required)
             .map_err(|error| format!("invalid payment challenge header: {error}"));
         let header = match header {
@@ -122,6 +135,14 @@ impl X402Runtime {
             let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
             let transport = Arc::new(HostTransport(self.callbacks.clone()));
             let builder = CryptoPayments::new(signer, transport);
+            // Bound concurrent chain refreshes before the first network await.
+            // Capacity is checked again after refresh so finalized expiry
+            // evidence can free slots before new authorizations are admitted.
+            let admission = self.begin_pending()?;
+            tinywallet_x402::protocol::refresh_solana_authorizations(&builder)
+                .await
+                .map_err(|error| error.to_string())?;
+            admission.ensure_capacity()?;
             handle_402_and_pay_authorized(
                 &builder,
                 &headers,
@@ -170,6 +191,9 @@ impl X402Runtime {
             status: PaymentStatus::Pending,
             timestamp: Utc::now(),
             authorization_valid_until: proof.authorization_valid_until,
+            solana_last_valid_block_height: proof.solana_last_valid_block_height,
+            authorization_expired_at: None,
+            authorization_expiry_observed_height: None,
             session_id: self.config.session_id.clone(),
             thread_id,
         };
@@ -180,32 +204,25 @@ impl X402Runtime {
         Ok(response)
     }
 
+    #[cfg(test)]
     fn admit_pending(&self) -> Result<PendingAdmission<'_>, String> {
+        let admission = self.begin_pending()?;
+        admission.ensure_capacity()?;
+        Ok(admission)
+    }
+
+    fn begin_pending(&self) -> Result<PendingAdmission<'_>, String> {
         let mut preparing = self
             .preparing
             .lock()
             .map_err(|_| "x402 pending-payment admission is unavailable".to_string())?;
-        let pending = ledger::with_ledger(|ledger| ledger.usable_pending_count(Utc::now()))?;
-        if pending.saturating_add(*preparing) >= MAX_PENDING {
+        if *preparing >= MAX_PENDING {
             return Err("x402 pending-payment capacity reached".to_string());
         }
         *preparing += 1;
         Ok(PendingAdmission {
             preparing: &self.preparing,
         })
-    }
-
-    fn admit_request<'a>(
-        &'a self,
-        request: &mut X402PreparePaymentRequest,
-    ) -> Result<PendingAdmission<'a>, String> {
-        match self.admit_pending() {
-            Ok(admission) => Ok(admission),
-            Err(error) => {
-                wipe(&mut request.secret);
-                Err(error)
-            }
-        }
     }
 
     /// Commit the reserved amount to the module-owned ledger after the host
@@ -253,6 +270,9 @@ impl X402Runtime {
             status,
             timestamp: chrono::Utc::now(),
             authorization_valid_until: pending.authorization_valid_until,
+            solana_last_valid_block_height: pending.solana_last_valid_block_height,
+            authorization_expired_at: pending.authorization_expired_at,
+            authorization_expiry_observed_height: pending.authorization_expiry_observed_height,
             session_id: pending.session_id,
             thread_id: pending.thread_id,
         };

@@ -17,9 +17,12 @@
 //!
 //! [`PaymentLedger::check_budget`] enforces a per-request cap and daily and
 //! monthly totals over settled payments, unresolved signed authorizations, and
-//! outstanding reservations. An unresolved authorization remains budgeted
-//! after its validity deadline because it may have settled before that deadline
-//! without a receipt reaching this process.
+//! outstanding reservations. A bounded authorization is charged to each
+//! calendar window it could have settled in. Once the proof is no longer
+//! usable, future non-overlapping windows can admit new spending, while the
+//! unresolved amount remains in durable outstanding totals until a trusted
+//! receipt resolves it. Rails without trustworthy expiry evidence remain
+//! conservatively charged to future windows.
 //!
 //! # Reservations
 //!
@@ -58,5 +61,5 @@ pub use types::{
 mod test;
 
 #[cfg(test)]
-#[path = "authorization_tests.rs"]
+#[path = "mod_authorization_tests.rs"]
 mod authorization_test;

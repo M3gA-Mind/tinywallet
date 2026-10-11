@@ -24,6 +24,9 @@ fn pending_record(
         status: PaymentStatus::Pending,
         timestamp: chrono::Utc::now(),
         authorization_valid_until,
+        solana_last_valid_block_height: None,
+        authorization_expired_at: None,
+        authorization_expiry_observed_height: None,
         session_id: "coverage-test".to_string(),
         thread_id: None,
     }
@@ -32,7 +35,7 @@ fn pending_record(
 const VECTOR: &str =
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-fn secret(chain: tinywallet_bus::Chain) -> SecretMaterial {
+pub(crate) fn secret(chain: tinywallet_bus::Chain) -> SecretMaterial {
     let derivation_path = match chain {
         tinywallet_bus::Chain::Solana => "m/44'/501'/0'/0'",
         _ => "m/44'/60'/0'/0/0",
@@ -292,12 +295,14 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
 }
 
 #[derive(Clone)]
-struct PaymentApprovalHost {
-    approved: Arc<AtomicBool>,
-    authorizations: Arc<AtomicUsize>,
-    pause: Arc<AtomicBool>,
-    approval_started: Arc<tokio::sync::Notify>,
-    release_approval: Arc<tokio::sync::Notify>,
+pub(crate) struct PaymentApprovalHost {
+    pub(crate) approved: Arc<AtomicBool>,
+    pub(crate) authorizations: Arc<AtomicUsize>,
+    pub(crate) pause: Arc<AtomicBool>,
+    pub(crate) approval_started: Arc<tokio::sync::Notify>,
+    pub(crate) release_approval: Arc<tokio::sync::Notify>,
+    pub(crate) finalized_height: Arc<AtomicUsize>,
+    pub(crate) rpc_requests: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinywallet.Host")]
@@ -318,9 +323,48 @@ impl PaymentApprovalHost {
             },
         ))
     }
+
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "TinyBus host methods are async even when this local fixture returns immediately"
+    )]
+    async fn chain_transport(
+        &self,
+        request: tinywallet_bus::wire::ChainTransportRequest,
+    ) -> tinybus::Result<tinywallet_bus::wire::HostResponse> {
+        use tinywallet_bus::wire::{ChainTransportRequest, ChainTransportResult, HostResponse};
+        let body = match request {
+            ChainTransportRequest::JsonRpc { method, params, .. } => {
+                self.rpc_requests
+                    .lock()
+                    .unwrap()
+                    .push((method.clone(), params));
+                match method.as_str() {
+                    "getLatestBlockhash" => serde_json::json!({
+                        "context": {"slot": 1},
+                        "value": {
+                            "blockhash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                            "lastValidBlockHeight": 9
+                        }
+                    }),
+                    "getBlockHeight" => {
+                        serde_json::json!(self.finalized_height.load(Ordering::SeqCst))
+                    }
+                    _ => serde_json::Value::Null,
+                }
+            }
+            ChainTransportRequest::RestGet { .. } | ChainTransportRequest::RestPost { .. } => {
+                serde_json::Value::Null
+            }
+        };
+        Ok(HostResponse::ChainTransport(ChainTransportResult::Ok {
+            body,
+        }))
+    }
 }
 
-fn valid_challenge_header() -> String {
+pub(crate) fn valid_challenge_header() -> String {
     BASE64.encode(
         serde_json::to_vec(&serde_json::json!({
             "x402Version": 2,
@@ -338,295 +382,26 @@ fn valid_challenge_header() -> String {
     )
 }
 
-#[tokio::test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "One MemoryBus scenario exercises the x402 service lifecycle and cancellation cleanup"
-)]
-async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
-    use tinywallet_bus::wire::{
-        X402CloseRequest, X402ConfigureRequest, X402PreparePaymentRequest,
-        X402RecordPaymentRequest, X402SummaryRequest,
-    };
-
-    let _ledger_guard = LEDGER_TEST_LOCK.lock().await;
-    let bus = tinybus::transport::memory::MemoryBus::new();
-    let broker = tinybus::broker::Broker::new();
-    let broker_task = broker.spawn(bus.clone());
-    let host = tinybus::Connection::connect(bus.connect().await.unwrap())
-        .await
-        .unwrap();
-    let approved = Arc::new(AtomicBool::new(true));
-    let authorizations = Arc::new(AtomicUsize::new(0));
-    let pause = Arc::new(AtomicBool::new(false));
-    let approval_started = Arc::new(tokio::sync::Notify::new());
-    let release_approval = Arc::new(tokio::sync::Notify::new());
-    host.serve_at(
-        crate::service::HOST_OBJECT_PATH.try_into().unwrap(),
-        PaymentApprovalHost {
-            approved: approved.clone(),
-            authorizations: authorizations.clone(),
-            pause: pause.clone(),
-            approval_started: approval_started.clone(),
-            release_approval: release_approval.clone(),
-        },
+pub(crate) fn valid_solana_challenge_header() -> String {
+    BASE64.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "x402Version": 2,
+            "resource": {"url": "https://wallet.fixture.test/resource"},
+            "accepts": [{
+                "scheme": "exact",
+                "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+                "amount": "100",
+                "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                "payTo": "9xQeWvG816bUx9EPfEZ6bJvT4G7M1S8qNnXvZ4QxS5V",
+                "maxTimeoutSeconds": 60,
+                "extra": {"feePayer": "9xQeWvG816bUx9EPfEZ6bJvT4G7M1S8qNnXvZ4QxS5V"}
+            }]
+        }))
+        .unwrap(),
     )
-    .await
-    .unwrap();
-    host.request_name(crate::service::HOST_INTERFACE)
-        .await
-        .unwrap();
-    let client = tinybus::Connection::connect(bus.connect().await.unwrap())
-        .await
-        .unwrap();
-    let callbacks = HostCallbacks::new(&client).unwrap();
-    let wallet = Arc::new(crate::service::Wallet {
-        callbacks: Some(callbacks),
-        ..crate::service::Wallet::default()
-    });
-    let workspace = tempfile::tempdir().unwrap();
-    let handle = wallet
-        .x402_configure(X402ConfigureRequest {
-            config: X402ConfigResponse {
-                workspace_dir: workspace.path().display().to_string(),
-                session_id: "wallet-service-lifecycle".to_string(),
-                per_request_max_atomic: 1_000,
-                daily_max_atomic: 2_000,
-                monthly_max_atomic: 3_000,
-            },
-        })
-        .await
-        .unwrap();
-    let replaced = wallet
-        .x402_configure(X402ConfigureRequest {
-            config: X402ConfigResponse {
-                workspace_dir: workspace.path().display().to_string(),
-                session_id: "wallet-service-lifecycle-replaced".to_string(),
-                per_request_max_atomic: 1_000,
-                daily_max_atomic: 2_000,
-                monthly_max_atomic: 3_000,
-            },
-        })
-        .await
-        .unwrap();
-    assert_ne!(handle.handle, replaced.handle);
-    assert!(
-        wallet
-            .x402_spending_summary(X402SummaryRequest { service: handle })
-            .await
-            .is_err()
-    );
-    let handle = replaced;
-
-    let prepared = wallet
-        .x402_prepare_payment(X402PreparePaymentRequest {
-            service: handle.clone(),
-            url: "https://wallet.fixture.test/resource".to_string(),
-            payment_required: valid_challenge_header(),
-            owner: Some(tinywallet_bus::wire::QuoteOwner {
-                thread_id: "fixture-thread".to_string(),
-                client_id: "fixture-client".to_string(),
-            }),
-            secret: secret(tinywallet_bus::Chain::Evm),
-        })
-        .await
-        .unwrap();
-    assert_eq!(prepared.amount_atomic, 100);
-    assert!(prepared.payment_header.starts_with("ey"));
-    assert!(
-        uuid::Uuid::parse_str(prepared.payment_id.strip_prefix("x402_").unwrap()).is_ok(),
-        "payment handles must stay collision-safe across process restarts"
-    );
-    wallet
-        .x402_close(X402CloseRequest {
-            service: handle.clone(),
-        })
-        .await
-        .unwrap();
-    let handle = wallet
-        .x402_configure(X402ConfigureRequest {
-            config: X402ConfigResponse {
-                workspace_dir: workspace.path().display().to_string(),
-                session_id: "wallet-service-lifecycle-reopened".to_string(),
-                per_request_max_atomic: 1_000,
-                daily_max_atomic: 2_000,
-                monthly_max_atomic: 3_000,
-            },
-        })
-        .await
-        .unwrap();
-    let held = wallet
-        .x402_spending_summary(X402SummaryRequest {
-            service: handle.clone(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(
-        held.reserved_atomic, 100,
-        "closing and reopening must preserve a signed authorization's budget hold"
-    );
-
-    wallet
-        .x402_record_payment(X402RecordPaymentRequest {
-            service: handle.clone(),
-            payment_id: prepared.payment_id.clone(),
-            response_status: 503,
-            settlement_response: None,
-        })
-        .await
-        .unwrap();
-    let unresolved = wallet
-        .x402_spending_summary(X402SummaryRequest {
-            service: handle.clone(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(
-        unresolved.reserved_atomic, 100,
-        "an HTTP failure without settlement evidence cannot release a still-valid authorization"
-    );
-
-    wallet
-        .x402_record_payment(X402RecordPaymentRequest {
-            service: handle.clone(),
-            payment_id: prepared.payment_id.clone(),
-            response_status: 200,
-            settlement_response: Some(
-                BASE64.encode(
-                    serde_json::to_vec(&serde_json::json!({
-                        "success": true,
-                        "transaction": "0xsettled",
-                        "network": "eip155:1"
-                    }))
-                    .unwrap(),
-                ),
-            ),
-        })
-        .await
-        .unwrap();
-    let settled = wallet
-        .x402_spending_summary(X402SummaryRequest {
-            service: handle.clone(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(settled.daily_total_atomic, 100);
-    assert_eq!(settled.reserved_atomic, 0);
-
-    approved.store(false, Ordering::SeqCst);
-    let denied = wallet
-        .x402_prepare_payment(X402PreparePaymentRequest {
-            service: handle.clone(),
-            url: "https://wallet.fixture.test/resource".to_string(),
-            payment_required: valid_challenge_header(),
-            owner: None,
-            secret: secret(tinywallet_bus::Chain::Evm),
-        })
-        .await
-        .unwrap_err();
-    assert!(denied.to_string().contains("X402OperationFailed"));
-    assert_eq!(
-        wallet
-            .x402_spending_summary(X402SummaryRequest {
-                service: handle.clone(),
-            })
-            .await
-            .unwrap()
-            .reserved_atomic,
-        0
-    );
-
-    approved.store(true, Ordering::SeqCst);
-    pause.store(true, Ordering::SeqCst);
-    let pending_wallet = wallet.clone();
-    let pending_handle = handle.clone();
-    let task = tokio::spawn(async move {
-        pending_wallet
-            .x402_prepare_payment(X402PreparePaymentRequest {
-                service: pending_handle,
-                url: "https://wallet.fixture.test/resource".to_string(),
-                payment_required: valid_challenge_header(),
-                owner: None,
-                secret: secret(tinywallet_bus::Chain::Evm),
-            })
-            .await
-    });
-    approval_started.notified().await;
-    task.abort();
-    assert!(task.await.unwrap_err().is_cancelled());
-    release_approval.notify_one();
-    pause.store(false, Ordering::SeqCst);
-    assert_eq!(
-        wallet
-            .x402_spending_summary(X402SummaryRequest {
-                service: handle.clone(),
-            })
-            .await
-            .unwrap()
-            .reserved_atomic,
-        0
-    );
-
-    wallet
-        .x402_close(X402CloseRequest {
-            service: handle.clone(),
-        })
-        .await
-        .unwrap();
-    assert!(
-        wallet
-            .x402_spending_summary(X402SummaryRequest { service: handle })
-            .await
-            .is_err()
-    );
-
-    let blocked_workspace = tempfile::tempdir().unwrap();
-    std::fs::write(blocked_workspace.path().join("x402"), "not a directory").unwrap();
-    let blocked_handle = wallet
-        .x402_configure(X402ConfigureRequest {
-            config: X402ConfigResponse {
-                workspace_dir: blocked_workspace.path().display().to_string(),
-                session_id: "unwritable-ledger".to_string(),
-                per_request_max_atomic: 1_000,
-                daily_max_atomic: 2_000,
-                monthly_max_atomic: 3_000,
-            },
-        })
-        .await
-        .unwrap();
-    let authorizations_before_unpersisted = authorizations.load(Ordering::SeqCst);
-    let unpersisted = wallet
-        .x402_prepare_payment(X402PreparePaymentRequest {
-            service: blocked_handle.clone(),
-            url: "https://wallet.fixture.test/resource".to_string(),
-            payment_required: valid_challenge_header(),
-            owner: None,
-            secret: secret(tinywallet_bus::Chain::Evm),
-        })
-        .await;
-    assert!(
-        unpersisted.is_err(),
-        "the signed header must not leave the module if durable budget accounting fails"
-    );
-    assert_eq!(
-        authorizations.load(Ordering::SeqCst),
-        authorizations_before_unpersisted + 1,
-        "the fixture reaches the real approval and signing path before the durable-write refusal"
-    );
-    wallet
-        .x402_close(X402CloseRequest {
-            service: blocked_handle,
-        })
-        .await
-        .unwrap();
-    broker_task.abort();
 }
 
 #[tokio::test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "The MemoryBus fixture proves capacity ordering, secret wiping, and cancellation cleanup"
-)]
 async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_cancel() {
     use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402PreparePaymentRequest};
 
@@ -650,6 +425,8 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
             pause: pause.clone(),
             approval_started: approval_started.clone(),
             release_approval: release_approval.clone(),
+            finalized_height: Arc::new(AtomicUsize::new(9)),
+            rpc_requests: Arc::new(std::sync::Mutex::new(Vec::new())),
         },
     )
     .await
@@ -697,20 +474,15 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         tokio::spawn(async move { pending_wallet.x402_prepare_payment(pending_request).await });
     approval_started.notified().await;
 
-    let mut rejected_request = prepare();
     let runtime_guard = wallet.x402.read().await;
     let capacity_error = runtime_guard
         .as_ref()
         .unwrap()
-        .admit_request(&mut rejected_request)
+        .admit_pending()
         .err()
         .unwrap();
     drop(runtime_guard);
     assert!(capacity_error.contains("capacity reached"));
-    assert_eq!(
-        rejected_request.secret.mnemonic, "",
-        "a rejected capacity admission wipes the host-provided secret"
-    );
 
     let over_capacity = wallet.x402_prepare_payment(prepare()).await;
     assert!(
