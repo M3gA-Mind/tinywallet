@@ -126,7 +126,7 @@ impl X402Runtime {
             wipe_request_secrets(&mut request);
             return Err(error);
         }
-        let secrets = take_request_secrets(&mut request)?;
+        let mut secrets = take_request_secrets(&mut request)?;
         let header = HeaderValue::from_str(&request.payment_required)
             .map_err(|error| format!("invalid payment challenge header: {error}"));
         let header = match header {
