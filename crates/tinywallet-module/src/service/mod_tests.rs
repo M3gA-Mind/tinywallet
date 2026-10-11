@@ -1612,6 +1612,7 @@ async fn user_scoped_operations_fail_closed_before_configuration() {
                 url: "https://example.invalid".to_string(),
                 payment_required: String::new(),
                 owner: None,
+                additional_secrets: Vec::new(),
                 secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
             })
             .await

@@ -71,3 +71,8 @@ Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are
 rejected; fee/calldata/request bounds execute in the module. See
 [construction specification](../../docs/specs/evm-module-construction.md).
+
+Contract 1.12 adds optional `additional_secrets` to confidential
+`X402PreparePayment`. When omitted or empty, the request keeps its prior JSON
+shape. The module parses the challenge, selects the payment chain, and uses
+only the matching confidential secret; hosts do not parse payment challenges.

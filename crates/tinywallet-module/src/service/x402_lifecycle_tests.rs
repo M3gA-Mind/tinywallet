@@ -105,6 +105,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
                 thread_id: "fixture-thread".to_string(),
                 client_id: "fixture-client".to_string(),
             }),
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await
@@ -196,6 +197,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_solana_challenge_header(),
         owner: None,
+        additional_secrets: Vec::new(),
         secret: secret(tinywallet_bus::Chain::Solana),
     };
     let first_solana = wallet.x402_prepare_payment(prepare_solana()).await.unwrap();
@@ -255,6 +257,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
             owner: None,
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await
@@ -283,6 +286,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
                 url: "https://wallet.fixture.test/resource".to_string(),
                 payment_required: valid_challenge_header(),
                 owner: None,
+                additional_secrets: Vec::new(),
                 secret: secret(tinywallet_bus::Chain::Evm),
             })
             .await
@@ -338,6 +342,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
             owner: None,
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await;
