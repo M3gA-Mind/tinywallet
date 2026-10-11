@@ -416,10 +416,9 @@ impl X402RequestTool {
     }
 }
 
-/// `0.002500 USDC` for `2500`.
-#[allow(clippy::cast_precision_loss)] // atomic USDC amounts stay far below 2^53
+/// Format an amount for the tool's human-readable response.
 pub(super) fn format_usdc(amount_atomic: u64) -> String {
-    format!("{:.6} USDC", amount_atomic as f64 / 1_000_000.0)
+    crate::ledger::format_usdc(amount_atomic)
 }
 
 fn parse_header_args(headers_val: Option<&serde_json::Value>) -> Vec<(String, String)> {

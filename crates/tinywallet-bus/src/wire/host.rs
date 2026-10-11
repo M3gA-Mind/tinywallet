@@ -434,6 +434,100 @@ pub struct X402SummaryRequest {
     pub service: X402ServiceHandle,
 }
 
+/// Read the newest payment records from one configured x402 service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402ListPaymentsRequest {
+    /// Handle returned by `X402Configure`.
+    pub service: X402ServiceHandle,
+    /// Maximum records to return, newest first.
+    pub limit: u64,
+}
+
+/// Current public ledger facts for one x402 payment attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct X402PaymentRecord {
+    /// Unique id of the attempt. A status change is a new row with the same id.
+    pub id: String,
+    /// URL the payment bought access to.
+    pub url: String,
+    /// Token mint or contract address paid.
+    pub asset: String,
+    /// Amount in token atomic units.
+    pub amount_atomic: u64,
+    /// Human-readable amount.
+    pub amount_display: String,
+    /// Payment recipient.
+    pub recipient: String,
+    /// CAIP-2 network identifier.
+    pub network: String,
+    /// Settlement transaction, when reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx_signature: Option<String>,
+    /// Current payment lifecycle state.
+    pub status: X402PaymentStatus,
+    /// RFC3339 timestamp of this state.
+    pub timestamp: String,
+    /// End of the exported authorization window, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_valid_until: Option<String>,
+    /// Solana's last valid block height, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solana_last_valid_block_height: Option<u64>,
+    /// Time when a finalized Solana height proved the authorization expired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expired_at: Option<String>,
+    /// Finalized height supporting the expiry observation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expiry_observed_height: Option<u64>,
+    /// Ledger session that made the payment.
+    pub session_id: String,
+    /// Conversation thread that requested the payment, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+}
+
+/// State of one x402 payment record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum X402PaymentStatus {
+    /// Signed and sent, with no confirmed settlement result yet.
+    Pending,
+    /// A trusted settlement receipt confirms payment.
+    Settled,
+    /// The payment did not settle or was rejected.
+    Failed,
+    /// The request was refused before signing.
+    Denied,
+}
+
+/// Result of listing recent x402 payment records.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402ListPaymentsResponse {
+    /// Records newest first.
+    pub payments: Vec<X402PaymentRecord>,
+}
+
+/// Update limits on one active x402 service without replacing its ledger.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402UpdateBudgetRequest {
+    /// Handle returned by `X402Configure`.
+    pub service: X402ServiceHandle,
+    /// New per-request limit in atomic units, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_request_max_atomic: Option<u64>,
+    /// New daily limit in atomic units, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_max_atomic: Option<u64>,
+    /// New monthly limit in atomic units, when supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monthly_max_atomic: Option<u64>,
+}
+
 /// Module-owned budget and ledger summary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -444,6 +538,32 @@ pub struct X402SpendingSummary {
     pub daily_total_atomic: u64,
     /// Settled amount this month (UTC).
     pub monthly_total_atomic: u64,
+    /// Current in-flight budget reservations.
+    pub reserved_atomic: u64,
+    /// Current per-request ceiling.
+    pub per_request_max_atomic: u64,
+    /// Current daily ceiling.
+    pub daily_max_atomic: u64,
+    /// Current monthly ceiling.
+    pub monthly_max_atomic: u64,
+}
+
+/// Complete x402 ledger totals, including counts retained by the host RPC API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct X402DetailedSpendingSummary {
+    /// Settled amount for the current ledger session.
+    pub session_total_atomic: u64,
+    /// Settled amount today (UTC).
+    pub daily_total_atomic: u64,
+    /// Settled amount this month (UTC).
+    pub monthly_total_atomic: u64,
+    /// Settled payment count for the current ledger session.
+    pub session_count: u64,
+    /// Settled payment count today.
+    pub daily_count: u64,
+    /// Settled payment count this month.
+    pub monthly_count: u64,
     /// Current in-flight budget reservations.
     pub reserved_atomic: u64,
     /// Current per-request ceiling.

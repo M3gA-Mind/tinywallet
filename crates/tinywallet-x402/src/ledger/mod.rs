@@ -53,7 +53,7 @@ pub use reservation::{Reservation, reserve};
 pub use store::PaymentLedger;
 pub use types::{
     BudgetCheck, BudgetRefusal, PaymentRecord, PaymentStatus, ReservationId, SpendingBudget,
-    SpendingSummary,
+    SpendingSummary, format_usdc,
 };
 
 #[cfg(test)]

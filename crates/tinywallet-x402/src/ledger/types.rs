@@ -3,6 +3,18 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Format an atomic USDC amount with the six decimals used by x402 records.
+///
+/// This uses integer arithmetic so large `u64` values do not lose precision.
+#[must_use]
+pub fn format_usdc(amount_atomic: u64) -> String {
+    format!(
+        "{}.{:06} USDC",
+        amount_atomic / 1_000_000,
+        amount_atomic % 1_000_000
+    )
+}
+
 /// One payment attempt, as written to the ledger file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

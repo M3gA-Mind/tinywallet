@@ -608,6 +608,43 @@ impl Wallet {
             .map_err(x402_operation_failed)
     }
 
+    /// List recent payment records from the configured module-owned ledger.
+    async fn x402_list_payments(
+        &self,
+        request: tinywallet_bus::wire::X402ListPaymentsRequest,
+    ) -> BusResult<tinywallet_bus::wire::X402ListPaymentsResponse> {
+        let x402 = self.x402.read().await;
+        let Some(x402) = x402.as_ref() else {
+            return Err(host_unavailable());
+        };
+        x402.list_payments(&request).map_err(x402_operation_failed)
+    }
+
+    /// Update the active spending limits without replacing its ledger.
+    async fn x402_update_budget(
+        &self,
+        request: tinywallet_bus::wire::X402UpdateBudgetRequest,
+    ) -> BusResult<tinywallet_bus::wire::X402SpendingSummary> {
+        let x402 = self.x402.read().await;
+        let Some(x402) = x402.as_ref() else {
+            return Err(host_unavailable());
+        };
+        x402.update_budget(&request).map_err(x402_operation_failed)
+    }
+
+    /// Report totals and limits together with payment counts for current hosts.
+    async fn x402_spending_summary_detailed(
+        &self,
+        request: tinywallet_bus::wire::X402SummaryRequest,
+    ) -> BusResult<tinywallet_bus::wire::X402DetailedSpendingSummary> {
+        let x402 = self.x402.read().await;
+        let Some(x402) = x402.as_ref() else {
+            return Err(host_unavailable());
+        };
+        x402.detailed_summary(&request)
+            .map_err(x402_operation_failed)
+    }
+
     /// Configure or replace the active x402 ledger after the host has loaded
     /// and selected the user's workspace and spending policy.
     async fn x402_configure(
@@ -1486,6 +1523,9 @@ mod exports {
             "X402PreparePayment",
             "X402RecordPayment",
             "X402SpendingSummary",
+            "X402SpendingSummaryDetailed",
+            "X402ListPayments",
+            "X402UpdateBudget",
             "X402Configure",
             "X402Close",
         ],

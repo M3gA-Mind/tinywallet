@@ -110,7 +110,7 @@ fn network_request_keeps_legacy_json_and_omits_unset_endpoint_url() {
 
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
-    assert_eq!(CONTRACT_VERSION, (1, 10));
+    assert_eq!(CONTRACT_VERSION, (1, 11));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));
@@ -136,7 +136,7 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 34);
+    assert_eq!(METHODS.len(), 37);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
@@ -171,6 +171,9 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         names::methods::X402_PREPARE_PAYMENT,
         names::methods::X402_RECORD_PAYMENT,
         names::methods::X402_SPENDING_SUMMARY,
+        names::methods::X402_SPENDING_SUMMARY_DETAILED,
+        names::methods::X402_LIST_PAYMENTS,
+        names::methods::X402_UPDATE_BUDGET,
         names::methods::X402_CLOSE,
         names::methods::X402_CONFIGURE,
     ] {
@@ -179,6 +182,67 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
             "{member} is missing from METHODS"
         );
     }
+}
+
+#[cfg(feature = "wire")]
+#[test]
+fn x402_history_and_budget_wire_vocabulary_preserves_rpc_record_shape() {
+    use super::wire::{
+        X402ListPaymentsRequest, X402ListPaymentsResponse, X402PaymentRecord, X402PaymentStatus,
+        X402ServiceHandle, X402UpdateBudgetRequest,
+    };
+
+    let request = X402ListPaymentsRequest {
+        service: X402ServiceHandle {
+            handle: "opaque-service".into(),
+        },
+        limit: 50,
+    };
+    assert_eq!(
+        serde_json::to_value(&request).unwrap(),
+        serde_json::json!({ "service": { "handle": "opaque-service" }, "limit": 50 })
+    );
+
+    let response = X402ListPaymentsResponse {
+        payments: vec![X402PaymentRecord {
+            id: "payment-1".into(),
+            url: "https://api.example/resource".into(),
+            asset: "asset".into(),
+            amount_atomic: 2500,
+            amount_display: "0.002500 USDC".into(),
+            recipient: "recipient".into(),
+            network: "eip155:1".into(),
+            tx_signature: None,
+            status: X402PaymentStatus::Pending,
+            timestamp: "2026-10-11T00:00:00Z".into(),
+            authorization_valid_until: None,
+            solana_last_valid_block_height: None,
+            authorization_expired_at: None,
+            authorization_expiry_observed_height: None,
+            session_id: "session-1".into(),
+            thread_id: Some("thread-1".into()),
+        }],
+    };
+    let encoded = serde_json::to_value(response).unwrap();
+    assert_eq!(encoded["payments"][0]["amountAtomic"], 2500);
+    assert_eq!(encoded["payments"][0]["status"], "pending");
+    assert_eq!(encoded["payments"][0]["threadId"], "thread-1");
+    assert!(encoded["payments"][0].get("txSignature").is_none());
+
+    let budget = X402UpdateBudgetRequest {
+        service: request.service,
+        per_request_max_atomic: Some(1_000_000),
+        daily_max_atomic: None,
+        monthly_max_atomic: Some(9_000_000),
+    };
+    assert_eq!(
+        serde_json::to_value(budget).unwrap(),
+        serde_json::json!({
+            "service": { "handle": "opaque-service" },
+            "per_request_max_atomic": 1_000_000,
+            "monthly_max_atomic": 9_000_000
+        })
+    );
 }
 
 #[test]
@@ -215,7 +279,7 @@ fn native_wallet_members_are_additive_and_use_one_typed_argument() {
         methods::NATIVE_WALLET_TX_RECEIPT,
         methods::NATIVE_WALLET_LOOKUP_TX,
     ];
-    assert_eq!(METHODS.len(), 34);
+    assert_eq!(METHODS.len(), 37);
     assert!(native_members.iter().all(|member| METHODS.contains(member)));
     assert_eq!(HOST_METHODS.len(), 6);
     assert!(HOST_METHODS.contains(&host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION));

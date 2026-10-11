@@ -42,8 +42,10 @@ use tinywallet_bus::wire::{
     NativeWalletPrepareTransferRequest, NativeWalletServiceHandle, NetworkRequest,
     PrepareTransferParams, RpcEndpointKey, SecretMaterial, SolanaCluster, WalletAccountsResponse,
     WalletBackendRequest, WalletBackendResponse, WalletChain, Web3CloseRequest, Web3ServiceHandle,
-    X402CloseRequest, X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest,
-    X402RecordPaymentRequest, X402ServiceHandle, X402SummaryRequest,
+    X402CloseRequest, X402ConfigResponse, X402ConfigureRequest, X402DetailedSpendingSummary,
+    X402ListPaymentsRequest, X402ListPaymentsResponse, X402PaymentStatus,
+    X402PreparePaymentRequest, X402RecordPaymentRequest, X402ServiceHandle, X402SummaryRequest,
+    X402UpdateBudgetRequest,
 };
 use tinywallet_module::{BUS_NAME, HOST_INTERFACE, HOST_OBJECT_PATH, OBJECT_PATH};
 
@@ -89,6 +91,9 @@ const EXPECTED_METHODS: &[&str] = &[
     "X402PreparePayment",
     "X402RecordPayment",
     "X402SpendingSummary",
+    "X402SpendingSummaryDetailed",
+    "X402ListPayments",
+    "X402UpdateBudget",
     "X402Configure",
     "X402Close",
 ];
@@ -673,6 +678,50 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .unwrap();
     assert_eq!(spending["session_total_atomic"], 0);
     assert_eq!(spending["reserved_atomic"], 100);
+
+    let history: X402ListPaymentsResponse = proxy
+        .call(
+            "X402ListPayments",
+            (X402ListPaymentsRequest {
+                service: x402_service.clone(),
+                limit: 10,
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history.payments.len(), 1);
+    assert_eq!(history.payments[0].id, payment["payment_id"]);
+    assert_eq!(history.payments[0].status, X402PaymentStatus::Pending);
+    assert_eq!(history.payments[0].session_id, "module-e2e");
+    assert_eq!(history.payments[0].amount_display, "0.000100 USDC");
+
+    let updated_budget: tinywallet_bus::wire::X402SpendingSummary = proxy
+        .call(
+            "X402UpdateBudget",
+            (X402UpdateBudgetRequest {
+                service: x402_service.clone(),
+                per_request_max_atomic: Some(500),
+                daily_max_atomic: None,
+                monthly_max_atomic: None,
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated_budget.per_request_max_atomic, 500);
+    assert_eq!(updated_budget.daily_max_atomic, 10_000_000);
+    assert_eq!(updated_budget.reserved_atomic, 100);
+
+    let detailed: X402DetailedSpendingSummary = proxy
+        .call(
+            "X402SpendingSummaryDetailed",
+            (X402SummaryRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detailed.session_count, 0);
+    assert_eq!(detailed.reserved_atomic, 100);
 
     let settlement = BASE64.encode(
         serde_json::to_vec(&serde_json::json!({

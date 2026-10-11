@@ -6,8 +6,10 @@ use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tinywallet_bus::wire::{
-    AuthorizeX402PaymentRequest, SecretMaterial, X402ConfigResponse, X402PreparePaymentRequest,
-    X402PreparePaymentResponse, X402RecordPaymentRequest, X402ServiceHandle, X402SpendingSummary,
+    AuthorizeX402PaymentRequest, SecretMaterial, X402ConfigResponse, X402DetailedSpendingSummary,
+    X402ListPaymentsRequest, X402ListPaymentsResponse, X402PaymentRecord, X402PaymentStatus,
+    X402PreparePaymentRequest, X402PreparePaymentResponse, X402RecordPaymentRequest,
+    X402ServiceHandle, X402SpendingSummary, X402SummaryRequest, X402UpdateBudgetRequest,
 };
 use tinywallet_x402::crypto::{CryptoPayments, PaymentAccount, PaymentSigner, SignScheme};
 use tinywallet_x402::ledger::{self, PaymentRecord, PaymentStatus, SpendingBudget};
@@ -203,7 +205,7 @@ impl X402Runtime {
             url: proof.url.clone(),
             asset: proof.asset.clone(),
             amount_atomic: proof.amount_atomic,
-            amount_display: format!("{} atomic", proof.amount_atomic),
+            amount_display: tinywallet_x402::ledger::format_usdc(proof.amount_atomic),
             recipient: proof.recipient.clone(),
             network: proof.network.clone(),
             tx_signature: None,
@@ -318,6 +320,99 @@ impl X402Runtime {
                 monthly_max_atomic: budget.monthly_max_atomic,
             }
         })
+    }
+
+    /// Return recent ledger records in the stable host-facing wire vocabulary.
+    pub(crate) fn list_payments(
+        &self,
+        request: &X402ListPaymentsRequest,
+    ) -> Result<X402ListPaymentsResponse, String> {
+        self.require_handle(&request.service)?;
+        let limit = request.limit.min(500) as usize;
+        ledger::with_ledger(|ledger| X402ListPaymentsResponse {
+            payments: ledger
+                .recent_payments(limit)
+                .into_iter()
+                .map(payment_record_to_wire)
+                .collect(),
+        })
+    }
+
+    /// Change the live limits without replacing the ledger or releasing holds.
+    pub(crate) fn update_budget(
+        &self,
+        request: &X402UpdateBudgetRequest,
+    ) -> Result<X402SpendingSummary, String> {
+        self.require_handle(&request.service)?;
+        ledger::with_ledger_mut(|ledger| {
+            let mut budget = ledger.budget().clone();
+            if let Some(value) = request.per_request_max_atomic {
+                budget.per_request_max_atomic = value;
+            }
+            if let Some(value) = request.daily_max_atomic {
+                budget.daily_max_atomic = value;
+            }
+            if let Some(value) = request.monthly_max_atomic {
+                budget.monthly_max_atomic = value;
+            }
+            ledger.update_budget(budget);
+        })?;
+        self.summary(&request.service)
+    }
+
+    /// Include payment counts while retaining the older summary operation's
+    /// wire representation for hosts that still use it.
+    pub(crate) fn detailed_summary(
+        &self,
+        request: &X402SummaryRequest,
+    ) -> Result<X402DetailedSpendingSummary, String> {
+        self.require_handle(&request.service)?;
+        ledger::with_ledger(|ledger| {
+            let summary = ledger.summary();
+            let budget = ledger.budget();
+            X402DetailedSpendingSummary {
+                session_total_atomic: summary.session_total_atomic,
+                daily_total_atomic: summary.daily_total_atomic,
+                monthly_total_atomic: summary.monthly_total_atomic,
+                session_count: summary.session_count.try_into().unwrap_or(u64::MAX),
+                daily_count: summary.daily_count.try_into().unwrap_or(u64::MAX),
+                monthly_count: summary.monthly_count.try_into().unwrap_or(u64::MAX),
+                reserved_atomic: ledger.outstanding_atomic(),
+                per_request_max_atomic: budget.per_request_max_atomic,
+                daily_max_atomic: budget.daily_max_atomic,
+                monthly_max_atomic: budget.monthly_max_atomic,
+            }
+        })
+    }
+}
+
+fn payment_record_to_wire(record: PaymentRecord) -> X402PaymentRecord {
+    let timestamp = |value: chrono::DateTime<chrono::Utc>| {
+        value.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+    };
+    let status = match record.status {
+        PaymentStatus::Pending => X402PaymentStatus::Pending,
+        PaymentStatus::Settled => X402PaymentStatus::Settled,
+        PaymentStatus::Failed => X402PaymentStatus::Failed,
+        PaymentStatus::Denied => X402PaymentStatus::Denied,
+    };
+    X402PaymentRecord {
+        id: record.id,
+        url: record.url,
+        asset: record.asset,
+        amount_atomic: record.amount_atomic,
+        amount_display: record.amount_display,
+        recipient: record.recipient,
+        network: record.network,
+        tx_signature: record.tx_signature,
+        status,
+        timestamp: timestamp(record.timestamp),
+        authorization_valid_until: record.authorization_valid_until.map(timestamp),
+        solana_last_valid_block_height: record.solana_last_valid_block_height,
+        authorization_expired_at: record.authorization_expired_at.map(timestamp),
+        authorization_expiry_observed_height: record.authorization_expiry_observed_height,
+        session_id: record.session_id,
+        thread_id: record.thread_id,
     }
 }
 

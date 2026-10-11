@@ -49,8 +49,10 @@ pub use host::{
     WalletBackendResponse, Web3CloseRequest, Web3ConfigureRequest, Web3ConfigureResponse,
     Web3ExecuteRequest, Web3ExecutionIntent, Web3QuoteKind, Web3QuoteRequest, Web3QuoteResponse,
     Web3ServiceHandle, X402CloseRequest, X402ConfigResponse, X402ConfigureRequest,
-    X402PreparePaymentRequest, X402PreparePaymentResponse, X402RecordPaymentRequest,
-    X402ServiceHandle, X402SpendingSummary, X402SummaryRequest,
+    X402DetailedSpendingSummary, X402ListPaymentsRequest, X402ListPaymentsResponse,
+    X402PaymentRecord, X402PaymentStatus, X402PreparePaymentRequest, X402PreparePaymentResponse,
+    X402RecordPaymentRequest, X402ServiceHandle, X402SpendingSummary, X402SummaryRequest,
+    X402UpdateBudgetRequest,
 };
 pub use wallet::{
     BalanceInfo, ChainStatus, DeriveMnemonicSeedRequest, DeriveMnemonicSeedResponse, EvmNetwork,
