@@ -62,6 +62,11 @@ Contract 1.9 adds confidential `GenerateMnemonic(word_count)`. The module
 generates BIP-39 entropy and returns the phrase for the host to encrypt and
 store; the host remains responsible for custody and persistence.
 
+Contract 1.10 adds confidential `DeriveMnemonicSeed(mnemonic)` for hosts that
+must preserve an existing mnemonic-derived storage-key KDF. The wallet module
+validates the phrase and derives the standard 64-byte BIP-39 seed; the host
+continues to apply its own storage-key KDF and custody policy.
+
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are
 rejected; fee/calldata/request bounds execute in the module. See

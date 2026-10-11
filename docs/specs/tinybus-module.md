@@ -82,6 +82,10 @@ it to the host for encryption and persistence. The module does not retain the
 phrase, and the host continues to own consent, encryption, storage, and
 recovery display.
 
+Contract 1.10 adds confidential `DeriveMnemonicSeed(mnemonic)` for compatible
+host storage-key derivation. The module validates the phrase and returns its
+standard 64-byte BIP-39 seed; the host retains the storage-key KDF and custody.
+
 ## The two-call split is the security property
 
 Legacy `BuildUnsigned` and `AttachSignature` let a host hold the key, ask what
