@@ -216,6 +216,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         """The Windows packaging guard uses the same SemVer rules."""
         script = (ROOT / "scripts/build-module.ps1").read_text()
         pattern = re.search(r"\$Version -notmatch '([^']+)'", script).group(1)
+        self.assertTrue(pattern.endswith(r"\z"), ".NET must reject trailing newlines")
         # Python's fullmatch models the strict end anchor used by .NET.
         pattern = pattern.removesuffix(r"\z")
         for version, valid in VERSION_CASES:
@@ -237,6 +238,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, valid, (tag, result.stderr))
                 if valid:
                     self.assertEqual(output.read_text(), "tag="+tag+"\nversion="+tag[1:]+"\n")
+                else:
+                    self.assertEqual(output.read_text(), "")
 
 if __name__ == "__main__":
     unittest.main()
