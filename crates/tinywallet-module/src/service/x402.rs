@@ -1,11 +1,9 @@
 //! `TinyBus` bridge for the module-owned x402 payment and ledger algorithms.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tinywallet_bus::wire::{
     AuthorizeX402PaymentRequest, SecretMaterial, X402ConfigResponse, X402PreparePaymentRequest,
@@ -19,31 +17,34 @@ use tinywallet_x402::wire::PaymentChain;
 use super::host::HostCallbacks;
 use super::web3::{HostTransport, with_execution_context};
 
-const PENDING_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_PENDING: usize = 64;
-
-static NEXT_PAYMENT: AtomicU64 = AtomicU64::new(1);
 
 /// Stateful module-owned x402 ledger and outstanding payment reservations.
 pub(crate) struct X402Runtime {
     callbacks: HostCallbacks,
-    pending: Mutex<HashMap<String, PendingPayment>>,
+    preparing: Mutex<usize>,
     config: X402ConfigResponse,
     handle: X402ServiceHandle,
 }
 
-struct PendingPayment {
-    payment: tinywallet_x402::protocol::X402PaymentResult,
-    created_at: Instant,
-    thread_id: Option<String>,
+struct PendingAdmission<'a> {
+    preparing: &'a Mutex<usize>,
+}
+
+impl Drop for PendingAdmission<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut preparing) = self.preparing.lock() {
+            *preparing = preparing.saturating_sub(1);
+        }
+    }
 }
 
 impl std::fmt::Debug for X402Runtime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("X402Runtime")
             .field(
-                "pending",
-                &self.pending.lock().map(|pending| pending.len()).ok(),
+                "preparing",
+                &self.preparing.lock().map(|preparing| *preparing).ok(),
             )
             .finish_non_exhaustive()
     }
@@ -66,7 +67,7 @@ impl X402Runtime {
         );
         Self {
             callbacks,
-            pending: Mutex::new(HashMap::new()),
+            preparing: Mutex::new(0),
             config,
             handle: X402ServiceHandle {
                 handle: uuid::Uuid::new_v4().to_string(),
@@ -87,15 +88,6 @@ impl X402Runtime {
 
     pub(crate) fn close(&mut self, handle: &X402ServiceHandle) -> Result<(), String> {
         self.require_handle(handle)?;
-        // Dropping pending payment results releases reservations against the
-        // still-current ledger before it is cleared or replaced.
-        let pending = std::mem::take(
-            &mut *self
-                .pending
-                .lock()
-                .map_err(|_| "x402 pending-payment store is unavailable".to_string())?,
-        );
-        drop(pending);
         ledger::clear_global();
         Ok(())
     }
@@ -110,6 +102,7 @@ impl X402Runtime {
             wipe(&mut request.secret);
             return Err(error);
         }
+        let _admission = self.admit_request(&mut request)?;
         let header = HeaderValue::from_str(&request.payment_required)
             .map_err(|error| format!("invalid payment challenge header: {error}"));
         let header = match header {
@@ -119,7 +112,6 @@ impl X402Runtime {
                 return Err(error);
             }
         };
-        self.prune_pending();
         let mut headers = HeaderMap::new();
         let header_name = HeaderName::from_static("payment-required");
         headers.insert(header_name, header);
@@ -157,7 +149,7 @@ impl X402Runtime {
             .map_err(|error| error.to_string())
         })
         .await?;
-        let payment_id = format!("x402_{}", NEXT_PAYMENT.fetch_add(1, Ordering::Relaxed));
+        let payment_id = format!("x402_{}", uuid::Uuid::new_v4());
         let response = X402PreparePaymentResponse {
             payment_id: payment_id.clone(),
             payment_header: proof.header_value.clone(),
@@ -166,76 +158,105 @@ impl X402Runtime {
             recipient: proof.recipient.clone(),
             network: proof.network.clone(),
         };
-        self.store_pending(
-            payment_id,
-            PendingPayment {
-                payment: proof,
-                created_at: Instant::now(),
-                thread_id,
-            },
-        )?;
+        let record = PaymentRecord {
+            id: payment_id,
+            url: proof.url.clone(),
+            asset: proof.asset.clone(),
+            amount_atomic: proof.amount_atomic,
+            amount_display: format!("{} atomic", proof.amount_atomic),
+            recipient: proof.recipient.clone(),
+            network: proof.network.clone(),
+            tx_signature: None,
+            status: PaymentStatus::Pending,
+            timestamp: Utc::now(),
+            authorization_valid_until: proof.authorization_valid_until,
+            session_id: self.config.session_id.clone(),
+            thread_id,
+        };
+        proof
+            .reservation
+            .commit_durable(record)
+            .map_err(|_| "x402 payment budget could not be durably recorded".to_string())?;
         Ok(response)
     }
 
-    fn store_pending(&self, payment_id: String, payment: PendingPayment) -> Result<(), String> {
-        let mut pending = self
-            .pending
+    fn admit_pending(&self) -> Result<PendingAdmission<'_>, String> {
+        let mut preparing = self
+            .preparing
             .lock()
-            .map_err(|_| "x402 pending-payment store is unavailable".to_string())?;
-        if pending.len() >= MAX_PENDING
-            && let Some(oldest) = pending
-                .iter()
-                .min_by_key(|(_, value)| value.created_at)
-                .map(|(key, _)| key.clone())
-        {
-            pending.remove(&oldest);
+            .map_err(|_| "x402 pending-payment admission is unavailable".to_string())?;
+        let pending = ledger::with_ledger(|ledger| ledger.usable_pending_count(Utc::now()))?;
+        if pending.saturating_add(*preparing) >= MAX_PENDING {
+            return Err("x402 pending-payment capacity reached".to_string());
         }
-        pending.insert(payment_id, payment);
-        Ok(())
+        *preparing += 1;
+        Ok(PendingAdmission {
+            preparing: &self.preparing,
+        })
+    }
+
+    fn admit_request<'a>(
+        &'a self,
+        request: &mut X402PreparePaymentRequest,
+    ) -> Result<PendingAdmission<'a>, String> {
+        match self.admit_pending() {
+            Ok(admission) => Ok(admission),
+            Err(error) => {
+                wipe(&mut request.secret);
+                Err(error)
+            }
+        }
     }
 
     /// Commit the reserved amount to the module-owned ledger after the host
     /// retries the paid request.
     pub(crate) fn record(&self, request: X402RecordPaymentRequest) -> Result<(), String> {
         self.require_handle(&request.service)?;
-        let pending = self
-            .pending
-            .lock()
-            .map_err(|_| "x402 pending-payment store is unavailable".to_string())?
-            .remove(&request.payment_id)
-            .ok_or_else(|| "x402 payment handle was missing or expired".to_string())?;
-        if pending.created_at.elapsed() >= PENDING_TTL {
+        let pending = ledger::with_ledger(|ledger| ledger.payment(&request.payment_id).cloned())?
+            .ok_or_else(|| "x402 payment handle was missing".to_string())?;
+        if pending.status == PaymentStatus::Settled {
+            // A reply may be lost after the durable transition; replaying the
+            // same receipt is an idempotent acknowledgment.
+            return Ok(());
+        }
+        let legacy_expired =
+            pending.status == PaymentStatus::Failed && pending.authorization_valid_until.is_some();
+        if pending.status != PaymentStatus::Pending && !legacy_expired {
             return Err("x402 payment handle was missing or expired".to_string());
         }
         let receipt = request
             .settlement_response
             .as_deref()
             .and_then(|value| parse_settlement_response(value).ok());
-        let status = if !(200..300).contains(&request.response_status)
-            || receipt.as_ref().is_some_and(|receipt| !receipt.success)
-        {
-            PaymentStatus::Failed
-        } else {
+        let status = if receipt.as_ref().is_some_and(|receipt| receipt.success) {
             PaymentStatus::Settled
+        } else {
+            // Neither a failed HTTP response nor an elapsed authorization
+            // deadline proves that a previously returned proof did not settle.
+            PaymentStatus::Pending
         };
         let tx_signature = receipt
             .filter(|receipt| receipt.success && !receipt.transaction.is_empty())
             .map(|receipt| receipt.transaction);
+        if status == pending.status {
+            return Ok(());
+        }
         let record = PaymentRecord {
             id: request.payment_id,
-            url: pending.payment.url.clone(),
-            asset: pending.payment.asset.clone(),
-            amount_atomic: pending.payment.amount_atomic,
-            amount_display: format!("{} atomic", pending.payment.amount_atomic),
-            recipient: pending.payment.recipient.clone(),
-            network: pending.payment.network.clone(),
+            url: pending.url,
+            asset: pending.asset,
+            amount_atomic: pending.amount_atomic,
+            amount_display: pending.amount_display,
+            recipient: pending.recipient,
+            network: pending.network,
             tx_signature,
             status,
             timestamp: chrono::Utc::now(),
-            session_id: self.config.session_id.clone(),
+            authorization_valid_until: pending.authorization_valid_until,
+            session_id: pending.session_id,
             thread_id: pending.thread_id,
         };
-        pending.payment.reservation.commit(record);
+        ledger::with_ledger_mut(|ledger| ledger.try_record_payment(record))??;
         Ok(())
     }
 
@@ -252,18 +273,12 @@ impl X402Runtime {
                 session_total_atomic: summary.session_total_atomic,
                 daily_total_atomic: summary.daily_total_atomic,
                 monthly_total_atomic: summary.monthly_total_atomic,
-                reserved_atomic: ledger.reserved_atomic(),
+                reserved_atomic: ledger.outstanding_atomic(),
                 per_request_max_atomic: budget.per_request_max_atomic,
                 daily_max_atomic: budget.daily_max_atomic,
                 monthly_max_atomic: budget.monthly_max_atomic,
             }
         })
-    }
-
-    fn prune_pending(&self) {
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.retain(|_, payment| payment.created_at.elapsed() < PENDING_TTL);
-        }
     }
 }
 

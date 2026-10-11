@@ -16,8 +16,10 @@
 //! # Budgets
 //!
 //! [`PaymentLedger::check_budget`] enforces a per-request cap and daily and
-//! monthly totals over *settled* payments plus outstanding reservations, so a
-//! failed or denied attempt does not eat the budget.
+//! monthly totals over settled payments, unresolved signed authorizations, and
+//! outstanding reservations. An unresolved authorization remains budgeted
+//! after its validity deadline because it may have settled before that deadline
+//! without a receipt reaching this process.
 //!
 //! # Reservations
 //!
@@ -27,7 +29,8 @@
 //! checks and holds the amount in one critical section, before anything is
 //! signed. The hold is a [`Reservation`]: dropped, it releases; committed with
 //! [`Reservation::commit`], it turns into the recorded payment atomically.
-//! Holds live in memory only.
+//! Holds live in memory only until their signed authorization is durably
+//! recorded; that record then protects the budget across restart.
 //!
 //! # The process-wide handle
 //!
@@ -53,3 +56,7 @@ pub use types::{
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod test;
+
+#[cfg(test)]
+#[path = "authorization_tests.rs"]
+mod authorization_test;
