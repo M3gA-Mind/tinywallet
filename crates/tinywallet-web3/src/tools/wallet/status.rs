@@ -30,15 +30,15 @@ impl Tool for WalletStatusTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[0].name
+        tinywallet_bus::tools::wallet_status_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[0].description
+        tinywallet_bus::tools::wallet_status_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::wallet_tool_declarations()[0]
+        tinywallet_bus::tools::wallet_status_tool_declaration()
             .parameters
             .clone()
     }

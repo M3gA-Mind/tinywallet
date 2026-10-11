@@ -44,15 +44,15 @@ impl Tool for WalletPrepareTransferTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[2].name
+        tinywallet_bus::tools::wallet_prepare_transfer_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[2].description
+        tinywallet_bus::tools::wallet_prepare_transfer_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::wallet_tool_declarations()[2]
+        tinywallet_bus::tools::wallet_prepare_transfer_tool_declaration()
             .parameters
             .clone()
     }

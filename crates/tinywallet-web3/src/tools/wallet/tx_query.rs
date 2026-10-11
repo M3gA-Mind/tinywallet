@@ -47,15 +47,15 @@ impl Tool for WalletTxStatusTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[3].name
+        tinywallet_bus::tools::wallet_tx_status_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[3].description
+        tinywallet_bus::tools::wallet_tx_status_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::wallet_tool_declarations()[3]
+        tinywallet_bus::tools::wallet_tx_status_tool_declaration()
             .parameters
             .clone()
     }
@@ -94,15 +94,15 @@ impl Tool for WalletTxReceiptTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[4].name
+        tinywallet_bus::tools::wallet_tx_receipt_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[4].description
+        tinywallet_bus::tools::wallet_tx_receipt_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::wallet_tool_declarations()[4]
+        tinywallet_bus::tools::wallet_tx_receipt_tool_declaration()
             .parameters
             .clone()
     }
@@ -141,15 +141,15 @@ impl Tool for WalletLookupTxTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[5].name
+        tinywallet_bus::tools::wallet_lookup_tx_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::wallet_tool_declarations()[5].description
+        tinywallet_bus::tools::wallet_lookup_tx_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::wallet_tool_declarations()[5]
+        tinywallet_bus::tools::wallet_lookup_tx_tool_declaration()
             .parameters
             .clone()
     }

@@ -59,15 +59,15 @@ impl Tool for Web3SwapQuoteTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[0].name
+        tinywallet_bus::tools::web3_swap_quote_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[0].description
+        tinywallet_bus::tools::web3_swap_quote_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[0]
+        tinywallet_bus::tools::web3_swap_quote_tool_declaration()
             .parameters
             .clone()
     }
@@ -88,15 +88,15 @@ impl Tool for Web3SwapExecuteTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[1].name
+        tinywallet_bus::tools::web3_swap_execute_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[1].description
+        tinywallet_bus::tools::web3_swap_execute_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[1]
+        tinywallet_bus::tools::web3_swap_execute_tool_declaration()
             .parameters
             .clone()
     }
@@ -117,15 +117,15 @@ impl Tool for Web3SwapRoutesTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[2].name
+        tinywallet_bus::tools::web3_swap_routes_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[2].description
+        tinywallet_bus::tools::web3_swap_routes_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[2]
+        tinywallet_bus::tools::web3_swap_routes_tool_declaration()
             .parameters
             .clone()
     }

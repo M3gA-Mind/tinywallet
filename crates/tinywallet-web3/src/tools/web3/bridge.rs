@@ -44,15 +44,15 @@ impl Tool for Web3BridgeQuoteTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[3].name
+        tinywallet_bus::tools::web3_bridge_quote_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[3].description
+        tinywallet_bus::tools::web3_bridge_quote_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[3]
+        tinywallet_bus::tools::web3_bridge_quote_tool_declaration()
             .parameters
             .clone()
     }
@@ -73,15 +73,15 @@ impl Tool for Web3BridgeExecuteTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[4].name
+        tinywallet_bus::tools::web3_bridge_execute_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[4].description
+        tinywallet_bus::tools::web3_bridge_execute_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[4]
+        tinywallet_bus::tools::web3_bridge_execute_tool_declaration()
             .parameters
             .clone()
     }

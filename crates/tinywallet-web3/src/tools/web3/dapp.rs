@@ -44,15 +44,15 @@ impl Tool for Web3DappCallTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[5].name
+        tinywallet_bus::tools::web3_dapp_call_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[5].description
+        tinywallet_bus::tools::web3_dapp_call_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[5]
+        tinywallet_bus::tools::web3_dapp_call_tool_declaration()
             .parameters
             .clone()
     }
@@ -73,15 +73,15 @@ impl Tool for Web3DappExecuteTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[6].name
+        tinywallet_bus::tools::web3_dapp_execute_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::web3_tool_declarations()[6].description
+        tinywallet_bus::tools::web3_dapp_execute_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> Value {
-        tinywallet_bus::tools::web3_tool_declarations()[6]
+        tinywallet_bus::tools::web3_dapp_execute_tool_declaration()
             .parameters
             .clone()
     }

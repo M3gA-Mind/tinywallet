@@ -147,15 +147,17 @@ impl Tool for X402RequestTool {
     }
 
     fn name(&self) -> &'static str {
-        tinywallet_bus::tools::x402_tool_declaration().name
+        tinywallet_bus::tools::x402_request_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        tinywallet_bus::tools::x402_tool_declaration().description
+        tinywallet_bus::tools::x402_request_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        tinywallet_bus::tools::x402_tool_declaration().parameters
+        tinywallet_bus::tools::x402_request_tool_declaration()
+            .parameters
+            .clone()
     }
 
     fn permission_level(&self) -> PermissionLevel {

@@ -6,7 +6,7 @@ use serde_json::Value;
 /// `confirmed` flag, the boundary between quoting and acting.
 #[must_use]
 pub fn execute_tool_schema() -> Value {
-    tinywallet_bus::tools::web3_tool_declarations()[1]
+    tinywallet_bus::tools::web3_swap_execute_tool_declaration()
         .parameters
         .clone()
 }
