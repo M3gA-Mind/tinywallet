@@ -286,6 +286,10 @@ pub fn mnemonic_seed(mnemonic: &str) -> Result<Zeroizing<Vec<u8>>> {
     Ok(Zeroizing::new(seed.to_vec()))
 }
 
+fn seed_from_mnemonic(mnemonic: &str) -> Result<Zeroizing<Vec<u8>>> {
+    mnemonic_seed(mnemonic)
+}
+
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod test;
