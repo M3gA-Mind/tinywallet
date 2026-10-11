@@ -11,6 +11,26 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 
+VERSION_CASES = [
+    ("1.2.3", True),
+    ("0.0.0", True),
+    ("1.2.3-beta.1", True),
+    ("1.2.3-0.alpha-1+build.001", True),
+    ("1.2.3+001.build", True),
+    ("1.2.3-01a", True),
+    ("1.2.3-..", False),
+    ("1.2.3-01", False),
+    ("1.2.3-alpha..1", False),
+    ("1.2.3-alpha.01", False),
+    ("1.2.3+build..1", False),
+    ("01.2.3", False),
+    ("1.02.3", False),
+    ("1.2.03", False),
+    ("1.2.3-", False),
+    ("1.2.3+", False),
+    ("1.2.3\n", False),
+]
+
 
 class ReleaseWorkflowTests(unittest.TestCase):
     @classmethod
@@ -179,18 +199,42 @@ class ReleaseWorkflowTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_existing_tag_resolves_without_a_version_bump_ancestor(self):
+    def test_module_build_validates_semver_before_building(self):
+        """Packaging rejects malformed versions before invoking Cargo."""
+        for version, valid in VERSION_CASES:
+            with self.subTest(version=version):
+                result = subprocess.run(
+                    ["bash", str(ROOT / "scripts/build-module.sh"),
+                     "--crate", "tinywallet-module", "--version", version,
+                     "--target", "unsupported-target", "--host", "test-host"],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("unsupported module target" if valid else "usage:", result.stderr)
+
+    def test_powershell_version_pattern_validates_complete_semver(self):
+        """The Windows packaging guard uses the same SemVer rules."""
+        script = (ROOT / "scripts/build-module.ps1").read_text()
+        pattern = re.search(r"\$Version -notmatch '([^']+)'", script).group(1)
+        # Python's fullmatch models the strict end anchor used by .NET.
+        pattern = pattern.removesuffix(r"\z")
+        for version, valid in VERSION_CASES:
+            with self.subTest(version=version):
+                self.assertEqual(re.fullmatch(pattern, version) is not None, valid)
+
+    def test_resolve_step_validates_tag_format_and_outputs(self):
         """Tag resolution rejects invalid refs and passes valid version tags through."""
         script = self.workflow.split("        run: |\n", 1)[1].split("  module-release:", 1)[0]
         script = "\n".join(line[10:] for line in script.splitlines())
         with tempfile.TemporaryDirectory() as directory:
-            for tag, valid in [("v1.0.0", True), ("v1.0.0-beta.1", True), ("main", False),
-                               ("v1.0.0; echo injected", False)]:
+            for tag, valid in [("v" + version, valid) for version, valid in VERSION_CASES] + [
+                ("main", False), ("v1.0.0; echo injected", False)
+            ]:
                 output = Path(directory) / "output"
                 output.write_text("")
                 result = subprocess.run(["bash", "-c", script],
                     env=dict(os.environ, TAG=tag, GITHUB_OUTPUT=str(output)), capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, valid, result.stderr)
+                self.assertEqual(result.returncode == 0, valid, (tag, result.stderr))
                 if valid:
                     self.assertEqual(output.read_text(), "tag="+tag+"\nversion="+tag[1:]+"\n")
 
