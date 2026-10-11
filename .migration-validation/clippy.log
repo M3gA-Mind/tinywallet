@@ -1,18 +1,2 @@
-    Blocking waiting for file lock on package cache
     Checking tinywallet-module v0.14.1 (/home/enamakel/work/tinywallet-release-owner/worktrees/wallet-generate-mnemonic/crates/tinywallet-module)
-error: used `assert!` to check that a value is not empty
-    --> crates/tinywallet-module/tests/lifecycle_e2e.rs:1543:5
-     |
-1543 |     assert!(!derived.address.is_empty());
-     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-     |
-     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#assert_is_empty
-     = note: `-D clippy::assert-is-empty` implied by `-D warnings`
-     = help: to override `-D warnings` add `#[allow(clippy::assert_is_empty)]`
-help: use `assert_ne!` to show the value on failure
-     |
-1543 -     assert!(!derived.address.is_empty());
-1543 +     assert_ne!(derived.address, "");
-     |
-
-error: could not compile `tinywallet-module` (test "lifecycle_e2e") due to 1 previous error
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s

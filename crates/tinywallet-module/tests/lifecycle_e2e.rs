@@ -1540,7 +1540,7 @@ async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
         )
         .await
         .unwrap();
-    assert!(!derived.address.is_empty());
+    assert_ne!(derived.address, "");
 }
 
 async fn validates_addresses_inside_the_artifact(proxy: &tinybus::Proxy) {
