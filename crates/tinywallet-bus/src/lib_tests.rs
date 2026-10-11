@@ -29,6 +29,56 @@ fn shipped_tool_declarations_match_the_recorded_pre_move_contract() {
     assert_eq!(actual, recorded);
 }
 
+#[cfg(feature = "wire")]
+#[test]
+fn named_tool_declaration_lookup_reports_unknown_names_without_fallback() {
+    assert_eq!(
+        super::tools::find_tool_declaration("web3_swap_execute").map(|tool| tool.name),
+        Some("web3_swap_execute")
+    );
+    assert_eq!(
+        super::tools::find_tool_declaration("wallet_tool_that_does_not_exist"),
+        None
+    );
+    assert_eq!(
+        super::tools::find_web3_tool_declaration("web3_unknown"),
+        None
+    );
+    assert_eq!(
+        super::tools::find_wallet_tool_declaration("wallet_unknown"),
+        None
+    );
+}
+
+#[cfg(feature = "wire")]
+#[test]
+fn implementation_reexports_keep_network_metadata_methods() {
+    use super::wire::{EvmNetwork, SolanaCluster};
+
+    assert_eq!(
+        EvmNetwork::BaseMainnet.default_rpc_url(),
+        "https://mainnet.base.org"
+    );
+    assert_eq!(
+        EvmNetwork::BaseMainnet.explorer_tx_base(),
+        "https://basescan.org/tx/"
+    );
+    assert_eq!(EvmNetwork::BaseMainnet.network_label(), "base-mainnet");
+    assert_eq!(
+        SolanaCluster::Devnet.rpc_url(),
+        "https://api.devnet.solana.com"
+    );
+    assert_eq!(SolanaCluster::Devnet.network_label(), "solana-devnet");
+    assert_eq!(
+        SolanaCluster::Devnet.explorer_tx_suffix(),
+        "?cluster=devnet"
+    );
+    assert_eq!(
+        SolanaCluster::Devnet.usdc_mint(),
+        "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    );
+}
+
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
     assert!(is_compatible(CONTRACT_VERSION));

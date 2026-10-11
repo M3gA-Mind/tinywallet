@@ -3,6 +3,22 @@
 use super::tests::callbacks;
 use super::*;
 
+fn fixture_bytes_field(tag: u8, bytes: &[u8]) -> Vec<u8> {
+    let mut result = vec![tag, u8::try_from(bytes.len()).unwrap()];
+    result.extend(bytes);
+    result
+}
+
+fn fixture_varint(mut value: u64) -> Vec<u8> {
+    let mut result = Vec::new();
+    while value >= 0x80 {
+        result.push(u8::try_from(value & 0x7f).unwrap() | 0x80);
+        value >>= 7;
+    }
+    result.push(u8::try_from(value).unwrap());
+    result
+}
+
 #[tokio::test]
 #[allow(
     clippy::too_many_lines,
@@ -383,6 +399,90 @@ async fn native_wallet_signer_authorizes_exact_transaction_facts_for_all_chains(
             message_hex: "00017fff".to_string(),
         }
     );
+    broker_task.abort();
+}
+
+#[tokio::test]
+async fn native_signer_can_derive_and_then_sign_with_one_scoped_secret() {
+    use tinywallet_bus::wire::{Scheme, SecretMaterial, TransactionSpec, TronTransfer};
+    use tinywallet_web3::crypto::seams::WalletSigner;
+    use tinywallet_web3::crypto::wallet::WalletChain;
+
+    let (callbacks, _, _, _, _host, broker_task) = callbacks().await;
+    let signer = ModuleSigner(callbacks);
+    let secret = SecretMaterial {
+        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+        derivation_path: "m/44'/501'/0'/0'".to_string(),
+        chain: tinywallet_bus::Chain::Solana,
+    };
+
+    let (account, signature) = with_execution_context(None, secret, None, async {
+        let account = signer.derive_account(WalletChain::Solana).await?;
+        let signature = signer
+            .sign_message(WalletChain::Solana, b"native transfer", Scheme::Ed25519)
+            .await?;
+        Ok::<_, String>((account, signature))
+    })
+    .await
+    .unwrap();
+
+    assert_ne!(account.address, "");
+    assert!(matches!(
+        signature,
+        tinywallet_bus::wire::Signature::Ed25519 { .. }
+    ));
+
+    let tron_secret = SecretMaterial {
+        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+        derivation_path: "m/44'/195'/0'/0/0".to_string(),
+        chain: tinywallet_bus::Chain::Tron,
+    };
+    let derived = tinywallet::key::derive(
+        tinywallet::Chain::Tron,
+        &tron_secret.mnemonic,
+        &tron_secret.derivation_path,
+    )
+    .unwrap();
+    let recipient = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+    let owner_hex = tinywallet::address::tron::to_hex(derived.address()).unwrap();
+    let recipient_hex = tinywallet::address::tron::to_hex(recipient).unwrap();
+    let decode_hex = |hex: &str| {
+        (0..hex.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let mut transfer = fixture_bytes_field(0x0a, &decode_hex(&owner_hex));
+    transfer.extend(fixture_bytes_field(0x12, &decode_hex(&recipient_hex)));
+    let mut amount = fixture_varint(3 << 3);
+    amount.extend(fixture_varint(1_000_000));
+    transfer.extend(amount);
+    let mut any = fixture_bytes_field(0x0a, b"type.googleapis.com/protocol.TransferContract");
+    any.extend(fixture_bytes_field(0x12, &transfer));
+    let mut contract = fixture_varint(1 << 3);
+    contract.extend(fixture_varint(1));
+    contract.extend(fixture_bytes_field(0x12, &any));
+    let raw_data = fixture_bytes_field(0x5a, &contract);
+    let raw_data_hex = super::super::hex(&raw_data);
+    let expected_txid = tinywallet::tx::tron::recompute_txid(&raw_data_hex).unwrap();
+    let transaction = TransactionSpec::Tron {
+        raw_data_hex,
+        expected_to: recipient.to_string(),
+        expected_txid,
+        transfer: TronTransfer::Native {
+            amount_sun: 1_000_000,
+        },
+    };
+    let signed_tx = with_execution_context(None, tron_secret, None, async {
+        let account = signer.derive_account(WalletChain::Tron).await?;
+        assert_eq!(account.address, derived.address());
+        signer
+            .sign_transaction(WalletChain::Tron, &transaction)
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(signed_tx.raw.len(), 130);
     broker_task.abort();
 }
 

@@ -1,17 +1,20 @@
+//! Regression tests for the prompt-facing wallet and Web3 tool declarations.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use super::*;
 use serde_json::{Value, json};
 use tinytools::Tool;
 
-use super::wallet::{
+use crate::test_support::{Rig, ServiceRig};
+use wallet::{
     WalletChainStatusTool, WalletLookupTxTool, WalletPrepareTransferTool, WalletStatusTool,
     WalletTxReceiptTool, WalletTxStatusTool,
 };
-use super::web3::{
+use web3::{
     Web3BridgeExecuteTool, Web3BridgeQuoteTool, Web3DappCallTool, Web3DappExecuteTool,
     Web3SwapExecuteTool, Web3SwapQuoteTool, Web3SwapRoutesTool,
 };
-use crate::test_support::{Rig, ServiceRig};
 
 #[test]
 fn implementation_tools_preserve_the_recorded_pre_move_declarations() {

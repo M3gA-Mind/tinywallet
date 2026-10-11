@@ -31,7 +31,7 @@ Every operation validates the handle. Transfer preparation carries the
 conversation owner, if any. Execution requires `confirmed: true`, validates
 the owner before requesting approval, and signs only after host authorization.
 Quote consumption remains atomic; a failed signing or broadcast restores the
-quote with its existing refreshed expiry. Closing or replacing a service waits
+quote with a refreshed expiry. Closing or replacing a service waits
 for in-flight calls, invalidates the prior handle, and drops its quote store.
 
 The module uses its existing wallet engine algorithms and DTOs. Shared wire

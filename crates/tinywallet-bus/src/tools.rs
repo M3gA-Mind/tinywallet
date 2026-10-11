@@ -4,6 +4,8 @@
 //! implementation crates use them when adapting their operations to
 //! `tinytools::Tool`; this crate has no dependency on the tool runtime.
 
+use std::sync::OnceLock;
+
 use serde_json::{Value, json};
 
 /// A tool's stable prompt-facing declaration, without an execution adapter.
@@ -96,7 +98,7 @@ fn execute_quote_parameters() -> Value {
 
 /// The six shipped wallet tools in their established declaration order.
 #[must_use]
-pub fn wallet_tool_declarations() -> [ToolDeclaration; 6] {
+fn build_wallet_tool_declarations() -> [ToolDeclaration; 6] {
     [
         declaration(
             "wallet_status",
@@ -159,9 +161,47 @@ pub fn wallet_tool_declarations() -> [ToolDeclaration; 6] {
     ]
 }
 
+fn wallet_declarations() -> &'static [ToolDeclaration; 6] {
+    static DECLARATIONS: OnceLock<[ToolDeclaration; 6]> = OnceLock::new();
+    DECLARATIONS.get_or_init(build_wallet_tool_declarations)
+}
+
+/// The six shipped wallet tools in their established declaration order.
+#[must_use]
+pub fn wallet_tool_declarations() -> [ToolDeclaration; 6] {
+    wallet_declarations().clone()
+}
+
+/// Finds a wallet declaration by its stable tool name.
+#[must_use]
+pub fn find_wallet_tool_declaration(name: &str) -> Option<&'static ToolDeclaration> {
+    wallet_declarations().iter().find(|tool| tool.name == name)
+}
+
+macro_rules! wallet_declaration_accessor {
+    ($function:ident, $name:literal) => {
+        /// Returns the declaration for one named wallet tool.
+        #[must_use]
+        pub fn $function() -> &'static ToolDeclaration {
+            find_wallet_tool_declaration($name)
+                .expect("the named wallet declaration is part of the shipped contract")
+        }
+    };
+}
+
+wallet_declaration_accessor!(wallet_status_tool_declaration, "wallet_status");
+wallet_declaration_accessor!(wallet_chain_status_tool_declaration, "wallet_chain_status");
+wallet_declaration_accessor!(
+    wallet_prepare_transfer_tool_declaration,
+    "wallet_prepare_transfer"
+);
+wallet_declaration_accessor!(wallet_tx_status_tool_declaration, "wallet_tx_status");
+wallet_declaration_accessor!(wallet_tx_receipt_tool_declaration, "wallet_tx_receipt");
+wallet_declaration_accessor!(wallet_lookup_tx_tool_declaration, "wallet_lookup_tx");
+
 /// The seven shipped swap, bridge and dapp tools in their established order.
 #[must_use]
-pub fn web3_tool_declarations() -> [ToolDeclaration; 7] {
+fn build_web3_tool_declarations() -> [ToolDeclaration; 7] {
     [
         declaration(
             "web3_swap_quote",
@@ -243,9 +283,45 @@ pub fn web3_tool_declarations() -> [ToolDeclaration; 7] {
     ]
 }
 
+fn web3_declarations() -> &'static [ToolDeclaration; 7] {
+    static DECLARATIONS: OnceLock<[ToolDeclaration; 7]> = OnceLock::new();
+    DECLARATIONS.get_or_init(build_web3_tool_declarations)
+}
+
+/// The seven shipped swap, bridge and dapp tools in their established order.
+#[must_use]
+pub fn web3_tool_declarations() -> [ToolDeclaration; 7] {
+    web3_declarations().clone()
+}
+
+/// Finds a Web3 declaration by its stable tool name.
+#[must_use]
+pub fn find_web3_tool_declaration(name: &str) -> Option<&'static ToolDeclaration> {
+    web3_declarations().iter().find(|tool| tool.name == name)
+}
+
+macro_rules! web3_declaration_accessor {
+    ($function:ident, $name:literal) => {
+        /// Returns the declaration for one named Web3 tool.
+        #[must_use]
+        pub fn $function() -> &'static ToolDeclaration {
+            find_web3_tool_declaration($name)
+                .expect("the named Web3 declaration is part of the shipped contract")
+        }
+    };
+}
+
+web3_declaration_accessor!(web3_swap_quote_tool_declaration, "web3_swap_quote");
+web3_declaration_accessor!(web3_swap_execute_tool_declaration, "web3_swap_execute");
+web3_declaration_accessor!(web3_swap_routes_tool_declaration, "web3_swap_routes");
+web3_declaration_accessor!(web3_bridge_quote_tool_declaration, "web3_bridge_quote");
+web3_declaration_accessor!(web3_bridge_execute_tool_declaration, "web3_bridge_execute");
+web3_declaration_accessor!(web3_dapp_call_tool_declaration, "web3_dapp_call");
+web3_declaration_accessor!(web3_dapp_execute_tool_declaration, "web3_dapp_execute");
+
 /// The x402 HTTP payment tool declaration.
 #[must_use]
-pub fn x402_tool_declaration() -> ToolDeclaration {
+fn build_x402_tool_declaration() -> ToolDeclaration {
     declaration(
         "x402_request",
         "Make an HTTP request to an x402-payable API endpoint. Automatically handles the HTTP 402 payment challenge by signing a payment (EVM EIP-3009 on Base/Ethereum, or Solana SPL transfer) with the wallet and retrying with the payment proof. Returns the API response after payment. Use this for x402-enabled APIs like twit.sh. The wallet must be set up with USDC on the target chain.",
@@ -277,12 +353,30 @@ pub fn x402_tool_declaration() -> ToolDeclaration {
     )
 }
 
+/// The x402 HTTP payment tool declaration.
+#[must_use]
+pub fn x402_tool_declaration() -> ToolDeclaration {
+    x402_tool_declaration_ref().clone()
+}
+
+/// Returns the cached x402 declaration by reference.
+#[must_use]
+pub fn x402_tool_declaration_ref() -> &'static ToolDeclaration {
+    static DECLARATION: OnceLock<ToolDeclaration> = OnceLock::new();
+    DECLARATION.get_or_init(build_x402_tool_declaration)
+}
+
+/// The x402 request declaration, under its stable tool name.
+#[must_use]
+pub fn x402_request_tool_declaration() -> &'static ToolDeclaration {
+    x402_tool_declaration_ref()
+}
+
 /// All shipped Wallet, Web3 and x402 declarations in the established order.
 #[must_use]
 pub fn shipped_tool_declarations() -> [ToolDeclaration; 14] {
-    let wallet = wallet_tool_declarations();
-    let web3 = web3_tool_declarations();
-    let x402 = x402_tool_declaration();
+    let wallet = wallet_declarations();
+    let web3 = web3_declarations();
     [
         wallet[0].clone(),
         wallet[1].clone(),
@@ -297,6 +391,14 @@ pub fn shipped_tool_declarations() -> [ToolDeclaration; 14] {
         web3[4].clone(),
         web3[5].clone(),
         web3[6].clone(),
-        x402,
+        x402_tool_declaration_ref().clone(),
     ]
+}
+
+/// Finds any shipped declaration by its stable tool name.
+#[must_use]
+pub fn find_tool_declaration(name: &str) -> Option<&'static ToolDeclaration> {
+    find_wallet_tool_declaration(name)
+        .or_else(|| find_web3_tool_declaration(name))
+        .or_else(|| (x402_tool_declaration_ref().name == name).then(x402_tool_declaration_ref))
 }

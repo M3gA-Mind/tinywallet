@@ -4,9 +4,9 @@
 
 use super::{
     EvmNetwork, RpcSource, SolanaCluster, asset_catalog, default_rpc_url, default_rpc_url_for_evm,
-    default_rpc_url_for_solana, evm_asset_catalog, explorer_tx_base_for_evm, explorer_tx_url,
-    explorer_tx_url_for_evm_network, find_asset, find_asset_for_network, network_defaults,
-    network_label_for_evm, usdc_mint_for_solana,
+    default_rpc_url_for_solana, evm_asset_catalog, explorer_tx_base_for_evm,
+    explorer_tx_base_for_solana, explorer_tx_url, explorer_tx_url_for_evm_network, find_asset,
+    find_asset_for_network, network_defaults, network_label_for_evm, usdc_mint_for_solana,
 };
 use crate::crypto::wallet::WalletChain;
 use crate::test_support::FakeRpcEndpoints;
@@ -203,6 +203,14 @@ fn explorer_links_append_the_hash() {
     assert_eq!(
         explorer_tx_url(WalletChain::Solana, MAINNET, "sig").as_deref(),
         Some("https://solscan.io/tx/sig")
+    );
+    assert_eq!(
+        explorer_tx_base_for_solana(MAINNET),
+        "https://solscan.io/tx/"
+    );
+    assert_eq!(
+        explorer_tx_base_for_solana(SolanaCluster::Devnet),
+        "https://solscan.io/tx/"
     );
     assert_eq!(
         explorer_tx_url(WalletChain::Tron, MAINNET, "id").as_deref(),
