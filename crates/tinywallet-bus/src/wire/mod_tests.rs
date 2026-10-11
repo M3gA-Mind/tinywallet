@@ -13,8 +13,45 @@ use serde_json::json;
 use super::{
     AttachRequest, GenerateMnemonicRequest, GenerateMnemonicResponse, PublicKey, Scheme, Signature,
     SignedTransaction, SigningPayload, SigningRequest, TransactionSpec, UnsignedTransaction, Utxo,
-    WalletChain, Web3QuoteKind, Web3QuoteResponse,
+    WalletChain, Web3QuoteKind, Web3QuoteResponse, EncodeErc20TransferRequest,
+    EncodeErc20TransferResponse,
 };
+
+#[test]
+fn erc20_encoding_wire_shape_is_explicit_and_round_trips() {
+    let request = EncodeErc20TransferRequest {
+        to_address: "0x1111111111111111111111111111111111111111".into(),
+        amount_raw: "1000000".into(),
+    };
+    let encoded = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        encoded,
+        json!({
+            "to_address": "0x1111111111111111111111111111111111111111",
+            "amount_raw": "1000000"
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<EncodeErc20TransferRequest>(encoded).unwrap(),
+        request
+    );
+
+    let response = EncodeErc20TransferResponse {
+        calldata: format!(
+            "0xa9059cbb{}{}{}{}",
+            "0".repeat(24),
+            "11".repeat(20),
+            "0".repeat(63),
+            "1"
+        ),
+    };
+    let encoded = serde_json::to_value(&response).unwrap();
+    assert_eq!(encoded["calldata"], response.calldata);
+    assert_eq!(
+        serde_json::from_value::<EncodeErc20TransferResponse>(encoded).unwrap(),
+        response
+    );
+}
 
 #[test]
 fn mnemonic_generation_wire_shape_is_explicit_and_secret_marked_by_member() {
