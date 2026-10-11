@@ -37,13 +37,13 @@ use tinywallet::wire::{
 use tinywallet::{Chain, tx};
 use tinywallet_bus::wire::{
     AuthorizationResult, AuthorizeNativeWalletExecutionRequest, AuthorizeX402PaymentRequest,
-    ChainTransportRequest, ChainTransportResult, HostResponse, NativeWalletConfigRequest,
-    NativeWalletConfigResponse, NativeWalletExecuteRequest, NativeWalletPrepareTransferRequest,
-    NativeWalletServiceHandle, NetworkRequest, PrepareTransferParams, RpcEndpointKey,
-    SecretMaterial, SolanaCluster, WalletAccountsResponse, WalletBackendRequest,
-    WalletBackendResponse, WalletChain, Web3CloseRequest, Web3ServiceHandle, X402CloseRequest,
-    X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest, X402RecordPaymentRequest,
-    X402ServiceHandle, X402SummaryRequest,
+    ChainTransportRequest, ChainTransportResult, DerivedAccount, HostResponse,
+    NativeWalletConfigRequest, NativeWalletConfigResponse, NativeWalletExecuteRequest,
+    NativeWalletPrepareTransferRequest, NativeWalletServiceHandle, NetworkRequest,
+    PrepareTransferParams, RpcEndpointKey, SecretMaterial, SolanaCluster, WalletAccountsResponse,
+    WalletBackendRequest, WalletBackendResponse, WalletChain, Web3CloseRequest, Web3ServiceHandle,
+    X402CloseRequest, X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest,
+    X402RecordPaymentRequest, X402ServiceHandle, X402SummaryRequest,
 };
 use tinywallet_module::{BUS_NAME, HOST_INTERFACE, HOST_OBJECT_PATH, OBJECT_PATH};
 
@@ -60,6 +60,7 @@ const EXPECTED_METHODS: &[&str] = &[
     "BuildUnsigned",
     "AttachSignature",
     "DeriveAccount",
+    "GenerateMnemonic",
     "SignTransaction",
     "ExportKey",
     "SignMessage",
@@ -855,6 +856,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     assert!(web3_closed.to_string().contains("HostUnavailable"));
 
     validates_addresses_inside_the_artifact(&proxy).await;
+    generates_mnemonics_inside_the_artifact(&proxy).await;
     constructs_evm_transactions_inside_the_artifact(&proxy).await;
     signs_an_evm_transfer_identically_to_the_library(&proxy).await;
     signs_a_multi_input_bitcoin_spend(&proxy).await;
@@ -1512,6 +1514,33 @@ async fn refuses_confidential_secret_delivery_to_an_unattested_artifact() {
         "expected confidential-call refusal, got: {error}"
     );
     broker_task.abort();
+}
+
+async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
+    use tinywallet_bus::wire::{GenerateMnemonicRequest, GenerateMnemonicResponse};
+
+    let generated: GenerateMnemonicResponse = proxy
+        .call_confidential(
+            tinywallet_bus::names::methods::GENERATE_MNEMONIC,
+            (GenerateMnemonicRequest { word_count: 12 },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(generated.word_count, 12);
+    assert_eq!(generated.phrase.split_whitespace().count(), 12);
+
+    let derived: DerivedAccount = proxy
+        .call_confidential(
+            tinywallet_bus::names::methods::DERIVE_ACCOUNT,
+            (SecretMaterial {
+                mnemonic: generated.phrase,
+                derivation_path: "m/44'/60'/0'/0/0".into(),
+                chain: WalletChain::Evm,
+            },),
+        )
+        .await
+        .unwrap();
+    assert!(!derived.address.is_empty());
 }
 
 async fn validates_addresses_inside_the_artifact(proxy: &tinybus::Proxy) {

@@ -682,6 +682,24 @@ impl Wallet {
         result.map_err(into_bus_error)
     }
 
+    /// Generate a BIP-39 phrase for the host to encrypt and retain.
+    ///
+    /// Confidential because the response contains recovery material. The
+    /// phrase is generated in the wallet implementation and is not logged or
+    /// retained by this module.
+    #[tinybus(confidential)]
+    async fn generate_mnemonic(
+        &self,
+        request: tinywallet_bus::wire::GenerateMnemonicRequest,
+    ) -> BusResult<tinywallet_bus::wire::GenerateMnemonicResponse> {
+        let phrase = tinywallet::key::generate_mnemonic(usize::from(request.word_count))
+            .map_err(into_bus_error)?;
+        Ok(tinywallet_bus::wire::GenerateMnemonicResponse {
+            phrase,
+            word_count: request.word_count,
+        })
+    }
+
     /// Derive, build, sign and assemble, without the key leaving this module.
     ///
     /// Confidential. This is the method a host should use for everything it
