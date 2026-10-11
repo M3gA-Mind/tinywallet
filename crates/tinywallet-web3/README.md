@@ -39,7 +39,7 @@ rail able to reuse them.
 | `Transport` (from `tinywallet-crypto`) | reaching a chain: endpoints, failover, log redaction |
 | `WalletSigner` | keys: `derive_account`, `sign_transaction`, `sign_message` |
 | `WalletAccounts` | whether a wallet is set up, and its accounts |
-| `RpcEndpoints` | which endpoint serves a chain, and the Solana cluster |
+| `RpcEndpoints` | which endpoint serves a chain, the Solana cluster, and opaque host references for configured overrides |
 | `Web3Backend` | the hosted swap/bridge quote service |
 | `QuoteScope` | which chat thread is asking |
 

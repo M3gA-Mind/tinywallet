@@ -79,6 +79,38 @@ fn default_endpoints_use_mainnet_and_report_default_source() {
     assert_eq!(endpoints.solana_cluster(), SolanaCluster::Mainnet);
 }
 
+#[test]
+fn configured_endpoints_select_cluster_and_only_issue_references_for_overrides() {
+    use tinywallet_bus::wire::{RpcEndpointKey, SolanaCluster as BusSolanaCluster};
+
+    let endpoints = ConfiguredEndpoints::new(tinywallet_bus::wire::Web3ConfigureRequest {
+        solana_cluster: BusSolanaCluster::Devnet,
+        overridden_endpoints: vec![RpcEndpointKey::Evm {
+            network: tinywallet_bus::wire::EvmNetwork::BaseMainnet,
+        }],
+    })
+    .unwrap();
+    assert_eq!(endpoints.solana_cluster(), SolanaCluster::Devnet);
+    assert_eq!(
+        endpoints.source(WalletChain::Evm, Some(EvmNetwork::BaseMainnet)),
+        RpcSource::EnvOverride
+    );
+    assert!(
+        endpoints
+            .endpoint_ref(WalletChain::Evm, Some(EvmNetwork::BaseMainnet))
+            .is_some()
+    );
+    assert_eq!(
+        endpoints.source(WalletChain::Evm, Some(EvmNetwork::EthereumMainnet)),
+        RpcSource::Default
+    );
+    assert!(
+        endpoints
+            .endpoint_ref(WalletChain::Evm, Some(EvmNetwork::EthereumMainnet))
+            .is_none()
+    );
+}
+
 #[tokio::test]
 async fn task_scopes_bind_quote_owner_and_consume_secret_once() {
     let owner = tinywallet_bus::wire::QuoteOwner {
@@ -497,15 +529,27 @@ async fn host_adapters_and_quote_approval_cover_supported_operations() {
     reason = "one MemoryBus scenario covers the Web3 service lifecycle across success and faults"
 )]
 async fn wallet_web3_handlers_cover_configured_quote_and_close_lifecycle() {
-    use tinywallet_bus::wire::{Web3CloseRequest, Web3ExecuteRequest, Web3QuoteRequest};
+    use tinywallet_bus::wire::{
+        EvmNetwork, RpcEndpointKey, SolanaCluster, Web3CloseRequest, Web3ConfigureRequest,
+        Web3ExecuteRequest, Web3QuoteRequest,
+    };
 
-    let (callbacks, _authorize, _, _, _host, broker_task) = callbacks().await;
+    let (callbacks, _authorize, _, transport_requests, _host, broker_task) = callbacks().await;
     let wallet = crate::service::Wallet {
         callbacks: Some(callbacks),
         ..crate::service::Wallet::default()
     };
 
-    let handle = wallet.web3_configure(()).await.unwrap();
+    let configured = wallet
+        .web3_configure_with_endpoints(Web3ConfigureRequest {
+            solana_cluster: SolanaCluster::Mainnet,
+            overridden_endpoints: vec![RpcEndpointKey::Evm {
+                network: EvmNetwork::EthereumMainnet,
+            }],
+        })
+        .await
+        .unwrap();
+    let handle = configured.service;
     let routes = wallet.web3_routes(()).await.unwrap();
     assert_eq!(routes["routes"][0], "evm");
     let owner = tinywallet_bus::wire::QuoteOwner {
@@ -581,7 +625,25 @@ async fn wallet_web3_handlers_cover_configured_quote_and_close_lifecycle() {
         .unwrap();
     assert_eq!(execution.quote_id, swap.quote_id);
     assert_eq!(execution.transaction_hash, "0xfeedface");
-
+    let requests = transport_requests.lock().unwrap().clone();
+    assert!(requests.iter().any(|request| match request {
+        ChainTransportRequest::JsonRpc { network, .. }
+        | ChainTransportRequest::RestGet { network, .. }
+        | ChainTransportRequest::RestPost { network, .. } => {
+            network.endpoint_ref.as_deref().is_some_and(|reference| {
+                configured
+                    .endpoint_references
+                    .iter()
+                    .any(|endpoint| endpoint.reference == reference)
+            })
+        }
+    }));
+    assert!(configured.endpoint_references.iter().all(|endpoint| {
+        serde_json::to_value(endpoint)
+            .expect("endpoint references serialize")
+            .get("url")
+            .is_none()
+    }));
     for result in [
         wallet
             .web3_bridge_quote(Web3QuoteRequest {

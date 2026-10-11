@@ -304,6 +304,23 @@ impl Wallet {
         Ok(handle)
     }
 
+    /// Open Web3 with the host's cluster and opaque override endpoint references.
+    async fn web3_configure_with_endpoints(
+        &self,
+        request: tinywallet_bus::wire::Web3ConfigureRequest,
+    ) -> BusResult<tinywallet_bus::wire::Web3ConfigureResponse> {
+        let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
+        let (next, endpoint_references) =
+            web3::Web3Runtime::configured(callbacks, request).map_err(web3_operation_failed)?;
+        let service = next.handle();
+        let mut web3 = self.web3.write().await;
+        *web3 = Some(next);
+        Ok(tinywallet_bus::wire::Web3ConfigureResponse {
+            service,
+            endpoint_references,
+        })
+    }
+
     /// Close the active Web3 service and discard all quotes for its account.
     async fn web3_close(&self, request: tinywallet_bus::wire::Web3CloseRequest) -> BusResult<()> {
         let mut web3 = self.web3.write().await;
@@ -1415,6 +1432,7 @@ mod exports {
             "Web3DappQuote",
             "Web3Execute",
             "Web3Configure",
+            "Web3ConfigureWithEndpoints",
             "Web3Close",
             "NativeWalletConfigure",
             "NativeWalletClose",

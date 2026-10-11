@@ -1,5 +1,6 @@
 //! Module-owned quote runtime over the host's typed network and account seams.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -65,9 +66,28 @@ pub(crate) struct Web3Runtime {
 impl Web3Runtime {
     /// Compose the owner library over host-owned custody facts and transports.
     pub(crate) fn new(host: HostCallbacks) -> Self {
+        Self::new_with_endpoints(host, Arc::new(DefaultEndpoints))
+    }
+
+    pub(crate) fn configured(
+        host: HostCallbacks,
+        request: tinywallet_bus::wire::Web3ConfigureRequest,
+    ) -> Result<(Self, Vec<tinywallet_bus::wire::HostEndpointReference>), String> {
+        let endpoints = ConfiguredEndpoints::new(request)?;
+        let references = endpoints.references();
+        Ok((
+            Self::new_with_endpoints(host, Arc::new(endpoints)),
+            references,
+        ))
+    }
+
+    fn new_with_endpoints(host: HostCallbacks, endpoints: Arc<dyn RpcEndpoints>) -> Self {
         let engine = Arc::new(WalletEngine::new(WalletSeams {
-            transport: Arc::new(HostTransport::new(host.clone())),
-            endpoints: Arc::new(DefaultEndpoints),
+            transport: Arc::new(HostTransport::with_endpoints(
+                host.clone(),
+                endpoints.clone(),
+            )),
+            endpoints,
             signer: Arc::new(ModuleSigner(host.clone())),
             accounts: Arc::new(HostAccounts(host.clone())),
             scope: Arc::new(TaskQuoteScope),
@@ -121,6 +141,90 @@ impl Web3Runtime {
             operation: operation.to_string(),
             solana_intent,
         })
+    }
+}
+
+struct ConfiguredEndpoints {
+    cluster: SolanaCluster,
+    references: HashMap<tinywallet_bus::wire::RpcEndpointKey, String>,
+}
+
+impl ConfiguredEndpoints {
+    fn new(request: tinywallet_bus::wire::Web3ConfigureRequest) -> Result<Self, String> {
+        let mut references = HashMap::new();
+        for key in request.overridden_endpoints {
+            let reference = uuid::Uuid::new_v4().to_string();
+            if references.insert(key, reference).is_some() {
+                return Err("Web3 endpoint configuration contains a duplicate key".to_string());
+            }
+        }
+        Ok(Self {
+            cluster: match request.solana_cluster {
+                tinywallet_bus::wire::SolanaCluster::Mainnet => SolanaCluster::Mainnet,
+                tinywallet_bus::wire::SolanaCluster::Devnet => SolanaCluster::Devnet,
+            },
+            references,
+        })
+    }
+
+    fn references(&self) -> Vec<tinywallet_bus::wire::HostEndpointReference> {
+        self.references
+            .iter()
+            .map(
+                |(key, reference)| tinywallet_bus::wire::HostEndpointReference {
+                    key: *key,
+                    reference: reference.clone(),
+                },
+            )
+            .collect()
+    }
+
+    fn endpoint_key(
+        chain: WalletChain,
+        network: Option<EvmNetwork>,
+    ) -> tinywallet_bus::wire::RpcEndpointKey {
+        use tinywallet_bus::wire::RpcEndpointKey;
+        match chain {
+            WalletChain::Evm => {
+                let network = network.unwrap_or(EvmNetwork::EthereumMainnet);
+                RpcEndpointKey::Evm { network }
+            }
+            WalletChain::Btc => RpcEndpointKey::Btc,
+            WalletChain::Solana => RpcEndpointKey::Solana,
+            WalletChain::Tron => RpcEndpointKey::Tron,
+        }
+    }
+}
+
+impl RpcEndpoints for ConfiguredEndpoints {
+    fn url(&self, chain: WalletChain, network: Option<EvmNetwork>) -> String {
+        match chain {
+            WalletChain::Evm => {
+                default_rpc_url_for_evm(network.unwrap_or(EvmNetwork::EthereumMainnet)).to_string()
+            }
+            other => default_rpc_url(other, self.solana_cluster()).to_string(),
+        }
+    }
+
+    fn source(&self, chain: WalletChain, network: Option<EvmNetwork>) -> RpcSource {
+        if self
+            .references
+            .contains_key(&Self::endpoint_key(chain, network))
+        {
+            RpcSource::EnvOverride
+        } else {
+            RpcSource::Default
+        }
+    }
+
+    fn endpoint_ref(&self, chain: WalletChain, network: Option<EvmNetwork>) -> Option<String> {
+        self.references
+            .get(&Self::endpoint_key(chain, network))
+            .cloned()
+    }
+
+    fn solana_cluster(&self) -> SolanaCluster {
+        self.cluster
     }
 }
 

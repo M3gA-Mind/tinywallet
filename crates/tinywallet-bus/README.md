@@ -43,6 +43,14 @@ argument schemas for all six wallet, seven Web3 and one x402 tools. The
 implementation crates keep their `tinytools::Tool` adapters and delegate those
 declarations here. A pre-move fixture pins the established tool JSON.
 
+Contract 1.7 adds `Web3ConfigureWithEndpoints` alongside the unchanged
+`Web3Configure(())` member. Hosts that need configured RPC overrides pass the
+Solana cluster and overridden endpoint keys, never endpoint URLs. The module
+returns opaque service-scoped references for those keys and includes them in
+chain transport requests; the host resolves each reference against its private
+endpoint configuration. The configured service keeps cluster-dependent
+reference data inside the implementation.
+
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are
 rejected; fee/calldata/request bounds execute in the module. See
