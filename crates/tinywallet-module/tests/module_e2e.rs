@@ -26,6 +26,7 @@ use tinywallet::wire::{
     UnsignedTransaction,
 };
 use tinywallet::{Chain, tx};
+use tinywallet_bus::wire::{EncodeErc20TransferRequest, EncodeErc20TransferResponse};
 use tinywallet_module::{BUS_NAME, OBJECT_PATH};
 
 /// Every method the manifest must declare, in order.
@@ -39,6 +40,7 @@ const EXPECTED_METHODS: &[&str] = &[
     "AttachSignature",
     "DeriveAccount",
     "DeriveMnemonicSeed",
+    "EncodeErc20Transfer",
     "GenerateMnemonic",
     "SignTransaction",
     "ExportKey",
@@ -97,6 +99,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
 
     validates_addresses_inside_the_artifact(&proxy).await;
     constructs_evm_transactions_inside_the_artifact(&proxy).await;
+    encodes_erc20_transfers_inside_the_artifact(&proxy).await;
     signs_an_evm_transfer_identically_to_the_library(&proxy).await;
     signs_a_multi_input_bitcoin_spend(&proxy).await;
     signs_a_solana_transfer(&proxy).await;
@@ -266,6 +269,40 @@ async fn signs_an_evm_transfer_identically_to_the_library(proxy: &tinybus::Proxy
         signed.txid,
         Some(tx::evm::LegacyTransaction::hash_of(&expected))
     );
+}
+
+/// The calldata algorithm is executed by the loaded module, not host-linked crypto.
+async fn encodes_erc20_transfers_inside_the_artifact(proxy: &tinybus::Proxy) {
+    let request = EncodeErc20TransferRequest {
+        to_address: "0x1111111111111111111111111111111111111111".into(),
+        amount_raw: "1".into(),
+    };
+    let response: EncodeErc20TransferResponse = proxy
+        .call("EncodeErc20Transfer", (request,))
+        .await
+        .expect("the module encodes valid ERC-20 transfer calldata");
+    assert_eq!(
+        response.calldata,
+        format!(
+            "0xa9059cbb{}{}{}{}",
+            "0".repeat(24),
+            "11".repeat(20),
+            "0".repeat(63),
+            "1"
+        )
+    );
+
+    let error = proxy
+        .call::<EncodeErc20TransferResponse>(
+            "EncodeErc20Transfer",
+            (EncodeErc20TransferRequest {
+                to_address: "not-an-address".into(),
+                amount_raw: "1".into(),
+            },),
+        )
+        .await
+        .expect_err("invalid recipient is rejected by the module");
+    assert!(error.to_string().contains("Web3OperationFailed"));
 }
 
 /// Several inputs, so the multi-signature ordering crosses the bus for real.
