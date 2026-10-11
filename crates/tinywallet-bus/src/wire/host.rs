@@ -362,6 +362,10 @@ pub struct AuthorizeX402PaymentRequest {
     pub recipient: String,
     /// Exact amount in token atomic units.
     pub amount_atomic: u64,
+    /// Conversation owner used to route approval to the initiating client.
+    /// Older hosts omit this field and retain their existing approval flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<QuoteOwner>,
 }
 
 /// Request module-owned parsing and signing for a 402 challenge.

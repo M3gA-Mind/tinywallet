@@ -261,6 +261,23 @@ fn native_wallet_configuration_serializes_only_endpoint_keys_and_opaque_referenc
 }
 
 #[test]
+fn x402_authorization_owner_is_optional_and_preserves_legacy_json() {
+    use crate::wire::AuthorizeX402PaymentRequest;
+    use serde_json::json;
+
+    let legacy = json!({
+        "url": "https://resource.example/item",
+        "network": "eip155:1",
+        "asset": "0x1111111111111111111111111111111111111111",
+        "recipient": "0x2222222222222222222222222222222222222222",
+        "amount_atomic": 17
+    });
+    let decoded: AuthorizeX402PaymentRequest = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(decoded.owner, None);
+    assert_eq!(serde_json::to_value(decoded).unwrap(), legacy);
+}
+
+#[test]
 fn native_wallet_approval_carries_the_quote_and_exact_chain_transaction() {
     use crate::wire::{
         AuthorizeNativeWalletExecutionRequest, NativeWalletExecutionIntent, PreparedKind,

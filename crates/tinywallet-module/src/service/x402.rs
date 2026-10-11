@@ -137,6 +137,7 @@ impl X402Runtime {
         let header_name = HeaderName::from_static("payment-required");
         headers.insert(header_name, header);
         let thread_id = request.owner.as_ref().map(|owner| owner.thread_id.clone());
+        let owner = request.owner.clone();
         let url = request.url.clone();
         let callbacks = self.callbacks.clone();
         let (proof, _admission) =
@@ -164,6 +165,7 @@ impl X402Runtime {
                                 asset: requirement.asset,
                                 recipient: requirement.pay_to,
                                 amount_atomic,
+                                owner: owner.clone(),
                             })
                             .await?;
                         if authorization.approved {
