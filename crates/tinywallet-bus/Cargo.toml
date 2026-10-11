@@ -18,6 +18,9 @@ publish = false
 serde = { version = "1", optional = true }
 # The wire host callback DTOs carry opaque JSON payloads.
 serde_json = { version = "1", optional = true }
+# Clear short-lived mnemonic seed DTOs when they leave scope; this does not
+# implement derivation or signing and keeps secret buffers safer for hosts.
+zeroize = { version = "1", optional = true }
 # Error vocabulary derives; no crypto execution crosses this dependency.
 thiserror = "2"
 
@@ -28,7 +31,7 @@ serde_json = "1"
 [features]
 default = ["wire"]
 serde = ["dep:serde", "serde/derive"]
-wire = ["serde", "dep:serde_json"]
+wire = ["serde", "dep:serde_json", "dep:zeroize"]
 # Legacy feature names accepted for a transition release; none links behavior.
 # Consumers must call the compiled module instead of importing algorithms.
 btc = []
