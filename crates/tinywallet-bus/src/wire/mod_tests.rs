@@ -27,6 +27,7 @@ fn mnemonic_generation_wire_shape_is_explicit_and_secret_marked_by_member() {
         phrase: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into(),
         word_count: 12,
     };
+    assert!(!format!("{response:?}").contains("abandon"));
     assert_eq!(
         serde_json::to_value(response).unwrap(),
         json!({
