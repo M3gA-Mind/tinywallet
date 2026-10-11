@@ -204,3 +204,8 @@
    Compiling base58ck v0.1.101
    Compiling pbkdf2 v0.12.2
    Compiling ed25519 v2.2.3
+   Compiling tinybus-macros v0.1.3 (/home/enamakel/work/tinywallet-release-owner/worktrees/wallet-generate-mnemonic/vendor/tinybus/crates/tinybus-macros)
+   Compiling bitcoin-units v0.1.101
+   Compiling bech32 v0.11.1
+   Compiling coins-bip39 v0.13.2
+   Compiling ed25519-dalek v2.2.0
