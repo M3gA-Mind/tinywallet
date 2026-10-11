@@ -474,6 +474,32 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         tokio::spawn(async move { pending_wallet.x402_prepare_payment(pending_request).await });
     approval_started.notified().await;
 
+    assert_capacity_rejected_before_approval(&wallet, &prepare, &authorizations).await;
+
+    admitted.abort();
+    assert!(admitted.await.unwrap_err().is_cancelled());
+    release_approval.notify_one();
+    pause.store(false, Ordering::SeqCst);
+
+    assert_admission_is_held_through_durable_commit(
+        wallet.clone(),
+        handle.clone(),
+        authorizations.clone(),
+    )
+    .await;
+
+    wallet
+        .x402_close(X402CloseRequest { service: handle })
+        .await
+        .unwrap();
+    broker_task.abort();
+}
+
+async fn assert_capacity_rejected_before_approval(
+    wallet: &Arc<crate::service::Wallet>,
+    prepare: &impl Fn() -> tinywallet_bus::wire::X402PreparePaymentRequest,
+    authorizations: &AtomicUsize,
+) {
     let runtime_guard = wallet.x402.read().await;
     let capacity_error = runtime_guard
         .as_ref()
@@ -494,21 +520,51 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         MAX_PENDING,
         "the rejected request must not reach host approval or signing"
     );
+}
 
-    admitted.abort();
-    assert!(admitted.await.unwrap_err().is_cancelled());
-    release_approval.notify_one();
-    pause.store(false, Ordering::SeqCst);
+async fn assert_admission_is_held_through_durable_commit(
+    wallet: Arc<crate::service::Wallet>,
+    handle: tinywallet_bus::wire::X402ServiceHandle,
+    authorizations: Arc<AtomicUsize>,
+) {
+    use tinywallet_bus::wire::X402PreparePaymentRequest;
 
-    wallet
-        .x402_prepare_payment(prepare())
-        .await
-        .expect("cancellation releases its in-flight capacity slot");
+    let prepare = || X402PreparePaymentRequest {
+        service: handle.clone(),
+        url: "https://wallet.fixture.test/resource".to_string(),
+        payment_required: valid_challenge_header(),
+        owner: None,
+        secret: secret(tinywallet_bus::Chain::Evm),
+    };
+    let commit_reached = Arc::new(tokio::sync::Notify::new());
+    let release_commit = Arc::new(tokio::sync::Notify::new());
+    {
+        let mut runtime = wallet.x402.write().await;
+        runtime.as_mut().unwrap().commit_handoff = Some((
+            Arc::new(AtomicBool::new(true)),
+            commit_reached.clone(),
+            release_commit.clone(),
+        ));
+    }
+    let pending_wallet = wallet.clone();
+    let pending_request = prepare();
+    let completing =
+        tokio::spawn(async move { pending_wallet.x402_prepare_payment(pending_request).await });
+    commit_reached.notified().await;
+
+    let authorizations_before_handoff = authorizations.load(Ordering::SeqCst);
+    let during_commit = wallet.x402_prepare_payment(prepare()).await;
+    assert!(
+        during_commit.is_err(),
+        "the completing proof keeps its slot until durable commit"
+    );
+    assert_eq!(
+        authorizations.load(Ordering::SeqCst),
+        authorizations_before_handoff,
+        "handoff saturation must reject before asking for another approval"
+    );
+
+    release_commit.notify_one();
+    completing.await.unwrap().unwrap();
     assert_eq!(authorizations.load(Ordering::SeqCst), MAX_PENDING + 1);
-
-    wallet
-        .x402_close(X402CloseRequest { service: handle })
-        .await
-        .unwrap();
-    broker_task.abort();
 }

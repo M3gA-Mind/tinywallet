@@ -23,6 +23,12 @@ const MAX_PENDING: usize = 64;
 pub(crate) struct X402Runtime {
     callbacks: HostCallbacks,
     preparing: Mutex<usize>,
+    #[cfg(test)]
+    commit_handoff: Option<(
+        Arc<std::sync::atomic::AtomicBool>,
+        Arc<tokio::sync::Notify>,
+        Arc<tokio::sync::Notify>,
+    )>,
     config: X402ConfigResponse,
     handle: X402ServiceHandle,
 }
@@ -82,6 +88,8 @@ impl X402Runtime {
         Self {
             callbacks,
             preparing: Mutex::new(0),
+            #[cfg(test)]
+            commit_handoff: None,
             config,
             handle: X402ServiceHandle {
                 handle: uuid::Uuid::new_v4().to_string(),
@@ -131,45 +139,54 @@ impl X402Runtime {
         let thread_id = request.owner.as_ref().map(|owner| owner.thread_id.clone());
         let url = request.url.clone();
         let callbacks = self.callbacks.clone();
-        let proof = with_execution_context(request.owner, request.secret, None, async {
-            let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
-            let transport = Arc::new(HostTransport(self.callbacks.clone()));
-            let builder = CryptoPayments::new(signer, transport);
-            // Bound concurrent chain refreshes before the first network await.
-            // Capacity is checked again after refresh so finalized expiry
-            // evidence can free slots before new authorizations are admitted.
-            let admission = self.begin_pending()?;
-            tinywallet_x402::protocol::refresh_solana_authorizations(&builder)
+        let (proof, _admission) =
+            with_execution_context(request.owner, request.secret, None, async {
+                let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
+                let transport = Arc::new(HostTransport(self.callbacks.clone()));
+                let builder = CryptoPayments::new(signer, transport);
+                // Bound concurrent chain refreshes before the first network await.
+                // Capacity is checked again after refresh so finalized expiry
+                // evidence can free slots before new authorizations are admitted.
+                let admission = self.begin_pending()?;
+                tinywallet_x402::protocol::refresh_solana_authorizations(&builder)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                admission.ensure_capacity()?;
+                let proof = handle_402_and_pay_authorized(
+                    &builder,
+                    &headers,
+                    &url,
+                    move |url, requirement, _chain, amount_atomic| async move {
+                        let authorization = callbacks
+                            .authorize_x402_payment(AuthorizeX402PaymentRequest {
+                                url,
+                                network: requirement.network,
+                                asset: requirement.asset,
+                                recipient: requirement.pay_to,
+                                amount_atomic,
+                            })
+                            .await?;
+                        if authorization.approved {
+                            Ok(())
+                        } else {
+                            Err(authorization
+                                .reason
+                                .unwrap_or_else(|| "x402 payment was not approved".to_string()))
+                        }
+                    },
+                )
                 .await
                 .map_err(|error| error.to_string())?;
-            admission.ensure_capacity()?;
-            handle_402_and_pay_authorized(
-                &builder,
-                &headers,
-                &url,
-                move |url, requirement, _chain, amount_atomic| async move {
-                    let authorization = callbacks
-                        .authorize_x402_payment(AuthorizeX402PaymentRequest {
-                            url,
-                            network: requirement.network,
-                            asset: requirement.asset,
-                            recipient: requirement.pay_to,
-                            amount_atomic,
-                        })
-                        .await?;
-                    if authorization.approved {
-                        Ok(())
-                    } else {
-                        Err(authorization
-                            .reason
-                            .unwrap_or_else(|| "x402 payment was not approved".to_string()))
-                    }
-                },
-            )
-            .await
-            .map_err(|error| error.to_string())
-        })
-        .await?;
+                Ok::<_, String>((proof, admission))
+            })
+            .await?;
+        #[cfg(test)]
+        if let Some((pause_once, reached, release)) = &self.commit_handoff {
+            if pause_once.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                reached.notify_one();
+                release.notified().await;
+            }
+        }
         let payment_id = format!("x402_{}", uuid::Uuid::new_v4());
         let response = X402PreparePaymentResponse {
             payment_id: payment_id.clone(),
