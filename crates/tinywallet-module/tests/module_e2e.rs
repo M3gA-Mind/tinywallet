@@ -302,7 +302,7 @@ async fn encodes_erc20_transfers_inside_the_artifact(proxy: &tinybus::Proxy) {
         )
         .await
         .expect_err("invalid recipient is rejected by the module");
-    assert!(error.to_string().contains("Web3OperationFailed"));
+    assert!(error.to_string().contains("InvalidInput"));
 }
 
 /// Several inputs, so the multi-signature ordering crosses the bus for real.

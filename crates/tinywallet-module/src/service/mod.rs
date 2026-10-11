@@ -103,7 +103,7 @@ impl Wallet {
     ) -> BusResult<tinywallet_bus::wire::EncodeErc20TransferResponse> {
         let calldata =
             tinywallet_x402::abi::encode_erc20_transfer(&request.to_address, &request.amount_raw)
-                .map_err(|error| web3_operation_failed(error.to_string()))?;
+                .map_err(|error| invalid_input(error.to_string()))?;
         Ok(tinywallet_bus::wire::EncodeErc20TransferResponse { calldata })
     }
 
