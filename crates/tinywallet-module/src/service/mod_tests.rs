@@ -1135,11 +1135,7 @@ async fn derive_mnemonic_seed_returns_the_standard_seed_and_hides_invalid_phrase
         })
         .await
         .expect("published BIP-39 phrase derives a seed");
-    let seed_hex = response
-        .seed
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let seed_hex = hex(&response.seed);
     assert_eq!(
         seed_hex,
         "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4"

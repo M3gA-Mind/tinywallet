@@ -702,7 +702,7 @@ impl Wallet {
 
     /// Derive the standard BIP-39 seed for a host-owned storage-key KDF.
     ///
-    /// The phrase is accepted only through TinyBus's confidential channel and
+    /// The phrase is accepted only through `TinyBus`'s confidential channel and
     /// wiped from the decoded request before returning.
     #[tinybus(confidential)]
     async fn derive_mnemonic_seed(
