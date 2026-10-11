@@ -383,6 +383,10 @@ pub struct X402PreparePaymentRequest {
     pub owner: Option<QuoteOwner>,
     /// Wallet material consumed only inside the confidential module call.
     pub secret: SecretMaterial,
+    /// Additional chain-specific wallet material for module-selected rails.
+    /// Older hosts omit this field and keep sending only `secret`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_secrets: Vec<SecretMaterial>,
 }
 
 /// Payment proof and pending-ledger handle returned to the host for retry.

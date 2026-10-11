@@ -97,7 +97,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     let handle = replaced;
 
     let prepared = wallet
-        .x402_prepare_payment(X402PreparePaymentRequest {
+        .x402_prepare_payment({
             service: handle.clone(),
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
@@ -105,6 +105,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
                 thread_id: "fixture-thread".to_string(),
                 client_id: "fixture-client".to_string(),
             }),
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await
@@ -191,11 +192,12 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     assert_eq!(settled.daily_total_atomic, 100);
     assert_eq!(settled.reserved_atomic, 0);
 
-    let prepare_solana = || X402PreparePaymentRequest {
+    let prepare_solana = || {
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_solana_challenge_header(),
         owner: None,
+        additional_secrets: Vec::new(),
         secret: secret(tinywallet_bus::Chain::Solana),
     };
     let first_solana = wallet.x402_prepare_payment(prepare_solana()).await.unwrap();
@@ -250,11 +252,12 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
 
     approved.store(false, Ordering::SeqCst);
     let denied = wallet
-        .x402_prepare_payment(X402PreparePaymentRequest {
+        .x402_prepare_payment({
             service: handle.clone(),
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
             owner: None,
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await
@@ -278,11 +281,12 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     let pending_handle = handle.clone();
     let task = tokio::spawn(async move {
         pending_wallet
-            .x402_prepare_payment(X402PreparePaymentRequest {
+            .x402_prepare_payment({
                 service: pending_handle,
                 url: "https://wallet.fixture.test/resource".to_string(),
                 payment_required: valid_challenge_header(),
                 owner: None,
+                additional_secrets: Vec::new(),
                 secret: secret(tinywallet_bus::Chain::Evm),
             })
             .await
@@ -333,11 +337,12 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         .unwrap();
     let authorizations_before_unpersisted = authorizations.load(Ordering::SeqCst);
     let unpersisted = wallet
-        .x402_prepare_payment(X402PreparePaymentRequest {
+        .x402_prepare_payment({
             service: blocked_handle.clone(),
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
             owner: None,
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await;

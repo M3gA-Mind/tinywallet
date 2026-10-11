@@ -154,11 +154,12 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
         handle: "stale".to_string(),
     };
     let invalid_service = runtime
-        .prepare(X402PreparePaymentRequest {
+        .prepare({
             service: stale,
             url: "https://example.invalid".to_string(),
             payment_required: "bad\nheader".to_string(),
             owner: None,
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await
@@ -166,11 +167,12 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
     assert!(invalid_service.contains("handle is unavailable"));
 
     let invalid_header = runtime
-        .prepare(X402PreparePaymentRequest {
+        .prepare({
             service: handle.clone(),
             url: "https://example.invalid".to_string(),
             payment_required: "bad\nheader".to_string(),
             owner: None,
+            additional_secrets: Vec::new(),
             secret: secret(tinywallet_bus::Chain::Evm),
         })
         .await
@@ -615,7 +617,7 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         .await
         .unwrap();
 
-    let prepare = || X402PreparePaymentRequest {
+    let prepare = || {
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_challenge_header(),
@@ -623,6 +625,7 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
             thread_id: "thread-attributed".to_string(),
             client_id: "client-attributed".to_string(),
         }),
+        additional_secrets: Vec::new(),
         secret: secret(tinywallet_bus::Chain::Evm),
     };
     for _ in 0..(MAX_PENDING - 1) {
@@ -695,11 +698,12 @@ async fn assert_admission_is_held_through_durable_commit(
 ) {
     use tinywallet_bus::wire::X402PreparePaymentRequest;
 
-    let prepare = || X402PreparePaymentRequest {
+    let prepare = || {
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_challenge_header(),
         owner: None,
+        additional_secrets: Vec::new(),
         secret: secret(tinywallet_bus::Chain::Evm),
     };
     let commit_reached = Arc::new(tokio::sync::Notify::new());

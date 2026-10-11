@@ -1607,11 +1607,12 @@ async fn user_scoped_operations_fail_closed_before_configuration() {
     );
     assert!(
         wallet
-            .x402_prepare_payment(X402PreparePaymentRequest {
+            .x402_prepare_payment({
                 service: x402_handle.clone(),
                 url: "https://example.invalid".to_string(),
                 payment_required: String::new(),
                 owner: None,
+                additional_secrets: Vec::new(),
                 secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
             })
             .await
