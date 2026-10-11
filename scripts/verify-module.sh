@@ -7,6 +7,7 @@ archive="${1:?usage: verify-module.sh --archive <module-archive>}"
 archive="$(cd "$(dirname "$archive")" && pwd -P)/$(basename "$archive")"
 cd "$root"
 work="$(mktemp -d "${TMPDIR:-/tmp}/tinywallet-module-verify.XXXXXX")"
+work="$(cd "$work" && pwd -P)"
 trap 'rm -rf "$work"' EXIT
 case "$archive" in
   *.tar.gz)
