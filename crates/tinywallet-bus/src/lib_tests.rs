@@ -52,30 +52,14 @@ fn named_tool_declaration_lookup_reports_unknown_names_without_fallback() {
 
 #[cfg(feature = "wire")]
 #[test]
-fn implementation_reexports_keep_network_metadata_methods() {
+fn network_identifiers_keep_their_wire_names_and_chain_ids() {
     use super::wire::{EvmNetwork, SolanaCluster};
 
+    assert_eq!(EvmNetwork::BaseMainnet.as_str(), "base_mainnet");
+    assert_eq!(EvmNetwork::BaseMainnet.chain_id(), 8453);
     assert_eq!(
-        EvmNetwork::BaseMainnet.default_rpc_url(),
-        "https://mainnet.base.org"
-    );
-    assert_eq!(
-        EvmNetwork::BaseMainnet.explorer_tx_base(),
-        "https://basescan.org/tx/"
-    );
-    assert_eq!(EvmNetwork::BaseMainnet.network_label(), "base-mainnet");
-    assert_eq!(
-        SolanaCluster::Devnet.rpc_url(),
-        "https://api.devnet.solana.com"
-    );
-    assert_eq!(SolanaCluster::Devnet.network_label(), "solana-devnet");
-    assert_eq!(
-        SolanaCluster::Devnet.explorer_tx_suffix(),
-        "?cluster=devnet"
-    );
-    assert_eq!(
-        SolanaCluster::Devnet.usdc_mint(),
-        "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+        serde_json::to_value(SolanaCluster::Devnet).unwrap(),
+        "devnet"
     );
 }
 

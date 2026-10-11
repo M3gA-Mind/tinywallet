@@ -3,10 +3,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::{
-    EvmNetwork, RpcSource, SolanaCluster, asset_catalog, default_rpc_url, default_rpc_url_for_evm,
-    default_rpc_url_for_solana, evm_asset_catalog, explorer_tx_base_for_evm,
-    explorer_tx_base_for_solana, explorer_tx_url, explorer_tx_url_for_evm_network, find_asset,
-    find_asset_for_network, network_defaults, network_label_for_evm, usdc_mint_for_solana,
+    EvmNetwork, EvmNetworkReferenceData, RpcSource, SolanaCluster, SolanaClusterReferenceData,
+    asset_catalog, default_rpc_url, default_rpc_url_for_evm, default_rpc_url_for_solana,
+    evm_asset_catalog, explorer_tx_base_for_evm, explorer_tx_base_for_solana, explorer_tx_url,
+    explorer_tx_url_for_evm_network, find_asset, find_asset_for_network, network_defaults,
+    network_label_for_evm, usdc_mint_for_solana,
 };
 use crate::crypto::wallet::WalletChain;
 use crate::test_support::FakeRpcEndpoints;
@@ -99,6 +100,75 @@ fn every_network_has_distinct_ids_labels_and_explorers() {
         let round: EvmNetwork =
             serde_json::from_value(serde_json::json!(network.as_str())).unwrap();
         assert_eq!(round, network);
+    }
+}
+
+#[test]
+fn compatibility_traits_keep_network_reference_data_in_web3() {
+    let evm = [
+        (
+            EvmNetwork::EthereumMainnet,
+            "https://ethereum-rpc.publicnode.com",
+            "https://etherscan.io/tx/",
+            "ethereum-mainnet",
+        ),
+        (
+            EvmNetwork::BaseMainnet,
+            "https://mainnet.base.org",
+            "https://basescan.org/tx/",
+            "base-mainnet",
+        ),
+        (
+            EvmNetwork::ArbitrumOne,
+            "https://arb1.arbitrum.io/rpc",
+            "https://arbiscan.io/tx/",
+            "arbitrum-one",
+        ),
+        (
+            EvmNetwork::OptimismMainnet,
+            "https://mainnet.optimism.io",
+            "https://optimistic.etherscan.io/tx/",
+            "optimism-mainnet",
+        ),
+        (
+            EvmNetwork::PolygonMainnet,
+            "https://polygon-rpc.com",
+            "https://polygonscan.com/tx/",
+            "polygon-mainnet",
+        ),
+        (
+            EvmNetwork::BscMainnet,
+            "https://bsc-dataseed.binance.org",
+            "https://bscscan.com/tx/",
+            "bsc-mainnet",
+        ),
+    ];
+    for (network, rpc, explorer, label) in evm {
+        assert_eq!(network.default_rpc_url(), rpc);
+        assert_eq!(network.explorer_tx_base(), explorer);
+        assert_eq!(network.network_label(), label);
+    }
+
+    for (cluster, rpc, label, suffix, mint) in [
+        (
+            SolanaCluster::Mainnet,
+            "https://api.mainnet-beta.solana.com",
+            "solana-mainnet-beta",
+            "",
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        ),
+        (
+            SolanaCluster::Devnet,
+            "https://api.devnet.solana.com",
+            "solana-devnet",
+            "?cluster=devnet",
+            "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+        ),
+    ] {
+        assert_eq!(cluster.rpc_url(), rpc);
+        assert_eq!(cluster.network_label(), label);
+        assert_eq!(cluster.explorer_tx_suffix(), suffix);
+        assert_eq!(cluster.usdc_mint(), mint);
     }
 }
 

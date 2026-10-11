@@ -5,6 +5,10 @@ identifiers, error vocabulary, transfer types and request/result DTOs. Normal
 and build dependencies are limited to serde, serde_json and thiserror plus their approved
 serialization and derive closure. No feature links crypto, x402, web3, transport or native libraries.
 
+Network enums in the bus are identifiers only. RPC endpoints, explorer URLs,
+Solana mint addresses, and display labels remain implementation-owned reference
+data in `tinywallet-web3`.
+
 Contract 1.1 adds `ValidateAddress`. It returns the trimmed address or the same
 structured errors as the implementation, including Bitcoin's narrower sender
 rule. Validation runs inside the compiled artifact. Existing transaction and
