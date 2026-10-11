@@ -116,6 +116,7 @@ fn settled(amount: u64) -> PaymentRecord {
         tx_signature: None,
         status: PaymentStatus::Settled,
         timestamp: chrono::Utc::now(),
+        authorization_valid_until: None,
         session_id: "test-session".into(),
         thread_id: None,
     }

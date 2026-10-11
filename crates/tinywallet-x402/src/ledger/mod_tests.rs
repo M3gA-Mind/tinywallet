@@ -4,12 +4,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 use super::*;
 
 const SESSION: &str = "session-a";
+static NEXT_TEST_RECORD: AtomicU64 = AtomicU64::new(1);
 
 fn budget() -> SpendingBudget {
     SpendingBudget {
@@ -30,7 +32,11 @@ fn record(
     session: &str,
 ) -> PaymentRecord {
     PaymentRecord {
-        id: format!("id-{amount}-{}", timestamp.timestamp()),
+        id: format!(
+            "id-{amount}-{}-{}",
+            timestamp.timestamp(),
+            NEXT_TEST_RECORD.fetch_add(1, Ordering::Relaxed)
+        ),
         url: "https://api.example.com/data".into(),
         asset: "USDC".into(),
         amount_atomic: amount,
@@ -40,6 +46,7 @@ fn record(
         tx_signature: Some("sig123".into()),
         status,
         timestamp,
+        authorization_valid_until: None,
         session_id: session.into(),
         thread_id: None,
     }
@@ -94,18 +101,44 @@ fn settled_payments_today_count_against_the_daily_budget() {
 }
 
 #[test]
-fn only_settled_payments_count_against_a_budget() {
+fn unsigned_failed_or_denied_payments_do_not_consume_the_budget() {
     let dir = tempfile::tempdir().unwrap();
     let mut ledger = ledger_in(&dir);
-    for status in [
-        PaymentStatus::Failed,
-        PaymentStatus::Pending,
-        PaymentStatus::Denied,
-    ] {
+    for status in [PaymentStatus::Failed, PaymentStatus::Denied] {
         ledger.record_payment(record(1_800_000, status, now(), SESSION));
     }
     assert_eq!(ledger.check_budget_at(now(), 400_000), BudgetCheck::Allowed);
     assert_eq!(ledger.summary_at(now()), SpendingSummary::default());
+}
+
+#[test]
+fn pending_authorizations_remain_budgeted_after_reopening_the_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ledger = ledger_in(&dir);
+    let mut pending = record(1_800_000, PaymentStatus::Pending, now(), SESSION);
+    pending.id = "signed-authorization".to_string();
+    ledger.record_payment(pending);
+
+    assert_eq!(
+        ledger.check_budget_at(now(), 300_000),
+        BudgetCheck::ExceedsDailyBudget {
+            current: 1_800_000,
+            cap: 2_000_000
+        }
+    );
+    assert_eq!(ledger.summary_at(now()), SpendingSummary::default());
+
+    drop(ledger);
+    let reopened = ledger_in(&dir);
+    assert_eq!(
+        reopened.check_budget_at(now(), 300_000),
+        BudgetCheck::ExceedsDailyBudget {
+            current: 1_800_000,
+            cap: 2_000_000
+        },
+        "a process restart must not release a still-authorized payment"
+    );
+    assert_eq!(reopened.summary_at(now()), SpendingSummary::default());
 }
 
 #[test]
@@ -264,6 +297,39 @@ fn a_payment_is_kept_in_memory_when_the_file_cannot_be_written() {
     let mut ledger = ledger_in(&dir);
     ledger.record_payment(record(5, PaymentStatus::Settled, now(), SESSION));
     assert_eq!(ledger.recent_payments(10).len(), 1);
+}
+
+#[test]
+fn a_fallible_record_is_not_visible_until_it_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("x402"), b"blocks directory creation").unwrap();
+    let mut ledger = ledger_in(&dir);
+
+    assert!(
+        ledger
+            .try_record_payment(record(5, PaymentStatus::Pending, now(), SESSION))
+            .is_err()
+    );
+    assert_eq!(ledger.recent_payments(10), Vec::<PaymentRecord>::new());
+}
+
+#[test]
+fn a_failed_durable_commit_keeps_the_reservation_held() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("x402"), b"blocks directory creation").unwrap();
+    let mut ledger = ledger_in(&dir);
+    let reservation = ledger.reserve(5).unwrap();
+
+    assert!(
+        ledger
+            .try_commit_reservation(
+                reservation,
+                record(5, PaymentStatus::Pending, now(), SESSION)
+            )
+            .is_err()
+    );
+    assert_eq!(ledger.reserved_atomic(), 5);
+    assert_eq!(ledger.recent_payments(10), Vec::<PaymentRecord>::new());
 }
 
 #[test]

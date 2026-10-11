@@ -512,7 +512,7 @@ async fn a_solana_402_is_labelled_solana() {
 }
 
 #[tokio::test]
-async fn a_rejected_payment_is_recorded_as_failed() {
+async fn a_rejected_settlement_does_not_release_the_valid_authorization() {
     let _guard = ledger::TEST_LOCK.lock().await;
     let _dir = init_ledger();
     let server = TestServer::start(ServerConfig {
@@ -528,13 +528,13 @@ async fn a_rejected_payment_is_recorded_as_failed() {
     assert!(text(&result).contains("HTTP 500"));
     assert!(!text(&result).contains("Transaction:"));
     let records = records();
-    assert_eq!(records.last().unwrap().status, PaymentStatus::Failed);
+    assert_eq!(records.last().unwrap().status, PaymentStatus::Pending);
     assert_eq!(records.last().unwrap().tx_signature, None);
     ledger::reset_global();
 }
 
 #[tokio::test]
-async fn a_missing_or_unreadable_receipt_leaves_the_transaction_blank() {
+async fn a_missing_or_unreadable_receipt_keeps_the_authorization_pending() {
     let _guard = ledger::TEST_LOCK.lock().await;
     for receipt in [None, Some("***".to_string()), Some(B64.encode("{}"))] {
         let _dir = init_ledger();
@@ -546,7 +546,7 @@ async fn a_missing_or_unreadable_receipt_leaves_the_transaction_blank() {
         let result = run(&tool(), json!({"url": server.url})).await;
         assert!(!text(&result).contains("Transaction:"));
         let last = records().pop().unwrap();
-        assert_eq!(last.status, PaymentStatus::Settled);
+        assert_eq!(last.status, PaymentStatus::Pending);
         assert_eq!(last.tx_signature, None);
     }
     ledger::reset_global();
@@ -589,6 +589,34 @@ async fn paying_without_a_ledger_is_reported() {
 }
 
 #[tokio::test]
+async fn a_signed_payment_is_not_retried_when_pending_state_cannot_be_saved() {
+    let _guard = ledger::TEST_LOCK.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("x402"), b"blocks ledger directory").unwrap();
+    ledger::init_global(dir.path(), "tool-test", SpendingBudget::default());
+    let server = TestServer::start(paid_config(evm_requirement())).await;
+
+    let result = run(&tool(), json!({"url": server.url})).await;
+
+    assert!(result.is_error);
+    assert_eq!(
+        text(&result),
+        "x402 payment budget could not be durably recorded"
+    );
+    assert_eq!(
+        server.seen().len(),
+        1,
+        "without a durable hold the signed proof must never be sent"
+    );
+    assert_eq!(
+        ledger::with_ledger(ledger::PaymentLedger::reserved_atomic).unwrap(),
+        0
+    );
+    assert_eq!(records(), Vec::<PaymentRecord>::new());
+    ledger::reset_global();
+}
+
+#[tokio::test]
 async fn a_wallet_that_cannot_sign_is_reported() {
     let _guard = ledger::TEST_LOCK.lock().await;
     let _dir = init_ledger();
@@ -611,7 +639,7 @@ async fn a_wallet_that_cannot_sign_is_reported() {
 }
 
 #[tokio::test]
-async fn a_retry_that_never_answers_is_recorded_as_failed() {
+async fn a_retry_that_never_answers_keeps_the_valid_authorization_pending() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let _guard = ledger::TEST_LOCK.lock().await;
@@ -641,10 +669,7 @@ async fn a_retry_that_never_answers_is_recorded_as_failed() {
         text(&result)
     );
     let statuses: Vec<_> = records().iter().map(|r| r.status).collect();
-    assert_eq!(
-        statuses,
-        vec![PaymentStatus::Pending, PaymentStatus::Failed]
-    );
+    assert_eq!(statuses, vec![PaymentStatus::Pending]);
     ledger::reset_global();
 }
 

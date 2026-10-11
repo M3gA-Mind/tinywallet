@@ -336,7 +336,8 @@ impl X402RequestTool {
             Ok(r) => r,
             Err(e) => return ToolResult::error(format!("x402 payment failed: {e}")),
         };
-        // The hold on the budget, kept until the outcome is recorded below.
+        // The hold on the budget, atomically transferred to a durable Pending
+        // record before the signed authorization leaves this process.
         let reservation = payment.reservation;
         let amount_display = format_usdc(payment.amount_atomic);
         debug!(
@@ -364,10 +365,18 @@ impl X402RequestTool {
             tx_signature,
             status,
             timestamp: chrono::Utc::now(),
+            authorization_valid_until: payment.authorization_valid_until,
             session_id: session_id.clone(),
             thread_id: thread_id.clone(),
         };
-        let _ = ledger::with_ledger_mut(|l| l.record_payment(record(PaymentStatus::Pending, None)));
+        if reservation
+            .commit_durable(record(PaymentStatus::Pending, None))
+            .is_err()
+        {
+            return ToolResult::error(
+                "x402 payment budget could not be durably recorded".to_string(),
+            );
+        }
 
         // Step 4: retry with the payment signature.
         let paid_response = match call
@@ -379,27 +388,36 @@ impl X402RequestTool {
         {
             Ok(r) => r,
             Err(e) => {
-                reservation.commit(record(PaymentStatus::Failed, None));
                 return ToolResult::error(format!("x402 retry request failed: {e}"));
             }
         };
 
         // Step 5: read the settlement response and update the ledger.
-        let settled_status = if paid_response.status().is_success() {
-            PaymentStatus::Settled
-        } else {
-            PaymentStatus::Failed
-        };
-        let tx_sig = paid_response
+        let receipt = paid_response
             .headers()
             .get(HEADER_PAYMENT_RESPONSE)
             .and_then(|v| v.to_str().ok())
             .and_then(|b64| B64.decode(b64).ok())
-            .and_then(|bytes| serde_json::from_slice::<SettlementResponse>(&bytes).ok())
-            .and_then(|r| (r.success && !r.transaction.is_empty()).then_some(r.transaction));
-        // Recording the outcome and ending the budget hold are one step, so the
-        // amount is counted exactly once at every instant.
-        reservation.commit(record(settled_status, tx_sig.clone()));
+            .and_then(|bytes| serde_json::from_slice::<SettlementResponse>(&bytes).ok());
+        let settled_status = if receipt.as_ref().is_some_and(|receipt| receipt.success) {
+            PaymentStatus::Settled
+        } else {
+            // An error response or elapsed authorization deadline does not
+            // prove that a proof returned to the server did not settle.
+            PaymentStatus::Pending
+        };
+        let tx_sig = receipt
+            .filter(|receipt| receipt.success && !receipt.transaction.is_empty())
+            .map(|receipt| receipt.transaction);
+        if settled_status != PaymentStatus::Pending
+            && ledger::with_ledger_mut(|ledger| {
+                ledger.try_record_payment(record(settled_status, tx_sig.clone()))
+            })
+            .and_then(|result| result)
+            .is_err()
+        {
+            log::warn!("{LOG_PREFIX} could not persist the x402 payment outcome");
+        }
 
         if settled_status == PaymentStatus::Settled {
             debug!("{LOG_PREFIX} payment settled for {url} tx={tx_sig:?} amount={amount_display}");

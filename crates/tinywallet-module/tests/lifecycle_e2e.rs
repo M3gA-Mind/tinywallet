@@ -515,13 +515,46 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         )
         .await
         .unwrap();
-    assert_eq!(spending["session_total_atomic"], 100);
-    assert_eq!(spending["reserved_atomic"], 0);
+    assert_eq!(spending["session_total_atomic"], 0);
+    assert_eq!(spending["reserved_atomic"], 100);
+
+    let settlement = BASE64.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "success": true,
+            "transaction": "0x1111111111111111111111111111111111111111111111111111111111111111",
+            "network": "eip155:1"
+        }))
+        .unwrap(),
+    );
+    proxy
+        .call::<()>(
+            "X402RecordPayment",
+            (X402RecordPaymentRequest {
+                service: x402_service.clone(),
+                payment_id: payment["payment_id"].as_str().unwrap().to_string(),
+                response_status: 200,
+                settlement_response: Some(settlement),
+            },),
+        )
+        .await
+        .unwrap();
+    let settled: serde_json::Value = proxy
+        .call(
+            "X402SpendingSummary",
+            (X402SummaryRequest {
+                service: x402_service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(settled["session_total_atomic"], 100);
+    assert_eq!(settled["reserved_atomic"], 0);
 
     // Hold an old prepare after it has reserved its amount and entered the
     // host approval callback. Reconfiguration must wait for that call to
-    // finish, then release its reservation against the old ledger before
-    // installing the new session.
+    // finish. Its exported authorization remains durably budgeted when the
+    // same workspace is reopened under a new session, while the old service
+    // handle becomes unavailable.
     let old_service = x402_service.clone();
     let pending_service = old_service.clone();
     x402_gate.blocked.store(true, Ordering::SeqCst);
@@ -588,7 +621,8 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         )
         .await
         .unwrap();
-    assert_eq!(new_summary["reserved_atomic"], 0);
+    assert_eq!(new_summary["reserved_atomic"], 100);
+    assert_eq!(new_summary["session_total_atomic"], 0);
     let stale_record = proxy
         .call::<()>(
             "X402RecordPayment",

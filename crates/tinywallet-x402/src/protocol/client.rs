@@ -1,6 +1,7 @@
 //! The high-level x402 client (intercept 402, pay, retry) and the lower-level
 //! `handle_402*` entry points the HTTP tool layer drives directly.
 
+use chrono::{DateTime, Utc};
 use log::{debug, warn};
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::future::Future;
@@ -13,7 +14,7 @@ use super::headers::{encode_payment, parse_402_headers, parse_settlement_respons
 use super::select::{ensure_payable, select_requirement};
 use crate::ledger::{self, BudgetRefusal, Reservation};
 use crate::wire::{
-    HEADER_PAYMENT_RESPONSE, HEADER_PAYMENT_SIGNATURE, PaymentChain, PaymentRequired,
+    HEADER_PAYMENT_RESPONSE, HEADER_PAYMENT_SIGNATURE, PaymentChain, PaymentProof, PaymentRequired,
     PaymentRequirements,
 };
 
@@ -206,6 +207,9 @@ pub struct X402PaymentResult {
     pub network: String,
     /// The URL the payment is for.
     pub url: String,
+    /// Expiry of the authorization when its rail has an explicit deadline.
+    /// Solana blockhash validity has no wall-clock deadline in this wire type.
+    pub authorization_valid_until: Option<DateTime<Utc>>,
     /// The budget held for this payment. Keep it alive until the outcome is
     /// recorded, then [`commit`](Reservation::commit) it with the final record;
     /// dropping it releases the hold without recording anything.
@@ -312,6 +316,15 @@ where
 
     let payment = builder.build(&challenge, &requirement, chain).await?;
     let header_value = encode_payment(&payment)?;
+    let authorization_valid_until = match &payment.payload {
+        PaymentProof::Evm(proof) => proof
+            .authorization
+            .valid_before
+            .parse::<i64>()
+            .ok()
+            .and_then(|seconds| DateTime::from_timestamp(seconds, 0)),
+        PaymentProof::Solana(_) => None,
+    };
 
     Ok(X402PaymentResult {
         header_value,
@@ -320,6 +333,7 @@ where
         recipient: requirement.pay_to.clone(),
         network: requirement.network.clone(),
         url: request_url.to_string(),
+        authorization_valid_until,
         reservation,
     })
 }
