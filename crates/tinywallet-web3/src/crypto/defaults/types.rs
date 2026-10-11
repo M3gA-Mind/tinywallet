@@ -1,10 +1,12 @@
-//! Implementation-owned network defaults and compatibility extension traits.
+//! Compatibility adapters from bus identifiers to crypto-owned reference data.
 
 pub use tinywallet_bus::wire::{
     EvmNetwork, RpcSource, SolanaCluster, WalletAssetDefinition, WalletNetworkDefaults,
 };
 
-const SOLSCAN_TX_BASE: &str = "https://solscan.io/tx/";
+use tinywallet_crypto::asset::{
+    EvmNetwork as CryptoEvmNetwork, SolanaCluster as CryptoSolanaCluster,
+};
 
 /// Reference data associated with an EVM network identifier.
 ///
@@ -71,83 +73,68 @@ impl SolanaClusterReferenceData for SolanaCluster {
     }
 }
 
+const fn crypto_evm_network(network: EvmNetwork) -> CryptoEvmNetwork {
+    match network {
+        EvmNetwork::EthereumMainnet => CryptoEvmNetwork::Ethereum,
+        EvmNetwork::BaseMainnet => CryptoEvmNetwork::Base,
+        EvmNetwork::ArbitrumOne => CryptoEvmNetwork::Arbitrum,
+        EvmNetwork::OptimismMainnet => CryptoEvmNetwork::Optimism,
+        EvmNetwork::PolygonMainnet => CryptoEvmNetwork::Polygon,
+        EvmNetwork::BscMainnet => CryptoEvmNetwork::Bsc,
+    }
+}
+
+const fn crypto_solana_cluster(cluster: SolanaCluster) -> CryptoSolanaCluster {
+    match cluster {
+        SolanaCluster::Mainnet => CryptoSolanaCluster::Mainnet,
+        SolanaCluster::Devnet => CryptoSolanaCluster::Devnet,
+    }
+}
+
 /// The built-in public JSON-RPC endpoint for an EVM network.
 #[must_use]
 pub const fn default_rpc_url_for_evm(network: EvmNetwork) -> &'static str {
-    match network {
-        EvmNetwork::EthereumMainnet => "https://ethereum-rpc.publicnode.com",
-        EvmNetwork::BaseMainnet => "https://mainnet.base.org",
-        EvmNetwork::ArbitrumOne => "https://arb1.arbitrum.io/rpc",
-        EvmNetwork::OptimismMainnet => "https://mainnet.optimism.io",
-        EvmNetwork::PolygonMainnet => "https://polygon-rpc.com",
-        EvmNetwork::BscMainnet => "https://bsc-dataseed.binance.org",
-    }
+    crypto_evm_network(network).default_rpc_url()
 }
 
 /// The explorer's transaction URL prefix for an EVM network.
 #[must_use]
 pub const fn explorer_tx_base_for_evm(network: EvmNetwork) -> &'static str {
-    match network {
-        EvmNetwork::EthereumMainnet => "https://etherscan.io/tx/",
-        EvmNetwork::BaseMainnet => "https://basescan.org/tx/",
-        EvmNetwork::ArbitrumOne => "https://arbiscan.io/tx/",
-        EvmNetwork::OptimismMainnet => "https://optimistic.etherscan.io/tx/",
-        EvmNetwork::PolygonMainnet => "https://polygonscan.com/tx/",
-        EvmNetwork::BscMainnet => "https://bscscan.com/tx/",
-    }
+    crypto_evm_network(network).explorer_tx_base()
 }
 
 /// Human-readable kebab-case label for an EVM network.
 #[must_use]
 pub const fn network_label_for_evm(network: EvmNetwork) -> &'static str {
-    match network {
-        EvmNetwork::EthereumMainnet => "ethereum-mainnet",
-        EvmNetwork::BaseMainnet => "base-mainnet",
-        EvmNetwork::ArbitrumOne => "arbitrum-one",
-        EvmNetwork::OptimismMainnet => "optimism-mainnet",
-        EvmNetwork::PolygonMainnet => "polygon-mainnet",
-        EvmNetwork::BscMainnet => "bsc-mainnet",
-    }
+    crypto_evm_network(network).network_label()
 }
 
 /// Default JSON-RPC endpoint for a Solana cluster.
 #[must_use]
 pub const fn default_rpc_url_for_solana(cluster: SolanaCluster) -> &'static str {
-    match cluster {
-        SolanaCluster::Mainnet => "https://api.mainnet-beta.solana.com",
-        SolanaCluster::Devnet => "https://api.devnet.solana.com",
-    }
+    crypto_solana_cluster(cluster).rpc_url()
 }
 
 /// Human-readable kebab-case label for a Solana cluster.
 #[must_use]
 pub const fn network_label_for_solana(cluster: SolanaCluster) -> &'static str {
-    match cluster {
-        SolanaCluster::Mainnet => "solana-mainnet-beta",
-        SolanaCluster::Devnet => "solana-devnet",
-    }
+    crypto_solana_cluster(cluster).network_label()
 }
 
 /// Explorer query suffix for a Solana cluster.
 #[must_use]
 pub const fn explorer_tx_suffix_for_solana(cluster: SolanaCluster) -> &'static str {
-    match cluster {
-        SolanaCluster::Mainnet => "",
-        SolanaCluster::Devnet => "?cluster=devnet",
-    }
+    crypto_solana_cluster(cluster).explorer_tx_suffix()
 }
 
 /// USDC SPL-token mint for a Solana cluster.
 #[must_use]
 pub const fn usdc_mint_for_solana(cluster: SolanaCluster) -> &'static str {
-    match cluster {
-        SolanaCluster::Mainnet => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        SolanaCluster::Devnet => "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-    }
+    crypto_solana_cluster(cluster).usdc_mint()
 }
 
 /// Explorer transaction URL prefix for a Solana cluster.
 #[must_use]
-pub const fn explorer_tx_base_for_solana(_cluster: SolanaCluster) -> &'static str {
-    SOLSCAN_TX_BASE
+pub const fn explorer_tx_base_for_solana(cluster: SolanaCluster) -> &'static str {
+    crypto_solana_cluster(cluster).explorer_tx_base()
 }
