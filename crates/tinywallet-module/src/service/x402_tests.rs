@@ -308,7 +308,7 @@ async fn history_and_live_budget_operations_keep_the_configured_ledger() {
         .unwrap();
     let callbacks = HostCallbacks::new(&connection).unwrap();
     let workspace = tempfile::tempdir().unwrap();
-    let runtime = X402Runtime::new(
+    let mut runtime = X402Runtime::new(
         callbacks,
         X402ConfigResponse {
             workspace_dir: workspace.path().display().to_string(),
