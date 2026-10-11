@@ -194,10 +194,12 @@ fn mnemonic_generation_rejects_unsupported_word_counts() {
 #[test]
 fn mnemonic_seed_matches_the_published_bip39_vector() {
     let seed = super::mnemonic_seed(VECTOR).expect("the published phrase is valid");
-    let seed_hex = seed
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    use std::fmt::Write as _;
+
+    let mut seed_hex = String::with_capacity(seed.len() * 2);
+    for byte in seed.iter() {
+        write!(seed_hex, "{byte:02x}").expect("writing to a string cannot fail");
+    }
 
     assert_eq!(
         seed_hex,
