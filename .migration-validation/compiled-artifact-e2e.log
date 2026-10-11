@@ -201,3 +201,6 @@
    Compiling coins-bip32 v0.13.2
    Compiling rand v0.9.5
    Compiling secp256k1 v0.29.1
+   Compiling base58ck v0.1.101
+   Compiling pbkdf2 v0.12.2
+   Compiling ed25519 v2.2.3
