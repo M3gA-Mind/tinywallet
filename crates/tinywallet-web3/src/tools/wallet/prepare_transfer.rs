@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use log::{debug, warn};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinytools::{Tool, ToolExposure, ToolResult};
 
 use crate::crypto::execution::PrepareTransferParams;
@@ -44,43 +44,17 @@ impl Tool for WalletPrepareTransferTool {
     }
 
     fn name(&self) -> &'static str {
-        "wallet_prepare_transfer"
+        tinywallet_bus::tools::wallet_tool_declarations()[2].name
     }
 
     fn description(&self) -> &'static str {
-        "Prepare a cryptocurrency transfer. Returns a quote that must be confirmed before execution."
+        tinywallet_bus::tools::wallet_tool_declarations()[2].description
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "chain": {
-                    "type": "string",
-                    "enum": ["evm", "btc", "solana", "tron"],
-                    "description": "Blockchain network to use"
-                },
-                "toAddress": {
-                    "type": "string",
-                    "description": "Destination wallet address"
-                },
-                "amountRaw": {
-                    "type": "string",
-                    "description": "Transfer amount in the chain's smallest unit (e.g. wei for EVM)"
-                },
-                "assetSymbol": {
-                    "type": "string",
-                    "description": "Asset symbol (e.g. ETH, USDC). Defaults to the native asset."
-                },
-                "evmNetwork": {
-                    "type": "string",
-                    "enum": ["ethereum_mainnet", "base_mainnet", "arbitrum_one", "optimism_mainnet", "polygon_mainnet", "bsc_mainnet"],
-                    "description": "Optional EVM network when chain='evm'. Defaults to ethereum_mainnet."
-                }
-            },
-            "required": ["chain", "toAddress", "amountRaw"],
-            "additionalProperties": false
-        })
+        tinywallet_bus::tools::wallet_tool_declarations()[2]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {

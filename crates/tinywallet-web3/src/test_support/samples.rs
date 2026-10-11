@@ -95,6 +95,5 @@ pub(crate) fn prepared_quote(
         created_at_ms: now,
         expires_at_ms: now + 60_000,
         notes: vec![],
-        owner: None,
     }
 }

@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use log::debug;
-use serde_json::json;
 use tinytools::{PermissionLevel, Tool, ToolCallOptions, ToolExposure, ToolResult};
 use tinywallet_crypto::rpc::Transport;
 
@@ -148,43 +147,15 @@ impl Tool for X402RequestTool {
     }
 
     fn name(&self) -> &'static str {
-        "x402_request"
+        tinywallet_bus::tools::x402_tool_declaration().name
     }
 
     fn description(&self) -> &'static str {
-        "Make an HTTP request to an x402-payable API endpoint. Automatically handles the \
-         HTTP 402 payment challenge by signing a payment (EVM EIP-3009 on Base/Ethereum, or \
-         Solana SPL transfer) with the wallet and retrying with the payment proof. \
-         Returns the API response after payment. Use this for x402-enabled APIs like twit.sh. \
-         The wallet must be set up with USDC on the target chain."
+        tinywallet_bus::tools::x402_tool_declaration().description
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "URL of the x402-payable API endpoint (e.g. https://x402.twit.sh/tweets/by/id?id=1110302988)"
-                },
-                "method": {
-                    "type": "string",
-                    "description": "HTTP method (default: GET)",
-                    "default": "GET",
-                    "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
-                },
-                "headers": {
-                    "type": "object",
-                    "description": "Optional HTTP headers as key-value pairs",
-                    "default": {}
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Optional request body (for POST/PUT/PATCH)"
-                }
-            },
-            "required": ["url"]
-        })
+        tinywallet_bus::tools::x402_tool_declaration().parameters
     }
 
     fn permission_level(&self) -> PermissionLevel {

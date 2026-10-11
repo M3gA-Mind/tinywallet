@@ -11,7 +11,9 @@ use tinywallet_bus::wire::{
     SecretMaterial, WalletBackendRequest, Web3ExecutionIntent, Web3ServiceHandle,
 };
 use tinywallet_crypto::rpc::{NetworkId, Transport, TransportError, TransportResult};
-use tinywallet_web3::crypto::defaults::{EvmNetwork, RpcSource, SolanaCluster, default_rpc_url};
+use tinywallet_web3::crypto::defaults::{
+    EvmNetwork, RpcSource, SolanaCluster, default_rpc_url, default_rpc_url_for_evm,
+};
 use tinywallet_web3::crypto::seams::{RpcEndpoints, WalletAccounts, WalletSigner, Web3Backend};
 use tinywallet_web3::crypto::wallet::{WalletChain, WalletEngine, WalletSeams, WalletStatus};
 use tinywallet_web3::quote::QuoteOwner as LibraryQuoteOwner;
@@ -23,6 +25,7 @@ tokio::task_local! {
     static ACTIVE_QUOTE_OWNER: Option<LibraryQuoteOwner>;
     static ACTIVE_SECRET: Arc<SecretSlot>;
     static ACTIVE_WEB3_APPROVAL: Option<Web3ApprovalContext>;
+    static ACTIVE_NATIVE_APPROVAL: Option<NativeApprovalContext>;
 }
 
 #[derive(Clone)]
@@ -30,6 +33,12 @@ pub(crate) struct Web3ApprovalContext {
     pub(crate) quote_id: String,
     pub(crate) operation: String,
     pub(crate) solana_intent: Option<Web3ExecutionIntent>,
+}
+
+#[derive(Clone)]
+pub(crate) struct NativeApprovalContext {
+    pub(crate) callbacks: HostCallbacks,
+    pub(crate) quote: tinywallet_bus::wire::PreparedTransaction,
 }
 
 struct SecretSlot(Mutex<Option<SecretMaterial>>);
@@ -56,7 +65,7 @@ impl Web3Runtime {
     /// Compose the owner library over host-owned custody facts and transports.
     pub(crate) fn new(host: HostCallbacks) -> Self {
         let engine = Arc::new(WalletEngine::new(WalletSeams {
-            transport: Arc::new(HostTransport(host.clone())),
+            transport: Arc::new(HostTransport::new(host.clone())),
             endpoints: Arc::new(DefaultEndpoints),
             signer: Arc::new(ModuleSigner(host.clone())),
             accounts: Arc::new(HostAccounts(host.clone())),
@@ -131,6 +140,14 @@ pub(crate) async fn with_execution_context<F: Future>(
         .await
 }
 
+/// Scope the exact prepared native quote across the module-owned signer call.
+pub(crate) async fn with_native_approval<F: Future>(
+    approval: NativeApprovalContext,
+    future: F,
+) -> F::Output {
+    ACTIVE_NATIVE_APPROVAL.scope(Some(approval), future).await
+}
+
 fn take_secret() -> Result<SecretMaterial, String> {
     ACTIVE_SECRET
         .try_with(|slot| {
@@ -172,7 +189,7 @@ pub(crate) async fn with_quote_owner<F: Future>(
         .await
 }
 
-struct TaskQuoteScope;
+pub(crate) struct TaskQuoteScope;
 
 impl QuoteScope for TaskQuoteScope {
     fn current_owner(&self) -> Option<LibraryQuoteOwner> {
@@ -182,7 +199,7 @@ impl QuoteScope for TaskQuoteScope {
     }
 }
 
-struct HostAccounts(HostCallbacks);
+pub(crate) struct HostAccounts(pub(crate) HostCallbacks);
 
 #[async_trait]
 impl WalletAccounts for HostAccounts {
@@ -252,7 +269,29 @@ impl Web3Backend for HostWeb3Backend {
     }
 }
 
-pub(super) struct HostTransport(pub(super) HostCallbacks);
+pub(super) struct HostTransport {
+    callbacks: HostCallbacks,
+    endpoints: Option<Arc<dyn RpcEndpoints>>,
+}
+
+impl HostTransport {
+    pub(super) fn new(callbacks: HostCallbacks) -> Self {
+        Self {
+            callbacks,
+            endpoints: None,
+        }
+    }
+
+    pub(super) fn with_endpoints(
+        callbacks: HostCallbacks,
+        endpoints: Arc<dyn RpcEndpoints>,
+    ) -> Self {
+        Self {
+            callbacks,
+            endpoints: Some(endpoints),
+        }
+    }
+}
 
 #[async_trait]
 impl Transport for HostTransport {
@@ -263,7 +302,7 @@ impl Transport for HostTransport {
         params: Value,
     ) -> TransportResult<Value> {
         self.call(ChainTransportRequest::JsonRpc {
-            network: network_request(network)
+            network: network_request(network, self.endpoints.as_deref())
                 .map_err(|message| TransportError::Unreachable { network, message })?,
             method: method.to_string(),
             params,
@@ -282,7 +321,7 @@ impl Transport for HostTransport {
 
     async fn rest_get(&self, network: NetworkId, path: &str) -> TransportResult<String> {
         self.call(ChainTransportRequest::RestGet {
-            network: network_request(network)
+            network: network_request(network, self.endpoints.as_deref())
                 .map_err(|message| TransportError::Unreachable { network, message })?,
             path: path.to_string(),
         })
@@ -298,7 +337,7 @@ impl Transport for HostTransport {
         content_type: &str,
     ) -> TransportResult<String> {
         self.call(ChainTransportRequest::RestPost {
-            network: network_request(network)
+            network: network_request(network, self.endpoints.as_deref())
                 .map_err(|message| TransportError::Unreachable { network, message })?,
             path: path.to_string(),
             body,
@@ -314,16 +353,16 @@ impl HostTransport {
         let network_request = match &request {
             ChainTransportRequest::JsonRpc { network, .. }
             | ChainTransportRequest::RestGet { network, .. }
-            | ChainTransportRequest::RestPost { network, .. } => *network,
+            | ChainTransportRequest::RestPost { network, .. } => network.clone(),
         };
-        let network = network_id(network_request).map_err(|message| TransportError::Rpc {
+        let network = network_id(&network_request).map_err(|message| TransportError::Rpc {
             network: NetworkId {
                 chain: tinywallet_crypto::Chain::Evm,
                 evm_chain_id: None,
             },
             message,
         })?;
-        self.0
+        self.callbacks
             .chain_transport(request)
             .await
             .map_err(|message| TransportError::Unreachable { network, message })
@@ -346,20 +385,31 @@ fn rest_result(network: NetworkId, result: ChainTransportResult) -> TransportRes
     }
 }
 
-fn network_request(network: NetworkId) -> Result<NetworkRequest, String> {
+fn network_request(
+    network: NetworkId,
+    endpoints: Option<&dyn RpcEndpoints>,
+) -> Result<NetworkRequest, String> {
+    let wallet_chain = match network.chain {
+        tinywallet_crypto::Chain::Evm => WalletChain::Evm,
+        tinywallet_crypto::Chain::Btc => WalletChain::Btc,
+        tinywallet_crypto::Chain::Solana => WalletChain::Solana,
+        tinywallet_crypto::Chain::Tron => WalletChain::Tron,
+        _ => return Err(format!("unsupported transport chain: {:?}", network.chain)),
+    };
+    let evm_network = network.evm_chain_id.and_then(|id| {
+        EvmNetwork::ALL
+            .into_iter()
+            .find(|network| network.chain_id() == id)
+    });
     Ok(NetworkRequest {
-        chain: match network.chain {
-            tinywallet_crypto::Chain::Evm => tinywallet_bus::Chain::Evm,
-            tinywallet_crypto::Chain::Btc => tinywallet_bus::Chain::Btc,
-            tinywallet_crypto::Chain::Solana => tinywallet_bus::Chain::Solana,
-            tinywallet_crypto::Chain::Tron => tinywallet_bus::Chain::Tron,
-            _ => return Err(format!("unsupported transport chain: {:?}", network.chain)),
-        },
+        chain: wallet_chain.to_chain(),
         evm_chain_id: network.evm_chain_id,
+        endpoint_ref: endpoints
+            .and_then(|endpoints| endpoints.endpoint_ref(wallet_chain, evm_network)),
     })
 }
 
-fn network_id(network: NetworkRequest) -> Result<NetworkId, String> {
+fn network_id(network: &NetworkRequest) -> Result<NetworkId, String> {
     let chain = match network.chain {
         tinywallet_bus::Chain::Evm => tinywallet_crypto::Chain::Evm,
         tinywallet_bus::Chain::Btc => tinywallet_crypto::Chain::Btc,
@@ -378,10 +428,9 @@ struct DefaultEndpoints;
 impl RpcEndpoints for DefaultEndpoints {
     fn url(&self, chain: WalletChain, network: Option<EvmNetwork>) -> String {
         match chain {
-            WalletChain::Evm => network
-                .unwrap_or(EvmNetwork::EthereumMainnet)
-                .default_rpc_url()
-                .to_string(),
+            WalletChain::Evm => {
+                default_rpc_url_for_evm(network.unwrap_or(EvmNetwork::EthereumMainnet)).to_string()
+            }
             other => default_rpc_url(other, self.solana_cluster()).to_string(),
         }
     }
@@ -395,7 +444,7 @@ impl RpcEndpoints for DefaultEndpoints {
     }
 }
 
-struct ModuleSigner(HostCallbacks);
+pub(crate) struct ModuleSigner(pub(crate) HostCallbacks);
 
 #[async_trait]
 impl WalletSigner for ModuleSigner {
@@ -414,7 +463,30 @@ impl WalletSigner for ModuleSigner {
         chain: WalletChain,
         transaction: &tinywallet_bus::wire::TransactionSpec,
     ) -> Result<tinywallet_bus::wire::SignedTransaction, String> {
-        if chain == WalletChain::Evm {
+        let native_approval = ACTIVE_NATIVE_APPROVAL
+            .try_with(Clone::clone)
+            .unwrap_or_default();
+        if let Some(approval) = native_approval.clone() {
+            let decision = approval
+                .callbacks
+                .authorize_native_wallet_execution(
+                    tinywallet_bus::wire::AuthorizeNativeWalletExecutionRequest {
+                        quote_id: approval.quote.quote_id.clone(),
+                        operation: "transfer".to_string(),
+                        quote: approval.quote,
+                        intent: tinywallet_bus::wire::NativeWalletExecutionIntent::Transaction {
+                            transaction: transaction.clone(),
+                        },
+                    },
+                )
+                .await?;
+            if !decision.approved {
+                return Err(decision
+                    .reason
+                    .unwrap_or_else(|| "wallet transaction was not approved".to_string()));
+            }
+        }
+        if chain == WalletChain::Evm && native_approval.is_none() {
             let approval = ACTIVE_WEB3_APPROVAL
                 .try_with(Clone::clone)
                 .map_err(|_| "EVM quote approval context is unavailable".to_string())?
@@ -475,6 +547,26 @@ impl WalletSigner for ModuleSigner {
         message: &[u8],
         scheme: tinywallet_bus::wire::Scheme,
     ) -> Result<tinywallet_bus::wire::Signature, String> {
+        if let Ok(Some(approval)) = ACTIVE_NATIVE_APPROVAL.try_with(Clone::clone) {
+            let decision = approval
+                .callbacks
+                .authorize_native_wallet_execution(
+                    tinywallet_bus::wire::AuthorizeNativeWalletExecutionRequest {
+                        quote_id: approval.quote.quote_id.clone(),
+                        operation: "transfer".to_string(),
+                        quote: approval.quote,
+                        intent: tinywallet_bus::wire::NativeWalletExecutionIntent::SolanaMessage {
+                            message_hex: super::hex(message),
+                        },
+                    },
+                )
+                .await?;
+            if !decision.approved {
+                return Err(decision
+                    .reason
+                    .unwrap_or_else(|| "wallet transaction was not approved".to_string()));
+            }
+        }
         let mut request = tinywallet_bus::wire::SignMessageRequest {
             secret: take_secret()?,
             message_hex: super::hex(message),
@@ -495,3 +587,7 @@ impl WalletSigner for ModuleSigner {
 #[cfg(test)]
 #[path = "web3_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "web3_native_wallet_tests.rs"]
+mod native_wallet_tests;

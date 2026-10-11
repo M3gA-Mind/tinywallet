@@ -173,12 +173,21 @@ fn the_tool_declares_itself_as_a_deferred_write_tool() {
         json!(["GET", "POST", "PUT", "DELETE", "PATCH"])
     );
     assert!(format!("{tool:?}").starts_with("X402RequestTool"));
+    let actual = json!({
+        "name": tool.name(),
+        "description": tool.description(),
+        "parameters": schema,
+    });
+    let recorded: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+        "../../../tinywallet-bus/tests/fixtures/tool-declarations-pre-native-v0.9.0.json"
+    ))
+    .unwrap();
+    assert_eq!(actual, recorded[13]);
 }
 
 // ---------------------------------------------------------------------------
 // Refusals before any network call
 // ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn no_guard_or_denied_guard_cannot_make_a_request() {
     let server = TestServer::start(ServerConfig::default()).await;

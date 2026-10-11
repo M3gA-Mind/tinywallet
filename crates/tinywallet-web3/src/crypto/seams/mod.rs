@@ -94,6 +94,14 @@ pub trait RpcEndpoints: Send + Sync {
     /// Whether that endpoint is the built-in default or a host override.
     fn source(&self, chain: WalletChain, network: Option<EvmNetwork>) -> RpcSource;
 
+    /// Opaque service-scoped reference for a host override, if one is active.
+    ///
+    /// The host resolves this reference to its private endpoint URL. The
+    /// implementation never receives that URL through the transport contract.
+    fn endpoint_ref(&self, _chain: WalletChain, _network: Option<EvmNetwork>) -> Option<String> {
+        None
+    }
+
     /// The Solana cluster the wallet broadcasts to. It drives both the default
     /// endpoint and the USDC mint.
     fn solana_cluster(&self) -> SolanaCluster;

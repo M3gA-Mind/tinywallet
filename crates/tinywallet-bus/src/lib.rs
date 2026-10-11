@@ -13,14 +13,17 @@
 //! links none of them — no `bitcoin`, no `secp256k1` C build, no `ethers-core`,
 //! no BIP-39 implementation.
 //!
-//! Shared chain identifiers, errors and transfer data live here. Crypto and
-//! x402 algorithms remain in their implementation crates and are not re-exported.
-//! Implementations re-export this vocabulary for source compatibility.
+//! Shared chain identifiers, errors, transfer data, and static tool declarations
+//! live here. Crypto and x402 algorithms remain in their implementation crates
+//! and are not re-exported. Implementations re-export this vocabulary for
+//! source compatibility.
 //!
 //! The `serde` feature derives wire serialization; `wire` enables call DTOs.
 //! Legacy feature names remain accepted but never enable implementation code.
 
 pub mod names;
+#[cfg(feature = "wire")]
+pub mod tools;
 pub mod version;
 #[cfg(feature = "wire")]
 pub mod wire;

@@ -2,9 +2,9 @@
 
 use tinybus::{Connection, Error as BusError, Proxy};
 use tinywallet_bus::wire::{
-    AuthorizationResult, AuthorizeWeb3ExecutionRequest, AuthorizeX402PaymentRequest,
-    ChainTransportRequest, ChainTransportResult, HostResponse, WalletAccountsResponse,
-    WalletBackendRequest, WalletBackendResponse,
+    AuthorizationResult, AuthorizeNativeWalletExecutionRequest, AuthorizeWeb3ExecutionRequest,
+    AuthorizeX402PaymentRequest, ChainTransportRequest, ChainTransportResult, HostResponse,
+    WalletAccountsResponse, WalletBackendRequest, WalletBackendResponse,
 };
 
 use super::{HOST_INTERFACE, HOST_OBJECT_PATH};
@@ -59,6 +59,15 @@ impl HostCallbacks {
         self.call("AuthorizeWeb3Execution", (request,)).await
     }
 
+    /// Request approval for the exact facts of one prepared native transfer.
+    pub(crate) async fn authorize_native_wallet_execution(
+        &self,
+        request: AuthorizeNativeWalletExecutionRequest,
+    ) -> Result<AuthorizationResult, String> {
+        self.call("AuthorizeNativeWalletExecution", (request,))
+            .await
+    }
+
     /// Request host approval for exact x402 payment terms.
     pub(crate) async fn authorize_x402_payment(
         &self,
@@ -87,10 +96,10 @@ fn extract_response<R: serde::de::DeserializeOwned>(
         ("WalletBackend", HostResponse::WalletBackend(value)) => serde_json::to_value(value),
         ("WalletAccounts", HostResponse::WalletAccounts(value)) => serde_json::to_value(value),
         ("ChainTransport", HostResponse::ChainTransport(value)) => serde_json::to_value(value),
-        ("AuthorizeWeb3Execution", HostResponse::Authorization(value)) => {
-            serde_json::to_value(value)
-        }
-        ("AuthorizeX402Payment", HostResponse::Authorization(value)) => serde_json::to_value(value),
+        (
+            "AuthorizeWeb3Execution" | "AuthorizeNativeWalletExecution" | "AuthorizeX402Payment",
+            HostResponse::Authorization(value),
+        ) => serde_json::to_value(value),
         (_, response) => {
             return Err(format!(
                 "host callback {expected} returned the wrong response kind: {response:?}"

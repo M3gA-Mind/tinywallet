@@ -142,7 +142,7 @@ impl X402Runtime {
         let (proof, _admission) =
             with_execution_context(request.owner, request.secret, None, async {
                 let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
-                let transport = Arc::new(HostTransport(self.callbacks.clone()));
+                let transport = Arc::new(HostTransport::new(self.callbacks.clone()));
                 let builder = CryptoPayments::new(signer, transport);
                 // Bound concurrent chain refreshes before the first network await.
                 // Capacity is checked again after refresh so finalized expiry

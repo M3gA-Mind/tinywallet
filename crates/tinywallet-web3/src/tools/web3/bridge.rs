@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinytools::{Tool, ToolExposure, ToolResult};
 
 use crate::crypto::service::{BridgeQuoteParams, ExecuteQuoteParams, Web3Service};
-use crate::quote::{execute_tool_schema, to_tool_result};
+use crate::quote::to_tool_result;
 
 /// Prepares a cross-chain bridge.
 #[derive(Debug)]
@@ -44,30 +44,17 @@ impl Tool for Web3BridgeQuoteTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_bridge_quote"
+        tinywallet_bus::tools::web3_tool_declarations()[3].name
     }
 
     fn description(&self) -> &'static str {
-        "Prepare a cross-chain bridge via deBridge DLN. Returns a quote + quoteId to confirm with web3_bridge_execute. Source and destination chains must differ."
+        tinywallet_bus::tools::web3_tool_declarations()[3].description
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "srcChainId": {"type": "integer", "description": "Source deBridge chain id."},
-                "srcChainTokenIn": {"type": "string", "description": "Source token address."},
-                "srcChainTokenInAmount": {"type": "string", "description": "Source amount in the token's smallest unit."},
-                "dstChainId": {"type": "integer", "description": "Destination deBridge chain id (must differ from source)."},
-                "dstChainTokenOut": {"type": "string", "description": "Destination token address."},
-                "dstChainTokenOutAmount": {"type": "string", "description": "Optional. 'auto' for market rate (default)."},
-                "dstChainTokenOutRecipient": {"type": "string", "description": "Optional. Defaults to the wallet's own destination address."},
-                "srcChainOrderAuthorityAddress": {"type": "string", "description": "Optional. Defaults to the wallet's source address."},
-                "dstChainOrderAuthorityAddress": {"type": "string", "description": "Optional. Defaults to the wallet's destination address."}
-            },
-            "required": ["srcChainId", "srcChainTokenIn", "srcChainTokenInAmount", "dstChainId", "dstChainTokenOut"],
-            "additionalProperties": false
-        })
+        tinywallet_bus::tools::web3_tool_declarations()[3]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -86,15 +73,17 @@ impl Tool for Web3BridgeExecuteTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_bridge_execute"
+        tinywallet_bus::tools::web3_tool_declarations()[4].name
     }
 
     fn description(&self) -> &'static str {
-        "Confirm and execute a prepared web3_bridge quote (signs + broadcasts the source-chain tx)."
+        tinywallet_bus::tools::web3_tool_declarations()[4].description
     }
 
     fn parameters_schema(&self) -> Value {
-        execute_tool_schema()
+        tinywallet_bus::tools::web3_tool_declarations()[4]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {

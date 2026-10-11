@@ -26,12 +26,15 @@ pub mod host_methods {
     pub const WALLET_BACKEND: &str = "WalletBackend";
     /// Authorize the exact facts in one stored Web3 quote.
     pub const AUTHORIZE_WEB3_EXECUTION: &str = "AuthorizeWeb3Execution";
+    /// Authorize the exact facts of one native wallet transfer.
+    pub const AUTHORIZE_NATIVE_WALLET_EXECUTION: &str = "AuthorizeNativeWalletExecution";
     /// Approval for exact x402 challenge terms before signing.
     pub const AUTHORIZE_X402_PAYMENT: &str = "AuthorizeX402Payment";
 }
 
 /// Every callback member of the host interface.
 pub const HOST_METHODS: &[&str] = &[
+    host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION,
     host_methods::AUTHORIZE_WEB3_EXECUTION,
     host_methods::AUTHORIZE_X402_PAYMENT,
     host_methods::CHAIN_TRANSPORT,
@@ -71,6 +74,28 @@ pub mod methods {
     pub const WEB3_CONFIGURE: &str = "Web3Configure";
     /// Close one Web3 quote service and discard its unexecuted quotes.
     pub const WEB3_CLOSE: &str = "Web3Close";
+    /// Open a configured native wallet engine service.
+    pub const NATIVE_WALLET_CONFIGURE: &str = "NativeWalletConfigure";
+    /// Close a native wallet engine service.
+    pub const NATIVE_WALLET_CLOSE: &str = "NativeWalletClose";
+    /// Read native wallet network defaults.
+    pub const NATIVE_WALLET_NETWORK_DEFAULTS: &str = "NativeWalletNetworkDefaults";
+    /// List native wallet supported assets.
+    pub const NATIVE_WALLET_SUPPORTED_ASSETS: &str = "NativeWalletSupportedAssets";
+    /// Read native wallet chain status.
+    pub const NATIVE_WALLET_CHAIN_STATUS: &str = "NativeWalletChainStatus";
+    /// Read native wallet balances.
+    pub const NATIVE_WALLET_BALANCES: &str = "NativeWalletBalances";
+    /// Prepare a native wallet transfer quote.
+    pub const NATIVE_WALLET_PREPARE_TRANSFER: &str = "NativeWalletPrepareTransfer";
+    /// Execute a prepared native wallet transfer.
+    pub const NATIVE_WALLET_EXECUTE_PREPARED: &str = "NativeWalletExecutePrepared";
+    /// Read native wallet transaction status.
+    pub const NATIVE_WALLET_TX_STATUS: &str = "NativeWalletTxStatus";
+    /// Read a native wallet transaction receipt.
+    pub const NATIVE_WALLET_TX_RECEIPT: &str = "NativeWalletTxReceipt";
+    /// Look up a native wallet transaction.
+    pub const NATIVE_WALLET_LOOKUP_TX: &str = "NativeWalletLookupTx";
     /// Parses a challenge, reserves budget and builds a confidential payment.
     pub const X402_PREPARE_PAYMENT: &str = "X402PreparePayment";
     /// Records a retry result and commits or releases its module reservation.
@@ -90,6 +115,17 @@ pub const METHODS: &[&str] = &[
     methods::CONSTRUCT_EVM_TRANSACTION,
     methods::DERIVE_ACCOUNT,
     methods::EXPORT_KEY,
+    methods::NATIVE_WALLET_BALANCES,
+    methods::NATIVE_WALLET_CHAIN_STATUS,
+    methods::NATIVE_WALLET_CLOSE,
+    methods::NATIVE_WALLET_CONFIGURE,
+    methods::NATIVE_WALLET_EXECUTE_PREPARED,
+    methods::NATIVE_WALLET_LOOKUP_TX,
+    methods::NATIVE_WALLET_NETWORK_DEFAULTS,
+    methods::NATIVE_WALLET_PREPARE_TRANSFER,
+    methods::NATIVE_WALLET_SUPPORTED_ASSETS,
+    methods::NATIVE_WALLET_TX_RECEIPT,
+    methods::NATIVE_WALLET_TX_STATUS,
     methods::SIGN_MESSAGE,
     methods::SIGN_TRANSACTION,
     methods::VALIDATE_ADDRESS,
@@ -116,6 +152,7 @@ pub const METHODS: &[&str] = &[
 pub const CONFIDENTIAL_METHODS: &[&str] = &[
     methods::DERIVE_ACCOUNT,
     methods::EXPORT_KEY,
+    methods::NATIVE_WALLET_EXECUTE_PREPARED,
     methods::SIGN_MESSAGE,
     methods::SIGN_TRANSACTION,
     methods::WEB3_EXECUTE,

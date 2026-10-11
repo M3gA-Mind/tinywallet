@@ -3,50 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The four chain families the wallet signs for.
-///
-/// EVM is one family covering every network in
-/// [`EvmNetwork`](crate::crypto::defaults::EvmNetwork); the account (and so the
-/// address) is shared across them.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum WalletChain {
-    /// An EVM chain (Ethereum and the L2s).
-    Evm,
-    /// Bitcoin.
-    Btc,
-    /// Solana.
-    Solana,
-    /// Tron.
-    Tron,
-}
-
-impl WalletChain {
-    /// Every chain, in the order a wallet setup must supply accounts.
-    pub const ALL: [Self; 4] = [Self::Evm, Self::Btc, Self::Solana, Self::Tron];
-
-    /// The lowercase machine name, matching the serde representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Evm => "evm",
-            Self::Btc => "btc",
-            Self::Solana => "solana",
-            Self::Tron => "tron",
-        }
-    }
-
-    /// The matching `tinywallet-crypto` chain.
-    #[must_use]
-    pub const fn to_chain(self) -> tinywallet_crypto::Chain {
-        match self {
-            Self::Evm => tinywallet_crypto::Chain::Evm,
-            Self::Btc => tinywallet_crypto::Chain::Btc,
-            Self::Solana => tinywallet_crypto::Chain::Solana,
-            Self::Tron => tinywallet_crypto::Chain::Tron,
-        }
-    }
-}
+pub use tinywallet_bus::wire::WalletChain;
 
 /// How a wallet came to exist.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

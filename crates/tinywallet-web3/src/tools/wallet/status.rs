@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinytools::{Tool, ToolExposure, ToolResult};
 
 use crate::crypto::wallet::WalletEngine;
@@ -30,19 +30,17 @@ impl Tool for WalletStatusTool {
     }
 
     fn name(&self) -> &'static str {
-        "wallet_status"
+        tinywallet_bus::tools::wallet_tool_declarations()[0].name
     }
 
     fn description(&self) -> &'static str {
-        "Check wallet configuration status — whether the wallet is set up, which chains are configured, and available accounts."
+        tinywallet_bus::tools::wallet_tool_declarations()[0].description
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        })
+        tinywallet_bus::tools::wallet_tool_declarations()[0]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {

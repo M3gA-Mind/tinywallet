@@ -8,7 +8,8 @@ use tinywallet_bus::wire::TransactionSpec;
 use tinywallet_crypto::rpc::NetworkId;
 
 use super::{
-    ExecutePreparedParams, PrepareTransferParams, PreparedKind, PreparedStatus, ProviderStatus,
+    ExecutePreparedParams, PrepareTransferParams, PreparedKind, PreparedStatus,
+    PreparedTransferQuote, ProviderStatus,
 };
 use crate::crypto::defaults::EvmNetwork;
 use crate::crypto::wallet::WalletChain;
@@ -27,6 +28,16 @@ fn transfer(chain: WalletChain, amount: &str) -> PrepareTransferParams {
         amount_raw: amount.to_string(),
         asset_symbol: None,
         evm_network: None,
+    }
+}
+
+fn owned_quote(
+    quote: crate::crypto::execution::PreparedTransaction,
+    owner: Option<crate::quote::QuoteOwner>,
+) -> PreparedTransferQuote {
+    PreparedTransferQuote {
+        transaction: quote,
+        owner,
     }
 }
 
@@ -548,7 +559,7 @@ async fn prepare_transfer_rejects_bad_input() {
     let mut bad_address = transfer(WalletChain::Evm, "1");
     bad_address.to_address = "nope".to_string();
     assert!(rig.engine.prepare_transfer(bad_address).await.is_err());
-    assert!(rig.engine.prepared_quotes().is_empty());
+    assert_eq!(rig.engine.prepared_quotes(), Vec::new());
 }
 
 #[tokio::test]
@@ -605,7 +616,11 @@ async fn prepare_stamps_the_owner_the_scope_reports() {
         .prepare_transfer(transfer(WalletChain::Evm, "1000"))
         .await
         .unwrap();
-    assert_eq!(quote.owner, Some(owner_a()));
+    assert_eq!(
+        quote.quote_id,
+        rig.engine.quotes.live()[0].transaction.quote_id
+    );
+    assert_eq!(rig.engine.quotes.live()[0].owner, Some(owner_a()));
 }
 
 // ── execute ──────────────────────────────────────────────────────────────
@@ -699,7 +714,7 @@ async fn execute_dispatches_each_chain_to_its_executor() {
     let mut btc = prepared_quote("q_btc", WalletChain::Btc, PreparedKind::NativeTransfer);
     btc.to_address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4".to_string();
     btc.amount_raw = "50000".to_string();
-    rig.engine.quotes.insert(btc);
+    rig.engine.quotes.insert(owned_quote(btc, None));
     let err = rig
         .engine
         .execute_prepared(ExecutePreparedParams {
@@ -713,7 +728,7 @@ async fn execute_dispatches_each_chain_to_its_executor() {
     // Solana: derive succeeds, blockhash read fails (nothing scripted).
     let mut sol = prepared_quote("q_sol", WalletChain::Solana, PreparedKind::NativeTransfer);
     sol.to_address = "Vote111111111111111111111111111111111111111".to_string();
-    rig.engine.quotes.insert(sol);
+    rig.engine.quotes.insert(owned_quote(sol, None));
     assert!(
         rig.engine
             .execute_prepared(ExecutePreparedParams {
@@ -732,7 +747,7 @@ async fn execute_dispatches_each_chain_to_its_executor() {
     // Tron: the signer derives the account first.
     let mut tron = prepared_quote("q_tron", WalletChain::Tron, PreparedKind::NativeTransfer);
     tron.to_address = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH".to_string();
-    rig.engine.quotes.insert(tron);
+    rig.engine.quotes.insert(owned_quote(tron, None));
     assert!(
         rig.engine
             .execute_prepared(ExecutePreparedParams {
@@ -752,11 +767,10 @@ async fn execute_dispatches_each_chain_to_its_executor() {
 #[tokio::test]
 async fn cross_owner_execution_is_indistinguishable_from_not_found() {
     let rig = Rig::new();
-    rig.engine.quotes.insert({
-        let mut q = prepared_quote("q_x", WalletChain::Evm, PreparedKind::NativeTransfer);
-        q.owner = Some(owner_a());
-        q
-    });
+    rig.engine.quotes.insert(owned_quote(
+        prepared_quote("q_x", WalletChain::Evm, PreparedKind::NativeTransfer),
+        Some(owner_a()),
+    ));
     let params = |id: &str| ExecutePreparedParams {
         quote_id: id.to_string(),
         confirmed: true,
@@ -804,10 +818,9 @@ async fn cross_owner_execution_is_indistinguishable_from_not_found() {
 #[tokio::test]
 async fn a_no_context_flow_executes_a_no_context_quote() {
     let rig = Rig::new();
-    rig.engine.quotes.insert(prepared_quote(
-        "q_bg",
-        WalletChain::Evm,
-        PreparedKind::NativeTransfer,
+    rig.engine.quotes.insert(owned_quote(
+        prepared_quote("q_bg", WalletChain::Evm, PreparedKind::NativeTransfer),
+        None,
     ));
     let err = rig
         .engine

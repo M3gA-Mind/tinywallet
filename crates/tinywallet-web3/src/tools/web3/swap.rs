@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinytools::{Tool, ToolExposure, ToolResult};
 
 use crate::crypto::service::{ExecuteQuoteParams, SwapQuoteParams, Web3Service};
-use crate::quote::{execute_tool_schema, to_tool_result};
+use crate::quote::to_tool_result;
 
 /// Prepares a single-chain swap.
 #[derive(Debug)]
@@ -59,28 +59,17 @@ impl Tool for Web3SwapQuoteTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_swap_quote"
+        tinywallet_bus::tools::web3_tool_declarations()[0].name
     }
 
     fn description(&self) -> &'static str {
-        "Prepare a single-chain crypto swap via deBridge. Returns a quote + quoteId to confirm with web3_swap_execute. For cross-chain swaps use web3_bridge_quote."
+        tinywallet_bus::tools::web3_tool_declarations()[0].description
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "chainId": {"type": "integer", "description": "deBridge chain id (1 ETH, 56 BNB, 137 Polygon, 8453 Base, 42161 Arbitrum, 10 Optimism, 7565164 Solana)."},
-                "tokenIn": {"type": "string", "description": "Input token address (zero address for native)."},
-                "tokenInAmount": {"type": "string", "description": "Input amount in the token's smallest unit."},
-                "tokenOut": {"type": "string", "description": "Output token address."},
-                "tokenOutRecipient": {"type": "string", "description": "Optional. Defaults to the wallet's own address."},
-                "senderAddress": {"type": "string", "description": "Optional. Defaults to the wallet's own address."},
-                "slippage": {"type": "string", "description": "Optional slippage percent or 'auto' (default 'auto')."}
-            },
-            "required": ["chainId", "tokenIn", "tokenInAmount", "tokenOut"],
-            "additionalProperties": false
-        })
+        tinywallet_bus::tools::web3_tool_declarations()[0]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -99,15 +88,17 @@ impl Tool for Web3SwapExecuteTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_swap_execute"
+        tinywallet_bus::tools::web3_tool_declarations()[1].name
     }
 
     fn description(&self) -> &'static str {
-        "Confirm and execute a prepared web3_swap quote (signs + broadcasts)."
+        tinywallet_bus::tools::web3_tool_declarations()[1].description
     }
 
     fn parameters_schema(&self) -> Value {
-        execute_tool_schema()
+        tinywallet_bus::tools::web3_tool_declarations()[1]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -126,15 +117,17 @@ impl Tool for Web3SwapRoutesTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_swap_routes"
+        tinywallet_bus::tools::web3_tool_declarations()[2].name
     }
 
     fn description(&self) -> &'static str {
-        "List the chains deBridge can swap/bridge between."
+        tinywallet_bus::tools::web3_tool_declarations()[2].description
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({"type": "object", "properties": {}, "additionalProperties": false})
+        tinywallet_bus::tools::web3_tool_declarations()[2]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, _args: Value) -> anyhow::Result<ToolResult> {

@@ -32,6 +32,7 @@ mod tx_lookup;
 mod types;
 mod validate;
 
+pub(crate) use types::PreparedTransferQuote;
 pub use types::{
     BalanceInfo, ChainStatus, ExecutePreparedParams, ExecutionResult, PrepareTransferParams,
     PreparedKind, PreparedStatus, PreparedTransaction, ProviderStatus, RawBroadcastResult,

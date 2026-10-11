@@ -23,7 +23,7 @@ pub struct AuthorizationResult {
 }
 
 /// Network identity selected by the wallet algorithm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkRequest {
     /// Chain family.
@@ -31,6 +31,11 @@ pub struct NetworkRequest {
     /// EIP-155 id for an EVM network. None means host default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evm_chain_id: Option<u64>,
+    /// Opaque service-scoped host endpoint reference for a configured
+    /// override. The host resolves it to a URL without returning that URL to
+    /// the module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_ref: Option<String>,
 }
 
 /// Chain transport operation. Endpoint resolution, failover, authentication,
@@ -271,6 +276,20 @@ pub struct AuthorizeWeb3ExecutionRequest {
     pub operation: String,
     /// Exact module-built transaction intent.
     pub transaction: Web3ExecutionIntent,
+}
+
+/// Host authorization for one exact native wallet transfer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizeNativeWalletExecutionRequest {
+    /// Prepared quote identifier.
+    pub quote_id: String,
+    /// Operation represented by the quote.
+    pub operation: String,
+    /// Public facts copied from the module's stored quote.
+    pub quote: super::PreparedTransaction,
+    /// Exact transaction or signing message passed to the module signer.
+    pub intent: super::NativeWalletExecutionIntent,
 }
 
 /// Exact x402 payment terms approved by the host before module-side signing.
