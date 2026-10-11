@@ -154,7 +154,7 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
         handle: "stale".to_string(),
     };
     let invalid_service = runtime
-        .prepare({
+        .prepare(X402PreparePaymentRequest {
             service: stale,
             url: "https://example.invalid".to_string(),
             payment_required: "bad\nheader".to_string(),
@@ -167,7 +167,7 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
     assert!(invalid_service.contains("handle is unavailable"));
 
     let invalid_header = runtime
-        .prepare({
+        .prepare(X402PreparePaymentRequest {
             service: handle.clone(),
             url: "https://example.invalid".to_string(),
             payment_required: "bad\nheader".to_string(),
@@ -617,7 +617,7 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         .await
         .unwrap();
 
-    let prepare = || {
+    let prepare = || X402PreparePaymentRequest {
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_challenge_header(),
@@ -698,7 +698,7 @@ async fn assert_admission_is_held_through_durable_commit(
 ) {
     use tinywallet_bus::wire::X402PreparePaymentRequest;
 
-    let prepare = || {
+    let prepare = || X402PreparePaymentRequest {
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_challenge_header(),

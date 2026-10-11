@@ -97,7 +97,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     let handle = replaced;
 
     let prepared = wallet
-        .x402_prepare_payment({
+        .x402_prepare_payment(X402PreparePaymentRequest {
             service: handle.clone(),
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
@@ -192,7 +192,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     assert_eq!(settled.daily_total_atomic, 100);
     assert_eq!(settled.reserved_atomic, 0);
 
-    let prepare_solana = || {
+    let prepare_solana = || X402PreparePaymentRequest {
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_solana_challenge_header(),
@@ -252,7 +252,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
 
     approved.store(false, Ordering::SeqCst);
     let denied = wallet
-        .x402_prepare_payment({
+        .x402_prepare_payment(X402PreparePaymentRequest {
             service: handle.clone(),
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),
@@ -281,7 +281,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     let pending_handle = handle.clone();
     let task = tokio::spawn(async move {
         pending_wallet
-            .x402_prepare_payment({
+            .x402_prepare_payment(X402PreparePaymentRequest {
                 service: pending_handle,
                 url: "https://wallet.fixture.test/resource".to_string(),
                 payment_required: valid_challenge_header(),
@@ -337,7 +337,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         .unwrap();
     let authorizations_before_unpersisted = authorizations.load(Ordering::SeqCst);
     let unpersisted = wallet
-        .x402_prepare_payment({
+        .x402_prepare_payment(X402PreparePaymentRequest {
             service: blocked_handle.clone(),
             url: "https://wallet.fixture.test/resource".to_string(),
             payment_required: valid_challenge_header(),

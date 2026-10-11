@@ -557,7 +557,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     let denied = proxy
         .call_confidential::<serde_json::Value>(
             "X402PreparePayment",
-            ({
+            (X402PreparePaymentRequest {
                 service: x402_service.clone(),
                 url: "https://fixture.test/resource".to_string(),
                 payment_required: challenge.clone(),
@@ -591,7 +591,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     let too_expensive = proxy
         .call_confidential::<serde_json::Value>(
             "X402PreparePayment",
-            ({
+            (X402PreparePaymentRequest {
                 service: x402_service.clone(),
                 url: "https://fixture.test/resource".to_string(),
                 payment_required: expensive_challenge,
@@ -630,7 +630,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     let payment: serde_json::Value = proxy
         .call_confidential(
             "X402PreparePayment",
-            ({
+            (X402PreparePaymentRequest {
                 service: x402_service.clone(),
                 url: "https://fixture.test/resource".to_string(),
                 payment_required: challenge.clone(),
@@ -771,7 +771,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         prepare_proxy
             .call_confidential::<serde_json::Value>(
                 "X402PreparePayment",
-                ({
+                (X402PreparePaymentRequest {
                     service: pending_service,
                     url: "https://fixture.test/resource".to_string(),
                     payment_required: challenge,
