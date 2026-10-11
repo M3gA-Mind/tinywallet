@@ -104,6 +104,8 @@ pub mod methods {
     pub const NATIVE_WALLET_LOOKUP_TX: &str = "NativeWalletLookupTx";
     /// Parses a challenge, reserves budget and builds a confidential payment.
     pub const X402_PREPARE_PAYMENT: &str = "X402PreparePayment";
+    /// Encodes ERC-20 transfer calldata using the module-owned ABI implementation.
+    pub const ENCODE_ERC20_TRANSFER: &str = "EncodeErc20Transfer";
     /// Records a retry result and commits or releases its module reservation.
     pub const X402_RECORD_PAYMENT: &str = "X402RecordPayment";
     /// Reports ledger totals and spending limits.
@@ -127,6 +129,7 @@ pub const METHODS: &[&str] = &[
     methods::CONSTRUCT_EVM_TRANSACTION,
     methods::DERIVE_ACCOUNT,
     methods::DERIVE_MNEMONIC_SEED,
+    methods::ENCODE_ERC20_TRANSFER,
     methods::EXPORT_KEY,
     methods::GENERATE_MNEMONIC,
     methods::NATIVE_WALLET_BALANCES,

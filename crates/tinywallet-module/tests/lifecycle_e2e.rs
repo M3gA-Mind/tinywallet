@@ -63,6 +63,7 @@ const EXPECTED_METHODS: &[&str] = &[
     "AttachSignature",
     "DeriveAccount",
     "DeriveMnemonicSeed",
+    "EncodeErc20Transfer",
     "GenerateMnemonic",
     "SignTransaction",
     "ExportKey",
