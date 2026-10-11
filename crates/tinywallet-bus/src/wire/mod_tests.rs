@@ -357,8 +357,7 @@ fn x402_chain_secret_extension_preserves_legacy_serialization() {
             "chain": "evm"
         }
     });
-    let request: super::X402PreparePaymentRequest =
-        serde_json::from_value(legacy.clone()).unwrap();
+    let request: super::X402PreparePaymentRequest = serde_json::from_value(legacy.clone()).unwrap();
     assert!(request.additional_secrets.is_empty());
     assert_eq!(serde_json::to_value(request).unwrap(), legacy);
 }

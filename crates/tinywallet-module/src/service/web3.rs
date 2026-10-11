@@ -338,9 +338,13 @@ pub(super) fn clone_x402_secret(chain: tinywallet_bus::Chain) -> Result<SecretMa
                 .iter()
                 .find(|secret| secret.chain == chain)
                 .cloned()
-                .ok_or_else(|| "x402 wallet secret does not match the selected payment chain".to_string())
+                .ok_or_else(|| {
+                    "x402 wallet secret does not match the selected payment chain".to_string()
+                })
         })
-        .map_err(|_| "x402 wallet secrets are unavailable outside a confidential payment".to_string())?
+        .map_err(|_| {
+            "x402 wallet secrets are unavailable outside a confidential payment".to_string()
+        })?
 }
 
 /// Run a quote operation with the owner that arrived in the typed bus request.

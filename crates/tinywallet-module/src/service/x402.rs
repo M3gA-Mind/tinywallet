@@ -152,48 +152,47 @@ impl X402Runtime {
         let owner = request.owner.clone();
         let url = request.url.clone();
         let callbacks = self.callbacks.clone();
-        let (proof, _admission) =
-            with_x402_execution_context(request.owner, secrets, async {
-                let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
-                let transport = Arc::new(HostTransport::new(self.callbacks.clone()));
-                let builder = CryptoPayments::new(signer, transport);
-                // Bound concurrent chain refreshes before the first network await.
-                // Capacity is checked again after refresh so finalized expiry
-                // evidence can free slots before new authorizations are admitted.
-                let admission = self.begin_pending()?;
-                tinywallet_x402::protocol::refresh_solana_authorizations(&builder)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                admission.ensure_capacity()?;
-                let proof = handle_402_and_pay_authorized(
-                    &builder,
-                    &headers,
-                    &url,
-                    move |url, requirement, _chain, amount_atomic| async move {
-                        let authorization = callbacks
-                            .authorize_x402_payment(AuthorizeX402PaymentRequest {
-                                url,
-                                network: requirement.network,
-                                asset: requirement.asset,
-                                recipient: requirement.pay_to,
-                                amount_atomic,
-                                owner: owner.clone(),
-                            })
-                            .await?;
-                        if authorization.approved {
-                            Ok(())
-                        } else {
-                            Err(authorization
-                                .reason
-                                .unwrap_or_else(|| "x402 payment was not approved".to_string()))
-                        }
-                    },
-                )
+        let (proof, _admission) = with_x402_execution_context(request.owner, secrets, async {
+            let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
+            let transport = Arc::new(HostTransport::new(self.callbacks.clone()));
+            let builder = CryptoPayments::new(signer, transport);
+            // Bound concurrent chain refreshes before the first network await.
+            // Capacity is checked again after refresh so finalized expiry
+            // evidence can free slots before new authorizations are admitted.
+            let admission = self.begin_pending()?;
+            tinywallet_x402::protocol::refresh_solana_authorizations(&builder)
                 .await
                 .map_err(|error| error.to_string())?;
-                Ok::<_, String>((proof, admission))
-            })
-            .await?;
+            admission.ensure_capacity()?;
+            let proof = handle_402_and_pay_authorized(
+                &builder,
+                &headers,
+                &url,
+                move |url, requirement, _chain, amount_atomic| async move {
+                    let authorization = callbacks
+                        .authorize_x402_payment(AuthorizeX402PaymentRequest {
+                            url,
+                            network: requirement.network,
+                            asset: requirement.asset,
+                            recipient: requirement.pay_to,
+                            amount_atomic,
+                            owner: owner.clone(),
+                        })
+                        .await?;
+                    if authorization.approved {
+                        Ok(())
+                    } else {
+                        Err(authorization
+                            .reason
+                            .unwrap_or_else(|| "x402 payment was not approved".to_string()))
+                    }
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            Ok::<_, String>((proof, admission))
+        })
+        .await?;
         #[cfg(test)]
         if let Some((pause_once, reached, release)) = &self.commit_handoff {
             if pause_once.swap(false, std::sync::atomic::Ordering::SeqCst) {
@@ -435,7 +434,7 @@ impl PaymentSigner for ModulePaymentSigner {
             PaymentChain::Evm => tinywallet_bus::Chain::Evm,
             PaymentChain::Solana => tinywallet_bus::Chain::Solana,
         };
-        let mut secret = super::web3::clone_x402_secret(expected_chain)?;
+        let secret = super::web3::clone_x402_secret(expected_chain)?;
         let derived = super::derive_account(&secret).map_err(super::failure_message);
         wipe(&mut secret);
         let derived = derived?;
