@@ -126,16 +126,7 @@ impl X402Runtime {
             wipe_request_secrets(&mut request);
             return Err(error);
         }
-        let mut secrets = vec![request.secret];
-        secrets.append(&mut request.additional_secrets);
-        if secrets.iter().enumerate().any(|(index, secret)| {
-            secrets[..index]
-                .iter()
-                .any(|prior| prior.chain == secret.chain)
-        }) {
-            wipe_secrets(&mut secrets);
-            return Err("x402 request contains duplicate secrets for one chain".to_string());
-        }
+        let secrets = take_request_secrets(&mut request)?;
         let header = HeaderValue::from_str(&request.payment_required)
             .map_err(|error| format!("invalid payment challenge header: {error}"));
         let header = match header {
@@ -514,6 +505,29 @@ fn wipe_secrets(secrets: &mut [SecretMaterial]) {
 fn wipe_request_secrets(request: &mut X402PreparePaymentRequest) {
     wipe(&mut request.secret);
     wipe_secrets(&mut request.additional_secrets);
+}
+
+fn take_request_secrets(
+    request: &mut X402PreparePaymentRequest,
+) -> Result<Vec<SecretMaterial>, String> {
+    let mut secrets = vec![std::mem::replace(
+        &mut request.secret,
+        SecretMaterial {
+            mnemonic: String::new(),
+            derivation_path: String::new(),
+            chain: tinywallet_bus::Chain::Evm,
+        },
+    )];
+    secrets.append(&mut request.additional_secrets);
+    if secrets.iter().enumerate().any(|(index, secret)| {
+        secrets[..index]
+            .iter()
+            .any(|prior| prior.chain == secret.chain)
+    }) {
+        wipe_secrets(&mut secrets);
+        return Err("x402 request contains duplicate secrets for one chain".to_string());
+    }
+    Ok(secrets)
 }
 
 #[cfg(test)]
