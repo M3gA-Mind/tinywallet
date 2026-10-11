@@ -30,6 +30,15 @@ Reconfiguration and close wait for in-flight operations, discard old quotes or
 pending reservations, and invalidate old handles. Secret-bearing calls are
 confidential and require an attested artifact.
 
+Contract 1.5 adds the module-owned native WalletEngine service for endpoint
+defaults, chain status, balances, transfer quotes and transaction lookups, plus
+the exact-signing authorization callback. Host endpoint overrides cross the
+transport callback as opaque service-scoped references; URLs remain in host
+custody. The pure `tools` module also owns the static names, descriptions and
+argument schemas for all six wallet, seven Web3 and one x402 tools. The
+implementation crates keep their `tinytools::Tool` adapters and delegate those
+declarations here. A pre-move fixture pins the established tool JSON.
+
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are
 rejected; fee/calldata/request bounds execute in the module. See

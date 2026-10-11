@@ -1,20 +1,14 @@
 //! Agent-tool plumbing shared by every confirm-then-execute flow.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// The JSON Schema every execute tool takes: a quote id and an explicit
 /// `confirmed` flag, the boundary between quoting and acting.
 #[must_use]
 pub fn execute_tool_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "quoteId": {"type": "string", "description": "quoteId from a prior web3 quote/call."},
-            "confirmed": {"type": "boolean", "description": "Must be true to execute."}
-        },
-        "required": ["quoteId", "confirmed"],
-        "additionalProperties": false
-    })
+    tinywallet_bus::tools::web3_tool_declarations()[1]
+        .parameters
+        .clone()
 }
 
 /// Turn an operation result into a tool result: pretty-printed JSON on

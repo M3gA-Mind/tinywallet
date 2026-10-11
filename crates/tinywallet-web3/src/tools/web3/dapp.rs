@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinytools::{Tool, ToolExposure, ToolResult};
 
 use crate::crypto::service::{DappCallParams, ExecuteQuoteParams, Web3Service};
-use crate::quote::{execute_tool_schema, to_tool_result};
+use crate::quote::to_tool_result;
 
 /// Prepares a generic EVM contract call.
 #[derive(Debug)]
@@ -44,29 +44,17 @@ impl Tool for Web3DappCallTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_dapp_call"
+        tinywallet_bus::tools::web3_tool_declarations()[5].name
     }
 
     fn description(&self) -> &'static str {
-        "Prepare a generic EVM dapp contract call from pre-encoded calldata. Returns a quoteId to confirm with web3_dapp_execute."
+        tinywallet_bus::tools::web3_tool_declarations()[5].description
     }
 
     fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "contractAddress": {"type": "string", "description": "Target contract address."},
-                "calldata": {"type": "string", "description": "0x-prefixed hex calldata."},
-                "valueRaw": {"type": "string", "description": "Optional native value (smallest unit). Defaults to '0'."},
-                "evmNetwork": {
-                    "type": "string",
-                    "enum": ["ethereum_mainnet", "base_mainnet", "arbitrum_one", "optimism_mainnet", "polygon_mainnet", "bsc_mainnet"],
-                    "description": "Optional EVM network. Defaults to ethereum_mainnet."
-                }
-            },
-            "required": ["contractAddress", "calldata"],
-            "additionalProperties": false
-        })
+        tinywallet_bus::tools::web3_tool_declarations()[5]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -85,15 +73,17 @@ impl Tool for Web3DappExecuteTool {
     }
 
     fn name(&self) -> &'static str {
-        "web3_dapp_execute"
+        tinywallet_bus::tools::web3_tool_declarations()[6].name
     }
 
     fn description(&self) -> &'static str {
-        "Confirm and execute a prepared web3_dapp call (signs + broadcasts)."
+        tinywallet_bus::tools::web3_tool_declarations()[6].description
     }
 
     fn parameters_schema(&self) -> Value {
-        execute_tool_schema()
+        tinywallet_bus::tools::web3_tool_declarations()[6]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {

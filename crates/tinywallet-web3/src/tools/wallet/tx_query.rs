@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tinytools::{Tool, ToolExposure, ToolResult};
 
 use crate::crypto::defaults::EvmNetwork;
@@ -20,30 +20,6 @@ struct TxQueryArgs {
     #[serde(default)]
     evm_network: Option<EvmNetwork>,
     hash: String,
-}
-
-fn tx_query_schema(verb: &str) -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "chain": {
-                "type": "string",
-                "enum": ["evm", "btc", "solana", "tron"],
-                "description": format!("Blockchain network whose transaction to {verb}")
-            },
-            "hash": {
-                "type": "string",
-                "description": "Transaction hash / signature / txid to query"
-            },
-            "evmNetwork": {
-                "type": "string",
-                "enum": ["ethereum_mainnet", "base_mainnet", "arbitrum_one", "optimism_mainnet", "polygon_mainnet", "bsc_mainnet"],
-                "description": "Optional EVM network when chain='evm'. Defaults to ethereum_mainnet."
-            }
-        },
-        "required": ["chain", "hash"],
-        "additionalProperties": false
-    })
 }
 
 fn parse_args(args: Value) -> Result<TxQueryArgs, String> {
@@ -71,15 +47,17 @@ impl Tool for WalletTxStatusTool {
     }
 
     fn name(&self) -> &'static str {
-        "wallet_tx_status"
+        tinywallet_bus::tools::wallet_tool_declarations()[3].name
     }
 
     fn description(&self) -> &'static str {
-        "Check the on-chain lifecycle state (pending / confirmed / failed / not_found) of a transaction by hash."
+        tinywallet_bus::tools::wallet_tool_declarations()[3].description
     }
 
     fn parameters_schema(&self) -> Value {
-        tx_query_schema("check")
+        tinywallet_bus::tools::wallet_tool_declarations()[3]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -116,15 +94,17 @@ impl Tool for WalletTxReceiptTool {
     }
 
     fn name(&self) -> &'static str {
-        "wallet_tx_receipt"
+        tinywallet_bus::tools::wallet_tool_declarations()[4].name
     }
 
     fn description(&self) -> &'static str {
-        "Fetch the receipt of a broadcast transaction (success flag, fee, block, gas used) by hash."
+        tinywallet_bus::tools::wallet_tool_declarations()[4].description
     }
 
     fn parameters_schema(&self) -> Value {
-        tx_query_schema("fetch the receipt for")
+        tinywallet_bus::tools::wallet_tool_declarations()[4]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -161,15 +141,17 @@ impl Tool for WalletLookupTxTool {
     }
 
     fn name(&self) -> &'static str {
-        "wallet_lookup_tx"
+        tinywallet_bus::tools::wallet_tool_declarations()[5].name
     }
 
     fn description(&self) -> &'static str {
-        "Look up the raw transaction payload by hash on the target chain."
+        tinywallet_bus::tools::wallet_tool_declarations()[5].description
     }
 
     fn parameters_schema(&self) -> Value {
-        tx_query_schema("look up")
+        tinywallet_bus::tools::wallet_tool_declarations()[5]
+            .parameters
+            .clone()
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {

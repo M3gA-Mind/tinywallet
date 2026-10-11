@@ -14,3 +14,7 @@
 
 pub mod wallet;
 pub mod web3;
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod test;
