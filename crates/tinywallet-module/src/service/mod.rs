@@ -284,6 +284,9 @@ impl Wallet {
         let Some(x402) = x402.as_ref() else {
             let mut request = request;
             wipe(&mut request.secret);
+            for secret in &mut request.additional_secrets {
+                wipe(secret);
+            }
             return Err(host_unavailable());
         };
         x402.prepare(request).await.map_err(x402_operation_failed)
@@ -813,6 +816,7 @@ impl Wallet {
 fn wipe(secret: &mut SecretMaterial) {
     use zeroize::Zeroize;
     secret.mnemonic.zeroize();
+    secret.derivation_path.zeroize();
 }
 
 /// Derive the key for `secret`, wiping it when the guard drops.

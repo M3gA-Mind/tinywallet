@@ -55,34 +55,26 @@ pub(crate) fn secret(chain: tinywallet_bus::Chain) -> SecretMaterial {
 async fn payment_signer_derives_and_signs_for_both_supported_rails() {
     let signer = ModulePaymentSigner;
     assert!(signer.account(PaymentChain::Evm).await.is_err());
-    assert!(crate::service::web3::clone_secret().is_err());
 
     let (evm, evm_signature, solana, solana_signature) =
-        crate::service::web3::with_execution_context(
+        crate::service::web3::with_x402_execution_context(
             None,
-            secret(tinywallet_bus::Chain::Evm),
-            None,
+            vec![
+                secret(tinywallet_bus::Chain::Evm),
+                secret(tinywallet_bus::Chain::Solana),
+            ],
             async {
                 let evm = signer.account(PaymentChain::Evm).await.unwrap();
                 let evm_signature = signer
                     .sign(PaymentChain::Evm, &[0x42; 32], SignScheme::Secp256k1Digest)
                     .await
                     .unwrap();
-                let solana = crate::service::web3::with_execution_context(
-                    None,
-                    secret(tinywallet_bus::Chain::Solana),
-                    None,
-                    async {
-                        let solana = signer.account(PaymentChain::Solana).await.unwrap();
-                        let solana_signature = signer
-                            .sign(PaymentChain::Solana, b"fixture", SignScheme::Ed25519)
-                            .await
-                            .unwrap();
-                        (solana, solana_signature)
-                    },
-                )
-                .await;
-                (evm, evm_signature, solana.0, solana.1)
+                let solana = signer.account(PaymentChain::Solana).await.unwrap();
+                let solana_signature = signer
+                    .sign(PaymentChain::Solana, b"fixture", SignScheme::Ed25519)
+                    .await
+                    .unwrap();
+                (evm, evm_signature, solana, solana_signature)
             },
         )
         .await;
@@ -98,10 +90,9 @@ async fn payment_signer_derives_and_signs_for_both_supported_rails() {
 #[tokio::test]
 async fn payment_signer_rejects_chain_and_scheme_mismatches() {
     let signer = ModulePaymentSigner;
-    let (wrong_chain, unsupported_scheme) = crate::service::web3::with_execution_context(
+    let (wrong_chain, unsupported_scheme) = crate::service::web3::with_x402_execution_context(
         None,
-        secret(tinywallet_bus::Chain::Solana),
-        None,
+        vec![secret(tinywallet_bus::Chain::Solana)],
         async {
             let wrong_chain = signer.account(PaymentChain::Evm).await.unwrap_err();
             let unsupported_scheme = signer

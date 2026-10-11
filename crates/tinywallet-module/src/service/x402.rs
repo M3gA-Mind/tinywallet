@@ -17,7 +17,7 @@ use tinywallet_x402::protocol::{handle_402_and_pay_authorized, parse_settlement_
 use tinywallet_x402::wire::PaymentChain;
 
 use super::host::HostCallbacks;
-use super::web3::{HostTransport, with_execution_context};
+use super::web3::{HostTransport, with_x402_execution_context};
 
 const MAX_PENDING: usize = 64;
 
@@ -123,15 +123,25 @@ impl X402Runtime {
         mut request: X402PreparePaymentRequest,
     ) -> Result<X402PreparePaymentResponse, String> {
         if let Err(error) = self.require_handle(&request.service) {
-            wipe(&mut request.secret);
+            wipe_request_secrets(&mut request);
             return Err(error);
+        }
+        let mut secrets = vec![request.secret];
+        secrets.append(&mut request.additional_secrets);
+        if secrets.iter().enumerate().any(|(index, secret)| {
+            secrets[..index]
+                .iter()
+                .any(|prior| prior.chain == secret.chain)
+        }) {
+            wipe_secrets(&mut secrets);
+            return Err("x402 request contains duplicate secrets for one chain".to_string());
         }
         let header = HeaderValue::from_str(&request.payment_required)
             .map_err(|error| format!("invalid payment challenge header: {error}"));
         let header = match header {
             Ok(header) => header,
             Err(error) => {
-                wipe(&mut request.secret);
+                wipe_secrets(&mut secrets);
                 return Err(error);
             }
         };
@@ -143,7 +153,7 @@ impl X402Runtime {
         let url = request.url.clone();
         let callbacks = self.callbacks.clone();
         let (proof, _admission) =
-            with_execution_context(request.owner, request.secret, None, async {
+            with_x402_execution_context(request.owner, secrets, async {
                 let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
                 let transport = Arc::new(HostTransport::new(self.callbacks.clone()));
                 let builder = CryptoPayments::new(signer, transport);
@@ -421,15 +431,11 @@ struct ModulePaymentSigner;
 #[async_trait]
 impl PaymentSigner for ModulePaymentSigner {
     async fn account(&self, chain: PaymentChain) -> Result<PaymentAccount, String> {
-        let mut secret = super::web3::clone_secret()?;
         let expected_chain = match chain {
             PaymentChain::Evm => tinywallet_bus::Chain::Evm,
             PaymentChain::Solana => tinywallet_bus::Chain::Solana,
         };
-        if secret.chain != expected_chain {
-            wipe(&mut secret);
-            return Err("x402 wallet secret does not match the selected payment chain".to_string());
-        }
+        let mut secret = super::web3::clone_x402_secret(expected_chain)?;
         let derived = super::derive_account(&secret).map_err(super::failure_message);
         wipe(&mut secret);
         let derived = derived?;
@@ -455,7 +461,6 @@ impl PaymentSigner for ModulePaymentSigner {
         message: &[u8],
         scheme: SignScheme,
     ) -> Result<Vec<u8>, String> {
-        let mut secret = super::web3::clone_secret()?;
         let (expected_chain, scheme) = match (chain, scheme) {
             (PaymentChain::Evm, SignScheme::Secp256k1Digest) => (
                 tinywallet_bus::Chain::Evm,
@@ -466,14 +471,10 @@ impl PaymentSigner for ModulePaymentSigner {
                 tinywallet_bus::wire::Scheme::Ed25519,
             ),
             _ => {
-                wipe(&mut secret);
                 return Err("x402 payment requested an unsupported signing scheme".to_string());
             }
         };
-        if secret.chain != expected_chain {
-            wipe(&mut secret);
-            return Err("x402 wallet secret does not match the selected payment chain".to_string());
-        }
+        let mut secret = super::web3::clone_x402_secret(expected_chain)?;
         let mut request = tinywallet_bus::wire::SignMessageRequest {
             secret,
             message_hex: hex::encode(message),
@@ -502,6 +503,18 @@ impl PaymentSigner for ModulePaymentSigner {
 
 fn wipe(secret: &mut SecretMaterial) {
     zeroize::Zeroize::zeroize(&mut secret.mnemonic);
+    zeroize::Zeroize::zeroize(&mut secret.derivation_path);
+}
+
+fn wipe_secrets(secrets: &mut [SecretMaterial]) {
+    for secret in secrets {
+        wipe(secret);
+    }
+}
+
+fn wipe_request_secrets(request: &mut X402PreparePaymentRequest) {
+    wipe(&mut request.secret);
+    wipe_secrets(&mut request.additional_secrets);
 }
 
 #[cfg(test)]
