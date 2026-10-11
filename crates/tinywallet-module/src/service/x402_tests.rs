@@ -7,6 +7,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use tinywallet_bus::wire::{
+    X402ListPaymentsRequest, X402PaymentStatus, X402SummaryRequest, X402UpdateBudgetRequest,
+};
 
 fn pending_record(
     id: &str,
@@ -290,6 +293,66 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
     let summary = runtime.summary(&handle).unwrap();
     assert_eq!(summary.session_total_atomic, 2);
     assert_eq!(summary.reserved_atomic, 1);
+    runtime.close(&handle).unwrap();
+    broker_task.abort();
+}
+
+#[tokio::test]
+async fn history_and_live_budget_operations_keep_the_configured_ledger() {
+    let _ledger_guard = LEDGER_TEST_LOCK.lock().await;
+    let bus = tinybus::transport::memory::MemoryBus::new();
+    let broker = tinybus::broker::Broker::new();
+    let broker_task = broker.spawn(bus.clone());
+    let connection = tinybus::Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let callbacks = HostCallbacks::new(&connection).unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let runtime = X402Runtime::new(
+        callbacks,
+        X402ConfigResponse {
+            workspace_dir: workspace.path().display().to_string(),
+            session_id: "history-budget-test".to_string(),
+            per_request_max_atomic: 100,
+            daily_max_atomic: 200,
+            monthly_max_atomic: 300,
+        },
+    );
+    let handle = runtime.handle();
+
+    for id in ["older", "newer"] {
+        ledger::with_ledger_mut(|ledger| ledger.try_record_payment(pending_record(id, None)))
+            .unwrap()
+            .unwrap();
+    }
+    let history = runtime
+        .list_payments(X402ListPaymentsRequest {
+            service: handle.clone(),
+            limit: 1,
+        })
+        .unwrap();
+    assert_eq!(history.payments.len(), 1);
+    assert_eq!(history.payments[0].id, "newer");
+    assert_eq!(history.payments[0].session_id, "history-budget-test");
+    assert_eq!(history.payments[0].status, X402PaymentStatus::Pending);
+
+    let updated = runtime
+        .update_budget(X402UpdateBudgetRequest {
+            service: handle.clone(),
+            per_request_max_atomic: Some(11),
+            daily_max_atomic: None,
+            monthly_max_atomic: Some(33),
+        })
+        .unwrap();
+    assert_eq!(updated.per_request_max_atomic, 11);
+    assert_eq!(updated.daily_max_atomic, 200);
+    assert_eq!(updated.monthly_max_atomic, 33);
+    assert_eq!(updated.reserved_atomic, 2);
+
+    let detailed = runtime.detailed_summary(&X402SummaryRequest { service: handle.clone() }).unwrap();
+    assert_eq!(detailed.session_total_atomic, 0);
+    assert_eq!(detailed.session_count, 0);
+    assert_eq!(detailed.reserved_atomic, 2);
     runtime.close(&handle).unwrap();
     broker_task.abort();
 }
