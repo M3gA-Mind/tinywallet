@@ -1,256 +1,42 @@
 name: Release
-
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: Version bump to release (ignored when existing_tag is set)
-        type: choice
-        required: true
-        options:
-          - patch
-          - minor
-          - major
-      existing_tag:
-        description: >-
-          Build and upload artifacts for a tag that already exists, skipping the
-          version bump and the tagging. Recovery path for a run that tagged but
-          did not produce its bundles.
+      tag:
+        description: Existing version tag (vX.Y.Z) committed through a reviewed PR
         type: string
-        required: false
-        default: ''
-
+        required: true
+  push:
+    tags: ['v*']
+permissions: {}
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
   cancel-in-progress: false
-
-permissions:
-  contents: write
-
 jobs:
-  publish:
-    name: Version and tag
-    # This crate is **not published to crates.io**. It is consumed as a git
-    # submodule by its hosts and shipped to them as the module artifacts this
-    # workflow builds, so a registry upload would be a third distribution
-    # channel nobody reads.
-    #
-    # There used to be a `cargo publish` step here, and its failure was not
-    # cosmetic: `release-target` gates on this job succeeding, so a release
-    # would tag the commit, fail the upload, and then skip every artifact job —
-    # forcing a second run with `existing_tag` to build the bundles. `cargo
-    # package` below still runs, so a manifest that could not be packaged is
-    # still caught; nothing uploads it.
-    #
-    # The job id stays `publish` because several `needs:` and `needs.publish.*`
-    # references depend on it.
-    #
-    # Skipped entirely when re-cutting artifacts for an existing tag.
-    if: ${{ github.ref == 'refs/heads/main' && inputs.existing_tag == '' }}
+  resolve:
     runs-on: ubuntu-latest
-    environment: Production
     outputs:
-      crate_name: ${{ steps.version.outputs.crate_name }}
-      next_version: ${{ steps.version.outputs.next_version }}
-      tag: ${{ steps.version.outputs.tag }}
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Test
-        run: cargo test --all-features
-
-      - name: Build documentation
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --all-features
-
-      - name: Compute next version
-        id: version
+      - id: tag
         shell: bash
-        run: |
-          set -euo pipefail
-
-          metadata="$(cargo metadata --format-version 1 --no-deps)"
-          crate_name="$(jq -r '.packages[] | select(.name == "tinywallet") | .name' <<< "$metadata")"
-          current_version="$(jq -r '.packages[] | select(.name == "tinywallet") | .version' <<< "$metadata")"
-          if [[ -z "$current_version" || "$current_version" == "null" ]]; then
-            echo "Could not resolve the current crate version" >&2
-            exit 1
-          fi
-
-          IFS=. read -r major minor patch <<< "$current_version"
-          case "${{ inputs.bump }}" in
-            major)
-              major=$((major + 1))
-              minor=0
-              patch=0
-              ;;
-            minor)
-              minor=$((minor + 1))
-              patch=0
-              ;;
-            patch)
-              patch=$((patch + 1))
-              ;;
-            *)
-              echo "Unsupported bump: ${{ inputs.bump }}" >&2
-              exit 1
-              ;;
-          esac
-
-          next_version="${major}.${minor}.${patch}"
-          tag="v${next_version}"
-
-          git fetch --tags origin
-          if git rev-parse --verify --quiet "refs/tags/${tag}"; then
-            echo "Tag ${tag} already exists" >&2
-            exit 1
-          fi
-
-          {
-            echo "crate_name=${crate_name}"
-            echo "current_version=${current_version}"
-            echo "next_version=${next_version}"
-            echo "tag=${tag}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Update crate version
         env:
-          CRATE_NAME: ${{ steps.version.outputs.crate_name }}
-          NEXT_VERSION: ${{ steps.version.outputs.next_version }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
           set -euo pipefail
-          bump() {
-            perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' "$1"
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || {
+            echo "tag must be v-prefixed semver" >&2
+            exit 2
           }
-          bump Cargo.toml
-          # The module crate is bumped in lockstep, not left behind. Its
-          # `cdylib` ships in an archive named for the *root* crate's version,
-          # so a drift here would publish `tinywallet-module-0.2.0-*.tar.gz`
-          # containing a library that reports 0.1.0 — with nothing to catch it.
-          bump crates/tinywallet-module/Cargo.toml
-          # And the contract crate, for the same reason and one more: every
-          # bundle job builds `--locked`, so a manifest this step misses leaves
-          # `Cargo.lock` disagreeing with the tree at the tag and *every*
-          # platform job fails to resolve. That produces a tagged release with
-          # zero artifacts, which is exactly what happened on tinyvoice v0.1.4.
-          bump crates/tinywallet-bus/Cargo.toml
-          # The implementation siblings are bumped for the same reason:
-          # a manifest this step misses leaves `Cargo.lock` disagreeing with the
-          # tree at the tag and every `--locked` bundle job fails to resolve.
-          # Their path dependencies carry no version requirement, so there is no
-          # inter-crate pin to rewrite alongside the version.
-          bump crates/tinywallet-crypto/Cargo.toml
-          bump crates/tinywallet-x402/Cargo.toml
-          # The wallet flows implementation, also versioned in lockstep.
-          bump crates/tinywallet-web3/Cargo.toml
-          # Refreshes every workspace member in the lockfile. `cargo update -p`
-          # cannot do this: these are path dependencies, and the later
-          # `--locked` steps fail against a stale lock.
-          cargo update --workspace
-
-      - name: Commit version bump and tag
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock \
-            crates/tinywallet-crypto/Cargo.toml crates/tinywallet-x402/Cargo.toml \
-            crates/tinywallet-web3/Cargo.toml \
-            crates/tinywallet-bus/Cargo.toml crates/tinywallet-module/Cargo.toml
-          git commit -m "Release ${RELEASE_TAG}"
-          git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
-
-      # The pure contract is the packageable leaf. Implementation crates use
-      # unpublished siblings by path, which cargo package rewrites to registry
-      # dependencies. Verify the contract with every feature; nothing uploads.
-      - name: Package crate
-        run: cargo package --locked --package tinywallet-bus --all-features
-
-      - name: Push release commit and tag
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          set -euo pipefail
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-          git push origin "${RELEASE_TAG}"
-
-  # What the bundles need is a tag and a version. That used to be entangled with
-  # a crates.io upload in one job, so a missing registry token took the module
-  # artifacts down with it even though nothing about them touches crates.io.
-  # The upload is gone now, so this job's gate means what it says: the tag
-  # exists and was pushed.
-  release-target:
-    name: Resolve release target
-    needs: publish
-    # `always()` is required because this job must still run when `publish` is
-    # *skipped* — the `existing_tag` recovery path, where the tag already
-    # exists. It is deliberately NOT tolerant of a `publish` *failure*: that job
-    # now only versions, packages and tags, and without a tag there is nothing
-    # for the bundles to attach to.
-    if: ${{ always() && (inputs.existing_tag != '' || needs.publish.result == 'success') }}
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.resolve.outputs.tag }}
-      next_version: ${{ steps.resolve.outputs.next_version }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Resolve the tag and version to build
-        id: resolve
-        shell: bash
-        env:
-          EXISTING_TAG: ${{ inputs.existing_tag }}
-          PUBLISHED_TAG: ${{ needs.publish.outputs.tag }}
-          PUBLISHED_VERSION: ${{ needs.publish.outputs.next_version }}
-        run: |
-          set -euo pipefail
-          if [[ -n "$EXISTING_TAG" ]]; then
-            git fetch --tags origin
-            git rev-parse --verify --quiet "refs/tags/${EXISTING_TAG}" >/dev/null \
-              || { echo "tag ${EXISTING_TAG} does not exist" >&2; exit 1; }
-            tag="$EXISTING_TAG"
-            version="${EXISTING_TAG#v}"
-          else
-            tag="$PUBLISHED_TAG"
-            version="$PUBLISHED_VERSION"
-          fi
-          [[ -n "$tag" && -n "$version" ]] || { echo "could not resolve a release target" >&2; exit 1; }
-          {
-            echo "tag=${tag}"
-            echo "next_version=${version}"
-          } >> "$GITHUB_OUTPUT"
-
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
   module-release:
-    name: Build and verify module release
-    needs: release-target
-    if: ${{ always() && needs.release-target.result == 'success' }}
-    uses: tinyhumansai/.github/.github/workflows/module-release.yml@f4911b709333ee457da77e73b96aa9aec90d21ae
+    needs: resolve
+    permissions:
+      contents: write
+    uses: tinyhumansai/.github/.github/workflows/module-release.yml@4adc1080fb495098e7af1aade82ed7e6e3c69bb7
     with:
-      tag: ${{ needs.release-target.outputs.tag }}
-      version: ${{ needs.release-target.outputs.next_version }}
+      tag: ${{ needs.resolve.outputs.tag }}
+      version: ${{ needs.resolve.outputs.version }}
       module-crate: tinywallet-module
-      extra-packaged-files: '["docs/specs/tinybus-module.md"]'
-      include-distros: true
-      publish-crates-io: false

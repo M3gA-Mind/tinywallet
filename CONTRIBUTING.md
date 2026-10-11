@@ -103,3 +103,7 @@ matrix.
 
 The reusable workflow contract and supported release targets are documented
 in [tinyhumansai/.github](https://github.com/tinyhumansai/.github/blob/main/docs/module-ci-contract.md).
+
+## Releasing
+
+Change versions through a reviewed PR, then push a vX.Y.Z tag at the merged commit. Release can also be dispatched with an existing tag. The release workflow never pushes version bumps to main.

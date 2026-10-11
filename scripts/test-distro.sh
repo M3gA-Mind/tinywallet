@@ -8,7 +8,7 @@ case "$image" in
   *) echo "unsupported module build image: $image" >&2; exit 2 ;;
 esac
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 crate="" version="" rust_target="" host="" output="release-assets" extras='[]'
 while (($#)); do
   case "$1" in
@@ -49,5 +49,6 @@ docker run --rm \
   --env MODULE_TARGET="$rust_target" \
   --env MODULE_HOST="$host" \
   --env EXTRA_PACKAGED_FILES="$extras" \
+  --env HOST_UID="$(id -u)" --env HOST_GID="$(id -g)" \
   --env OUTPUT_DIR="${output_path#"$root"/}" \
   "$image" bash /workspace/scripts/build-module-in-distro.sh
