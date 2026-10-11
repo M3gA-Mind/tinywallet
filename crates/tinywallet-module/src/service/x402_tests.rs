@@ -141,6 +141,19 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
     );
     assert!(format!("{runtime:?}").contains("X402Runtime"));
     let handle = runtime.handle();
+    let duplicate_chain_secrets = runtime
+        .prepare(X402PreparePaymentRequest {
+            service: handle.clone(),
+            url: "https://example.invalid".to_string(),
+            payment_required: "unused".to_string(),
+            owner: None,
+            secret: secret(tinywallet_bus::Chain::Evm),
+            additional_secrets: vec![secret(tinywallet_bus::Chain::Evm)],
+        })
+        .await
+        .unwrap_err();
+    assert!(duplicate_chain_secrets.contains("duplicate secrets for one chain"));
+
     let stale = X402ServiceHandle {
         handle: "stale".to_string(),
     };
