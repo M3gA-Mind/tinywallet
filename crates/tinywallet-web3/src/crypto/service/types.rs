@@ -218,6 +218,11 @@ pub struct Web3Quote {
     pub kind: Web3QuoteKind,
     /// When the quote stops being executable, in milliseconds since the epoch.
     pub expires_at_ms: u64,
+    /// The chain whose key must sign the module-owned transaction.
+    /// This comes from the stored unsigned transaction, not backend summary
+    /// fields, so hosts can select confidential key material without
+    /// interpreting provider payloads.
+    pub signing_chain: tinywallet_bus::wire::WalletChain,
     /// Backend (deBridge) quote passthrough, or a dapp-call summary.
     pub quote: Value,
 }

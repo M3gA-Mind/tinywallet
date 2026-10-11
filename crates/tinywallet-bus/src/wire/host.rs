@@ -217,6 +217,38 @@ pub struct Web3QuoteRequest {
     pub params: Value,
 }
 
+/// The operation kind for a prepared Web3 quote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Web3QuoteKind {
+    /// A single-chain swap.
+    Swap,
+    /// A cross-chain bridge.
+    Bridge,
+    /// A generic contract call.
+    DappCall,
+}
+
+/// Public summary and authoritative signer chain for a prepared quote.
+///
+/// `signing_chain` is derived by the module from its stored unsigned
+/// transaction. Hosts must use it to select confidential key material rather
+/// than infer a signer from the provider response in `quote`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Web3QuoteResponse {
+    /// The id to confirm and execute with.
+    pub quote_id: String,
+    /// The kind of operation.
+    pub kind: Web3QuoteKind,
+    /// When the quote stops being executable, in milliseconds since the epoch.
+    pub expires_at_ms: u64,
+    /// The chain whose key must sign the stored transaction.
+    pub signing_chain: super::WalletChain,
+    /// Provider quote passthrough or the module-owned dapp summary.
+    pub quote: Value,
+}
+
 /// Quote execution request. Secret material is delivered only on the
 /// confidential wallet interface member.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

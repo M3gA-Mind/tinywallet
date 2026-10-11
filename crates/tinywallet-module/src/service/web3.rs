@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tinywallet_bus::wire::{
     AuthorizeWeb3ExecutionRequest, ChainTransportRequest, ChainTransportResult, NetworkRequest,
-    SecretMaterial, WalletBackendRequest, Web3ExecutionIntent, Web3ServiceHandle,
+    SecretMaterial, WalletBackendRequest, Web3ExecutionIntent, Web3QuoteKind, Web3QuoteResponse,
+    Web3ServiceHandle,
 };
 use tinywallet_crypto::rpc::{NetworkId, Transport, TransportError, TransportResult};
 use tinywallet_web3::crypto::defaults::{
@@ -120,6 +121,22 @@ impl Web3Runtime {
             operation: operation.to_string(),
             solana_intent,
         })
+    }
+}
+
+pub(crate) fn quote_response(
+    quote: tinywallet_web3::crypto::service::Web3Quote,
+) -> Web3QuoteResponse {
+    Web3QuoteResponse {
+        quote_id: quote.quote_id,
+        kind: match quote.kind {
+            tinywallet_web3::crypto::service::Web3QuoteKind::Swap => Web3QuoteKind::Swap,
+            tinywallet_web3::crypto::service::Web3QuoteKind::Bridge => Web3QuoteKind::Bridge,
+            tinywallet_web3::crypto::service::Web3QuoteKind::DappCall => Web3QuoteKind::DappCall,
+        },
+        expires_at_ms: quote.expires_at_ms,
+        signing_chain: quote.signing_chain,
+        quote: quote.quote,
     }
 }
 

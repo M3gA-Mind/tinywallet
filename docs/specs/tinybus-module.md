@@ -40,15 +40,17 @@ chain gate and depends on nothing but `serde` — so a host takes the crate with
 `default-features = false`, shares one definition of the contract, and links no
 chain library.
 
-Contract 1.5 keeps those members and the existing Web3/x402 arities intact and
-adds typed `NativeWalletConfigure` / `NativeWalletClose` lifecycle members plus
-the nine native-wallet query, transfer and transaction lookup operations. The
-implementation owns the chain catalog, provider algorithms, quotes, transaction
-building, signing, broadcast and parsing. The optional host callback contract
-still owns public account facts, authenticated transport, endpoint resolution
-and approval policy. Native transfer approval receives the exact transaction
-or Solana signing message at the module signer seam; the host returns only an
-authorization decision.
+Contract 1.6 keeps the existing method arities intact, adds the typed native
+wallet lifecycle and operations from contract 1.5, and makes each prepared
+Web3 quote report `signingChain` from its stored unsigned transaction. Hosts use
+that field to select confidential key material; they do not infer the signing
+chain from provider response payloads. The implementation owns the chain
+catalog, provider algorithms, quotes, transaction building, signing, broadcast
+and parsing. The optional host callback contract still owns public account
+facts, authenticated transport, endpoint resolution and approval policy.
+Native transfer approval receives the exact transaction or Solana signing
+message at the module signer seam; the host returns only an authorization
+decision.
 
 Native configuration carries the Solana cluster and endpoint override keys,
 never URLs or credentials. For an override, the module advertises an opaque
