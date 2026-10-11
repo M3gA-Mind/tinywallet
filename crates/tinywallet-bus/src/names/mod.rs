@@ -110,8 +110,12 @@ pub mod methods {
     pub const X402_SPENDING_SUMMARY: &str = "X402SpendingSummary";
     /// Configure or replace the active module-owned x402 ledger.
     pub const X402_CONFIGURE: &str = "X402Configure";
+    /// List recent payment records from the module-owned ledger.
+    pub const X402_LIST_PAYMENTS: &str = "X402ListPayments";
     /// Close the active x402 ledger and release pending reservations.
     pub const X402_CLOSE: &str = "X402Close";
+    /// Update the active ledger's host-selected spending limits.
+    pub const X402_UPDATE_BUDGET: &str = "X402UpdateBudget";
 }
 
 /// Every member of [`BUS_NAME`], in the interface's sorted dispatch order.
@@ -147,9 +151,11 @@ pub const METHODS: &[&str] = &[
     methods::WEB3_SWAP_QUOTE,
     methods::X402_CLOSE,
     methods::X402_CONFIGURE,
+    methods::X402_LIST_PAYMENTS,
     methods::X402_PREPARE_PAYMENT,
     methods::X402_RECORD_PAYMENT,
     methods::X402_SPENDING_SUMMARY,
+    methods::X402_UPDATE_BUDGET,
 ];
 
 /// The members that carry a recovery phrase or a private key.
