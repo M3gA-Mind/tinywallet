@@ -11,10 +11,10 @@
 use serde_json::json;
 
 use super::{
-    AttachRequest, GenerateMnemonicRequest, GenerateMnemonicResponse, PublicKey, Scheme, Signature,
+    AttachRequest, EncodeErc20TransferRequest, EncodeErc20TransferResponse,
+    GenerateMnemonicRequest, GenerateMnemonicResponse, PublicKey, Scheme, Signature,
     SignedTransaction, SigningPayload, SigningRequest, TransactionSpec, UnsignedTransaction, Utxo,
-    WalletChain, Web3QuoteKind, Web3QuoteResponse, EncodeErc20TransferRequest,
-    EncodeErc20TransferResponse,
+    WalletChain, Web3QuoteKind, Web3QuoteResponse,
 };
 
 #[test]
