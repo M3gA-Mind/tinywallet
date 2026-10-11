@@ -26,6 +26,7 @@ use super::host::HostCallbacks;
 tokio::task_local! {
     static ACTIVE_QUOTE_OWNER: Option<LibraryQuoteOwner>;
     static ACTIVE_SECRET: Arc<SecretSlot>;
+    static ACTIVE_X402_SECRETS: Arc<X402SecretSlot>;
     static ACTIVE_WEB3_APPROVAL: Option<Web3ApprovalContext>;
     static ACTIVE_NATIVE_APPROVAL: Option<NativeApprovalContext>;
 }
@@ -45,12 +46,28 @@ pub(crate) struct NativeApprovalContext {
 
 struct SecretSlot(Mutex<Option<SecretMaterial>>);
 
+struct X402SecretSlot(Mutex<Option<Vec<SecretMaterial>>>);
+
 impl Drop for SecretSlot {
     fn drop(&mut self) {
         if let Ok(slot) = self.0.get_mut()
             && let Some(secret) = slot.as_mut()
         {
             zeroize::Zeroize::zeroize(&mut secret.mnemonic);
+            zeroize::Zeroize::zeroize(&mut secret.derivation_path);
+        }
+    }
+}
+
+impl Drop for X402SecretSlot {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.0.get_mut()
+            && let Some(secrets) = slot.as_mut()
+        {
+            for secret in secrets {
+                zeroize::Zeroize::zeroize(&mut secret.mnemonic);
+                zeroize::Zeroize::zeroize(&mut secret.derivation_path);
+            }
         }
     }
 }
@@ -261,6 +278,18 @@ pub(crate) async fn with_execution_context<F: Future>(
         .await
 }
 
+/// Scope the host-provided secrets for module-selected x402 payment rails.
+pub(crate) async fn with_x402_execution_context<F: Future>(
+    owner: Option<tinywallet_bus::wire::QuoteOwner>,
+    secrets: Vec<SecretMaterial>,
+    future: F,
+) -> F::Output {
+    let slot = Arc::new(X402SecretSlot(Mutex::new(Some(secrets))));
+    ACTIVE_X402_SECRETS
+        .scope(slot, with_quote_owner(owner, future))
+        .await
+}
+
 /// Scope the exact prepared native quote across the module-owned signer call.
 pub(crate) async fn with_native_approval<F: Future>(
     approval: NativeApprovalContext,
@@ -292,6 +321,26 @@ pub(super) fn clone_secret() -> Result<SecretMaterial, String> {
                 .ok_or_else(|| "wallet secret was already consumed".to_string())
         })
         .map_err(|_| "wallet secret is unavailable outside a confidential payment".to_string())?
+}
+
+/// Clone only the secret matching the chain selected by the parsed challenge.
+pub(super) fn clone_x402_secret(chain: tinywallet_bus::Chain) -> Result<SecretMaterial, String> {
+    ACTIVE_X402_SECRETS
+        .try_with(|slot| {
+            let secrets = slot
+                .0
+                .lock()
+                .map_err(|_| "x402 wallet secret slot is unavailable".to_string())?;
+            let secrets = secrets
+                .as_ref()
+                .ok_or_else(|| "x402 wallet secrets were already consumed".to_string())?;
+            secrets
+                .iter()
+                .find(|secret| secret.chain == chain)
+                .cloned()
+                .ok_or_else(|| "x402 wallet secret does not match the selected payment chain".to_string())
+        })
+        .map_err(|_| "x402 wallet secrets are unavailable outside a confidential payment".to_string())?
 }
 
 /// Run a quote operation with the owner that arrived in the typed bus request.
