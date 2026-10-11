@@ -1,8 +1,10 @@
-//! Deterministic key derivation from a BIP-39 mnemonic.
+//! BIP-39 mnemonic generation and deterministic key derivation.
 //!
-//! [`derive()`] turns a mnemonic and a derivation path into the signing key and
-//! address for one chain. It is a pure function: same inputs, same key, every
-//! time, with no I/O and no global state.
+//! [`generate_mnemonic()`] creates a fresh English recovery phrase using the
+//! system-seeded cryptographic random generator. [`derive()`] turns a mnemonic
+//! and a derivation path into the signing key and address for one chain. Key
+//! derivation is a pure function: same inputs, same key, every time, with no
+//! I/O and no global state.
 //!
 //! ## This crate derives keys; it does not keep them
 //!
