@@ -19,12 +19,12 @@
 //!   different addresses, so a devnet transfer built with the mainnet mint
 //!   silently targets a token that does not exist there.
 //!
-//! ## No endpoints, and no environment
+//! ## Reference defaults, not endpoint selection
 //!
-//! This module holds no RPC URLs and reads no environment variables. Which
-//! endpoint serves a network is endpoint selection, which belongs to the host
-//! for the reasons set out in [`crate::rpc`]; and reading configuration out of
-//! the process environment is a host's job by definition.
+//! Public default endpoints are reference data alongside network ids, mints,
+//! and explorers. This module performs no endpoint selection and reads no
+//! environment variables: the host chooses the endpoint that serves a network
+//! through [`crate::rpc`] and owns process configuration.
 //!
 //! That is why [`SolanaCluster`] is a *parameter* of [`catalog`] rather than
 //! something resolved internally. The host decides which cluster it is on and
@@ -113,8 +113,22 @@ impl EvmNetwork {
         }
     }
 
+    /// The public default RPC endpoint for this network.
+    #[must_use]
+    pub const fn default_rpc_url(self) -> &'static str {
+        match self {
+            Self::Ethereum => "https://ethereum-rpc.publicnode.com",
+            Self::Base => "https://mainnet.base.org",
+            Self::Arbitrum => "https://arb1.arbitrum.io/rpc",
+            Self::Optimism => "https://mainnet.optimism.io",
+            Self::Polygon => "https://polygon-rpc.com",
+            Self::Bsc => "https://bsc-dataseed.binance.org",
+        }
+    }
+
     /// Base URL a transaction hash is appended to on this network's explorer.
-    const fn explorer_tx_base(self) -> &'static str {
+    #[must_use]
+    pub const fn explorer_tx_base(self) -> &'static str {
         match self {
             Self::Ethereum => "https://etherscan.io/tx/",
             Self::Base => "https://basescan.org/tx/",
@@ -122,6 +136,19 @@ impl EvmNetwork {
             Self::Optimism => "https://optimistic.etherscan.io/tx/",
             Self::Polygon => "https://polygonscan.com/tx/",
             Self::Bsc => "https://bscscan.com/tx/",
+        }
+    }
+
+    /// Human-readable kebab-case network label.
+    #[must_use]
+    pub const fn network_label(self) -> &'static str {
+        match self {
+            Self::Ethereum => "ethereum-mainnet",
+            Self::Base => "base-mainnet",
+            Self::Arbitrum => "arbitrum-one",
+            Self::Optimism => "optimism-mainnet",
+            Self::Polygon => "polygon-mainnet",
+            Self::Bsc => "bsc-mainnet",
         }
     }
 }
@@ -147,6 +174,39 @@ pub enum SolanaCluster {
 }
 
 impl SolanaCluster {
+    /// The public default RPC endpoint for this cluster.
+    #[must_use]
+    pub const fn rpc_url(self) -> &'static str {
+        match self {
+            Self::Mainnet => "https://api.mainnet-beta.solana.com",
+            Self::Devnet => "https://api.devnet.solana.com",
+        }
+    }
+
+    /// Human-readable kebab-case cluster label.
+    #[must_use]
+    pub const fn network_label(self) -> &'static str {
+        match self {
+            Self::Mainnet => "solana-mainnet-beta",
+            Self::Devnet => "solana-devnet",
+        }
+    }
+
+    /// Explorer query suffix for this cluster.
+    #[must_use]
+    pub const fn explorer_tx_suffix(self) -> &'static str {
+        match self {
+            Self::Mainnet => "",
+            Self::Devnet => "?cluster=devnet",
+        }
+    }
+
+    /// Base URL used for transaction links on Solana explorers.
+    #[must_use]
+    pub const fn explorer_tx_base(self) -> &'static str {
+        "https://solscan.io/tx/"
+    }
+
     /// The USDC SPL-token mint for this cluster.
     ///
     /// Mainnet and devnet USDC are genuinely different mints. Building a
@@ -210,7 +270,7 @@ impl Network {
         let base = match self {
             Self::Btc => "https://blockstream.info/tx/",
             Self::Evm(network) => network.explorer_tx_base(),
-            Self::Solana(_) => "https://solscan.io/tx/",
+            Self::Solana(cluster) => cluster.explorer_tx_base(),
             Self::Tron => "https://tronscan.org/#/transaction/",
         };
         Some(format!("{base}{tx_hash}"))

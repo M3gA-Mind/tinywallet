@@ -37,6 +37,74 @@ fn chain_ids_match_the_published_values() {
 }
 
 #[test]
+fn network_reference_data_matches_each_supported_chain() {
+    for (network, rpc, explorer, label) in [
+        (
+            EvmNetwork::Ethereum,
+            "https://ethereum-rpc.publicnode.com",
+            "https://etherscan.io/tx/",
+            "ethereum-mainnet",
+        ),
+        (
+            EvmNetwork::Base,
+            "https://mainnet.base.org",
+            "https://basescan.org/tx/",
+            "base-mainnet",
+        ),
+        (
+            EvmNetwork::Arbitrum,
+            "https://arb1.arbitrum.io/rpc",
+            "https://arbiscan.io/tx/",
+            "arbitrum-one",
+        ),
+        (
+            EvmNetwork::Optimism,
+            "https://mainnet.optimism.io",
+            "https://optimistic.etherscan.io/tx/",
+            "optimism-mainnet",
+        ),
+        (
+            EvmNetwork::Polygon,
+            "https://polygon-rpc.com",
+            "https://polygonscan.com/tx/",
+            "polygon-mainnet",
+        ),
+        (
+            EvmNetwork::Bsc,
+            "https://bsc-dataseed.binance.org",
+            "https://bscscan.com/tx/",
+            "bsc-mainnet",
+        ),
+    ] {
+        assert_eq!(network.default_rpc_url(), rpc);
+        assert_eq!(network.explorer_tx_base(), explorer);
+        assert_eq!(network.network_label(), label);
+    }
+
+    for (cluster, rpc, label, explorer_base, explorer_suffix) in [
+        (
+            SolanaCluster::Mainnet,
+            "https://api.mainnet-beta.solana.com",
+            "solana-mainnet-beta",
+            "https://solscan.io/tx/",
+            "",
+        ),
+        (
+            SolanaCluster::Devnet,
+            "https://api.devnet.solana.com",
+            "solana-devnet",
+            "https://solscan.io/tx/",
+            "?cluster=devnet",
+        ),
+    ] {
+        assert_eq!(cluster.rpc_url(), rpc);
+        assert_eq!(cluster.network_label(), label);
+        assert_eq!(cluster.explorer_tx_base(), explorer_base);
+        assert_eq!(cluster.explorer_tx_suffix(), explorer_suffix);
+    }
+}
+
+#[test]
 fn chain_id_lookup_round_trips() {
     for network in EvmNetwork::ALL {
         assert_eq!(

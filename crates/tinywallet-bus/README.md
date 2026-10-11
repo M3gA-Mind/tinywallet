@@ -7,7 +7,7 @@ serialization and derive closure. No feature links crypto, x402, web3, transport
 
 Network enums in the bus are identifiers only. RPC endpoints, explorer URLs,
 Solana mint addresses, and display labels remain implementation-owned reference
-data in `tinywallet-web3`.
+data in `tinywallet-crypto`.
 
 Contract 1.1 adds `ValidateAddress`. It returns the trimmed address or the same
 structured errors as the implementation, including Bitcoin's narrower sender

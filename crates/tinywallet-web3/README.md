@@ -21,7 +21,7 @@ src/
 │   ├── execution/    balances, prepare/execute transfer, tx lookups (engine methods)
 │   ├── chains/       btc / evm / solana / tron choreography (private)
 │   ├── service/      Web3Service: swap, bridge, dapp calls
-│   ├── defaults/     static networks, assets, explorer links
+│   ├── defaults/     facade over crypto-owned network and asset reference data
 │   ├── abi/          ERC-20 calldata wrapper
 │   └── seams/        WalletSigner, WalletAccounts, RpcEndpoints, Web3Backend
 ├── tools/            agent tools (feature `tools`)
@@ -90,7 +90,8 @@ transfers link to `https://solscan.io/tx/<sig>?cluster=devnet`.
 
 `tinywallet-bus` owns only the `EvmNetwork` and `SolanaCluster` identifiers and
 their wire representations. Endpoint, explorer, mint, and display-label
-reference data belongs to this implementation crate. Import
+reference data belongs to `tinywallet-crypto`; this crate adapts those values
+to the bus identifiers. Import
 `EvmNetworkReferenceData` or `SolanaClusterReferenceData` from
 `crypto::defaults` to use the compatibility method syntax on those identifiers;
 the free functions such as `default_rpc_url_for_evm` remain available as well.

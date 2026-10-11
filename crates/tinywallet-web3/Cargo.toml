@@ -20,7 +20,7 @@ publish = false
 # The chain vocabulary, address rules, `rpc::Transport` seam and the Tron
 # transaction verifier. Every gate the wallet flows use is named explicitly,
 # because the crate is taken with default features off.
-tinywallet-crypto = { path = "../tinywallet-crypto", default-features = false, features = ["btc", "evm", "solana", "tron", "keccak", "net", "tx-codec"] }
+tinywallet-crypto = { path = "../tinywallet-crypto", default-features = false, features = ["btc", "evm", "solana", "tron", "keccak", "net", "asset", "tx-codec"] }
 # Only the `wire` types (`TransactionSpec`, `Signature`, `DerivedAccount`, ...)
 # that `WalletSigner` speaks. Default features off keeps the compat re-exports
 # of the crypto modules out of this crate's graph.
