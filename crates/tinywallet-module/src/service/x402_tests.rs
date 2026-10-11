@@ -321,7 +321,9 @@ async fn history_and_live_budget_operations_keep_the_configured_ledger() {
     let handle = runtime.handle();
 
     for id in ["older", "newer"] {
-        ledger::with_ledger_mut(|ledger| ledger.try_record_payment(pending_record(id, None)))
+        let mut record = pending_record(id, None);
+        record.session_id = "history-budget-test".to_string();
+        ledger::with_ledger_mut(|ledger| ledger.try_record_payment(record))
             .unwrap()
             .unwrap();
     }
