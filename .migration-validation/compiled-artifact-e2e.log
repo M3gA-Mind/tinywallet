@@ -209,3 +209,6 @@
    Compiling bech32 v0.11.1
    Compiling coins-bip39 v0.13.2
    Compiling ed25519-dalek v2.2.0
+   Compiling parking_lot v0.12.5
+   Compiling ripemd v0.2.0
+   Compiling hmac v0.13.0
