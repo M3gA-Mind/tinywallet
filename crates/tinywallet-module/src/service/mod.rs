@@ -693,7 +693,7 @@ impl Wallet {
         request: tinywallet_bus::wire::GenerateMnemonicRequest,
     ) -> BusResult<tinywallet_bus::wire::GenerateMnemonicResponse> {
         let phrase = tinywallet::key::generate_mnemonic(usize::from(request.word_count))
-            .map_err(into_bus_error)?;
+            .map_err(|error| invalid_input(error.to_string()))?;
         Ok(tinywallet_bus::wire::GenerateMnemonicResponse {
             phrase,
             word_count: request.word_count,
