@@ -89,6 +89,9 @@ const EXPECTED_METHODS: &[&str] = &[
     "X402PreparePayment",
     "X402RecordPayment",
     "X402SpendingSummary",
+    "X402SpendingSummaryDetailed",
+    "X402ListPayments",
+    "X402UpdateBudget",
     "X402Configure",
     "X402Close",
 ];
