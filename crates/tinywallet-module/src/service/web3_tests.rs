@@ -527,6 +527,43 @@ async fn wallet_web3_handlers_cover_configured_quote_and_close_lifecycle() {
         .await
         .unwrap();
     assert_ne!(swap.quote_id, "");
+    assert_eq!(
+        swap.signing_chain,
+        tinywallet_bus::wire::WalletChain::Evm,
+        "the module reports the chain from its stored unsigned transaction"
+    );
+    assert_eq!(
+        serde_json::to_value(&swap).unwrap()["signingChain"],
+        "evm",
+        "the wire response carries the authoritative chain without changing quote summary data"
+    );
+
+    let solana_bridge = wallet
+        .web3_bridge_quote(Web3QuoteRequest {
+            service: handle.clone(),
+            owner: Some(tinywallet_bus::wire::QuoteOwner {
+                thread_id: "solana-thread".to_string(),
+                client_id: "solana-client".to_string(),
+            }),
+            params: serde_json::json!({
+                "srcChainId": 7_565_164,
+                "srcChainTokenIn": "So11111111111111111111111111111111111111112",
+                "srcChainTokenInAmount": "1",
+                "dstChainId": 1,
+                "dstChainTokenOut": "0x0000000000000000000000000000000000000001"
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        solana_bridge.signing_chain,
+        tinywallet_bus::wire::WalletChain::Solana,
+        "the module reports the chain from its stored Solana transaction"
+    );
+    assert_eq!(
+        serde_json::to_value(&solana_bridge).unwrap()["signingChain"],
+        "solana"
+    );
 
     let execution = wallet
         .web3_execute(Web3ExecuteRequest {

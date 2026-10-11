@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::{
     AttachRequest, PublicKey, Scheme, Signature, SignedTransaction, SigningPayload, SigningRequest,
-    TransactionSpec, UnsignedTransaction, Utxo,
+    TransactionSpec, UnsignedTransaction, Utxo, WalletChain, Web3QuoteKind, Web3QuoteResponse,
 };
 
 #[test]
@@ -35,6 +35,38 @@ fn a_signing_request_round_trips_through_json() {
     let encoded = serde_json::to_string(&request).unwrap();
     let decoded: SigningRequest = serde_json::from_str(&encoded).unwrap();
     assert_eq!(decoded, request);
+}
+
+#[test]
+fn web3_quote_response_publishes_module_selected_signing_chain() {
+    let response = Web3QuoteResponse {
+        quote_id: "quote-1".into(),
+        kind: Web3QuoteKind::Bridge,
+        expires_at_ms: 1234,
+        signing_chain: WalletChain::Solana,
+        quote: json!({"provider": "summary"}),
+    };
+    let encoded = serde_json::to_value(response).unwrap();
+    assert_eq!(
+        encoded,
+        json!({
+            "quoteId": "quote-1",
+            "kind": "bridge",
+            "expiresAtMs": 1234,
+            "signingChain": "solana",
+            "quote": {"provider": "summary"}
+        })
+    );
+    assert!(
+        serde_json::from_value::<Web3QuoteResponse>(json!({
+            "quoteId": "quote-1",
+            "kind": "bridge",
+            "expiresAtMs": 1234,
+            "quote": {"provider": "summary"}
+        }))
+        .is_err(),
+        "hosts must not infer a missing signing chain from provider data"
+    );
 }
 
 #[test]

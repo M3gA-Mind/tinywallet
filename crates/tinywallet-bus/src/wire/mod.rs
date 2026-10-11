@@ -47,9 +47,10 @@ pub use host::{
     AuthorizeX402PaymentRequest, ChainTransportRequest, ChainTransportResult, HostResponse,
     NetworkRequest, QuoteOwner, WalletAccountInfo, WalletAccountsResponse, WalletBackendRequest,
     WalletBackendResponse, Web3CloseRequest, Web3ExecuteRequest, Web3ExecutionIntent,
-    Web3QuoteRequest, Web3ServiceHandle, X402CloseRequest, X402ConfigResponse,
-    X402ConfigureRequest, X402PreparePaymentRequest, X402PreparePaymentResponse,
-    X402RecordPaymentRequest, X402ServiceHandle, X402SpendingSummary, X402SummaryRequest,
+    Web3QuoteKind, Web3QuoteRequest, Web3QuoteResponse, Web3ServiceHandle, X402CloseRequest,
+    X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest,
+    X402PreparePaymentResponse, X402RecordPaymentRequest, X402ServiceHandle, X402SpendingSummary,
+    X402SummaryRequest,
 };
 pub use wallet::{
     BalanceInfo, ChainStatus, EvmNetwork, ExecutePreparedParams, ExecutionResult,

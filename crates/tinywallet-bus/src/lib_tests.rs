@@ -65,11 +65,12 @@ fn network_identifiers_keep_their_wire_names_and_chain_ids() {
 
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
+    assert_eq!(CONTRACT_VERSION, (1, 6));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));
     // A module older than the host cannot serve every member the host may call.
-    assert!(!is_compatible((CONTRACT_VERSION.0, 0)) || CONTRACT_VERSION.1 == 0);
+    assert!(!is_compatible((1, 5)));
 }
 
 #[test]

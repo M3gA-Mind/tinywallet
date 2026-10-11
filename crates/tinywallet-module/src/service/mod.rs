@@ -116,7 +116,7 @@ impl Wallet {
     async fn web3_swap_quote(
         &self,
         request: tinywallet_bus::wire::Web3QuoteRequest,
-    ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
+    ) -> BusResult<tinywallet_bus::wire::Web3QuoteResponse> {
         let web3 = self.web3.read().await;
         let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
@@ -135,13 +135,14 @@ impl Wallet {
                 .map_err(web3_operation_failed)
         })
         .await
+        .map(web3::quote_response)
     }
 
     /// Prepare a module-owned cross-chain bridge quote.
     async fn web3_bridge_quote(
         &self,
         request: tinywallet_bus::wire::Web3QuoteRequest,
-    ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
+    ) -> BusResult<tinywallet_bus::wire::Web3QuoteResponse> {
         let web3 = self.web3.read().await;
         let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
@@ -159,13 +160,14 @@ impl Wallet {
                 .map_err(web3_operation_failed)
         })
         .await
+        .map(web3::quote_response)
     }
 
     /// Prepare a module-owned EVM dapp-call quote.
     async fn web3_dapp_quote(
         &self,
         request: tinywallet_bus::wire::Web3QuoteRequest,
-    ) -> BusResult<tinywallet_web3::crypto::service::Web3Quote> {
+    ) -> BusResult<tinywallet_bus::wire::Web3QuoteResponse> {
         let web3 = self.web3.read().await;
         let Some(web3) = web3.as_ref() else {
             return Err(host_unavailable());
@@ -184,6 +186,7 @@ impl Wallet {
                 .map_err(web3_operation_failed)
         })
         .await
+        .map(web3::quote_response)
     }
 
     /// Approve, sign and broadcast one previously prepared Web3 quote.

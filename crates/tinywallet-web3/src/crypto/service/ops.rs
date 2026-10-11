@@ -85,6 +85,10 @@ impl Web3Service {
     ) -> Web3Quote {
         let expires_at_ms = now_ms() + self.quotes.ttl_ms();
         let owner: Option<QuoteOwner> = self.engine.scope.current_owner();
+        let signing_chain = match &unsigned {
+            UnsignedTx::Evm { .. } => tinywallet_bus::wire::WalletChain::Evm,
+            UnsignedTx::Solana { .. } => tinywallet_bus::wire::WalletChain::Solana,
+        };
         let quote = StoredQuote {
             quote_id: self.quotes.next_id(),
             kind,
@@ -97,6 +101,7 @@ impl Web3Service {
             quote_id: quote.quote_id.clone(),
             kind,
             expires_at_ms,
+            signing_chain,
             quote: summary,
         };
         self.quotes.insert(quote);
