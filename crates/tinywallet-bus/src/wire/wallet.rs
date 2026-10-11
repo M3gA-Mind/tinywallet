@@ -51,7 +51,6 @@ impl std::fmt::Debug for DeriveMnemonicSeedRequest {
     }
 }
 
-
 /// Returns the standard 64-byte BIP-39 seed from a confidential call.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,7 +66,6 @@ impl std::fmt::Debug for DeriveMnemonicSeedResponse {
             .finish()
     }
 }
-
 
 /// A wallet chain family.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
