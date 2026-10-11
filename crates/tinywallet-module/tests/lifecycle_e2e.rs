@@ -1569,11 +1569,7 @@ async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
         )
         .await
         .unwrap();
-    let seed_hex = seed
-        .seed
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let seed_hex = hex::encode(seed.seed);
     assert_eq!(
         seed_hex,
         "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4"
