@@ -26,13 +26,27 @@ pub struct PaymentRecord {
     /// Where the payment stands. Settled payments and unresolved signed
     /// authorizations count against the spending budget.
     pub status: PaymentStatus,
-    /// When this line was written.
+    /// When this state was written. A Solana expiry observation preserves the
+    /// original pending authorization timestamp so its possible settlement
+    /// interval remains intact.
     pub timestamp: DateTime<Utc>,
     /// When an exported authorization becomes unusable, when the rail exposes
     /// a definitive deadline. Absence means the ledger retains it until an
     /// explicit outcome is recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorization_valid_until: Option<DateTime<Utc>>,
+    /// Solana's `lastValidBlockHeight`, bound to the finalized blockhash used
+    /// by the exported transaction. Missing values are retained conservatively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solana_last_valid_block_height: Option<u64>,
+    /// Time at which a finalized height greater than
+    /// `solana_last_valid_block_height` was observed. This reclaims admission
+    /// and future-window capacity without releasing the durable amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expired_at: Option<DateTime<Utc>>,
+    /// Finalized height supporting `authorization_expired_at`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expiry_observed_height: Option<u64>,
     /// The ledger session that made the payment: the process that opened the
     /// ledger. [`SpendingSummary::session_total_atomic`] counts by this.
     pub session_id: String,

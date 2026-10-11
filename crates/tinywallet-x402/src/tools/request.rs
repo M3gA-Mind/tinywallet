@@ -337,6 +337,9 @@ impl X402RequestTool {
             status,
             timestamp: chrono::Utc::now(),
             authorization_valid_until: payment.authorization_valid_until,
+            solana_last_valid_block_height: payment.solana_last_valid_block_height,
+            authorization_expired_at: None,
+            authorization_expiry_observed_height: None,
             session_id: session_id.clone(),
             thread_id: thread_id.clone(),
         };

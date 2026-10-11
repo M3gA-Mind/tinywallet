@@ -47,6 +47,9 @@ fn record(
         status,
         timestamp,
         authorization_valid_until: None,
+        solana_last_valid_block_height: None,
+        authorization_expired_at: None,
+        authorization_expiry_observed_height: None,
         session_id: session.into(),
         thread_id: None,
     }
