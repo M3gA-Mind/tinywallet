@@ -279,7 +279,7 @@ fn native_wallet_members_are_additive_and_use_one_typed_argument() {
         methods::NATIVE_WALLET_TX_RECEIPT,
         methods::NATIVE_WALLET_LOOKUP_TX,
     ];
-    assert_eq!(METHODS.len(), 34);
+    assert_eq!(METHODS.len(), 37);
     assert!(native_members.iter().all(|member| METHODS.contains(member)));
     assert_eq!(HOST_METHODS.len(), 6);
     assert!(HOST_METHODS.contains(&host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION));
