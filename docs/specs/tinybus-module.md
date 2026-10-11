@@ -70,6 +70,12 @@ and uses the selected cluster for implementation-owned endpoint defaults and
 reference data. Hosts that continue to call the legacy member retain its
 historical default endpoint behavior.
 
+Contract 1.8 adds optional `NetworkRequest.endpoint_url` for a public default
+URL selected by the wallet implementation. It is present only when no opaque
+host override reference is selected; absent values are omitted from JSON, and
+old payloads deserialize with no URL. The host validates the supplied URL and
+performs transport without reimplementing the wallet's default selection.
+
 ## The two-call split is the security property
 
 Legacy `BuildUnsigned` and `AttachSignature` let a host hold the key, ask what

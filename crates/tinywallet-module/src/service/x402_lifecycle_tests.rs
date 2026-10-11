@@ -46,6 +46,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
             release_approval: release_approval.clone(),
             finalized_height: finalized_height.clone(),
             rpc_requests: rpc_requests.clone(),
+            payment_requests: Arc::new(std::sync::Mutex::new(Vec::new())),
         },
     )
     .await

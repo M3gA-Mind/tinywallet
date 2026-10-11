@@ -36,6 +36,10 @@ pub struct NetworkRequest {
     /// the module.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint_ref: Option<String>,
+    /// Public module-selected RPC URL when no host override is configured.
+    /// This is never populated together with `endpoint_ref`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_url: Option<String>,
 }
 
 /// Chain transport operation. Endpoint resolution, failover, authentication,
@@ -358,6 +362,10 @@ pub struct AuthorizeX402PaymentRequest {
     pub recipient: String,
     /// Exact amount in token atomic units.
     pub amount_atomic: u64,
+    /// Conversation owner used to route approval to the initiating client.
+    /// Older hosts omit this field and retain their existing approval flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<QuoteOwner>,
 }
 
 /// Request module-owned parsing and signing for a 402 challenge.

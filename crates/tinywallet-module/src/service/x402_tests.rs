@@ -303,15 +303,18 @@ pub(crate) struct PaymentApprovalHost {
     pub(crate) release_approval: Arc<tokio::sync::Notify>,
     pub(crate) finalized_height: Arc<AtomicUsize>,
     pub(crate) rpc_requests: Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>,
+    pub(crate) payment_requests:
+        Arc<std::sync::Mutex<Vec<tinywallet_bus::wire::AuthorizeX402PaymentRequest>>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinywallet.Host")]
 impl PaymentApprovalHost {
     async fn authorize_x402_payment(
         &self,
-        _request: tinywallet_bus::wire::AuthorizeX402PaymentRequest,
+        request: tinywallet_bus::wire::AuthorizeX402PaymentRequest,
     ) -> tinybus::Result<tinywallet_bus::wire::HostResponse> {
         self.authorizations.fetch_add(1, Ordering::SeqCst);
+        self.payment_requests.lock().unwrap().push(request);
         if self.pause.swap(false, Ordering::SeqCst) {
             self.approval_started.notify_one();
             self.release_approval.notified().await;
@@ -382,6 +385,28 @@ pub(crate) fn valid_challenge_header() -> String {
     )
 }
 
+fn assert_x402_authorization_matches_request(
+    authorization: &tinywallet_bus::wire::AuthorizeX402PaymentRequest,
+    owner: Option<&tinywallet_bus::wire::QuoteOwner>,
+) {
+    assert_eq!(
+        authorization.owner.as_ref(),
+        owner,
+        "module approval callback retains the host-stamped conversation owner"
+    );
+    assert_eq!(authorization.url, "https://wallet.fixture.test/resource");
+    assert_eq!(authorization.network, "eip155:1");
+    assert_eq!(
+        authorization.asset,
+        "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    );
+    assert_eq!(
+        authorization.recipient,
+        "0x3535353535353535353535353535353535353535"
+    );
+    assert_eq!(authorization.amount_atomic, 100);
+}
+
 pub(crate) fn valid_solana_challenge_header() -> String {
     BASE64.encode(
         serde_json::to_vec(&serde_json::json!({
@@ -417,6 +442,7 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
     let pause = Arc::new(AtomicBool::new(false));
     let approval_started = Arc::new(tokio::sync::Notify::new());
     let release_approval = Arc::new(tokio::sync::Notify::new());
+    let payment_requests = Arc::new(std::sync::Mutex::new(Vec::new()));
     host.serve_at(
         crate::service::HOST_OBJECT_PATH.try_into().unwrap(),
         PaymentApprovalHost {
@@ -427,6 +453,7 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
             release_approval: release_approval.clone(),
             finalized_height: Arc::new(AtomicUsize::new(9)),
             rpc_requests: Arc::new(std::sync::Mutex::new(Vec::new())),
+            payment_requests: payment_requests.clone(),
         },
     )
     .await
@@ -459,13 +486,19 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         service: handle.clone(),
         url: "https://wallet.fixture.test/resource".to_string(),
         payment_required: valid_challenge_header(),
-        owner: None,
+        owner: Some(tinywallet_bus::wire::QuoteOwner {
+            thread_id: "thread-attributed".to_string(),
+            client_id: "client-attributed".to_string(),
+        }),
         secret: secret(tinywallet_bus::Chain::Evm),
     };
     for _ in 0..(MAX_PENDING - 1) {
         wallet.x402_prepare_payment(prepare()).await.unwrap();
     }
     assert_eq!(authorizations.load(Ordering::SeqCst), MAX_PENDING - 1);
+    let first_authorization = payment_requests.lock().unwrap()[0].clone();
+    let request_owner = prepare().owner;
+    assert_x402_authorization_matches_request(&first_authorization, request_owner.as_ref());
 
     pause.store(true, Ordering::SeqCst);
     let pending_wallet = wallet.clone();

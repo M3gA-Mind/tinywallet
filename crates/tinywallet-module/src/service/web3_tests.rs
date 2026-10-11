@@ -24,7 +24,39 @@ fn network_names_round_trip_for_every_supported_chain() {
         assert_eq!(request.chain, bus);
         assert_eq!(request.evm_chain_id, Some(137));
         assert_eq!(network_id(&request).unwrap(), id);
+        assert!(request.endpoint_url.is_some());
     }
+}
+
+#[test]
+fn configured_rpc_override_uses_only_opaque_reference_while_default_is_module_selected() {
+    use tinywallet_bus::wire::{RpcEndpointKey, SolanaCluster as BusSolanaCluster};
+
+    let endpoints = ConfiguredEndpoints::new(tinywallet_bus::wire::Web3ConfigureRequest {
+        solana_cluster: BusSolanaCluster::Devnet,
+        overridden_endpoints: vec![RpcEndpointKey::Evm {
+            network: tinywallet_bus::wire::EvmNetwork::BaseMainnet,
+        }],
+    })
+    .unwrap();
+
+    let default = network_request(network(Chain::Evm, Some(1)), Some(&endpoints)).unwrap();
+    assert!(default.endpoint_ref.is_none());
+    assert_eq!(
+        default.endpoint_url.as_deref(),
+        Some("https://ethereum-rpc.publicnode.com")
+    );
+
+    let overridden = network_request(network(Chain::Evm, Some(8453)), Some(&endpoints)).unwrap();
+    assert!(overridden.endpoint_ref.is_some());
+    assert!(overridden.endpoint_url.is_none());
+
+    let solana_default = network_request(network(Chain::Solana, None), Some(&endpoints)).unwrap();
+    assert_eq!(solana_default.endpoint_ref, None);
+    assert_eq!(
+        solana_default.endpoint_url.as_deref(),
+        Some("https://api.devnet.solana.com")
+    );
 }
 
 #[test]
