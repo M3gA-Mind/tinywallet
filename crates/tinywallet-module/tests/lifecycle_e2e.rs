@@ -1519,6 +1519,19 @@ async fn refuses_confidential_secret_delivery_to_an_unattested_artifact() {
 async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
     use tinywallet_bus::wire::{GenerateMnemonicRequest, GenerateMnemonicResponse};
 
+    let error = proxy
+        .call::<GenerateMnemonicResponse>(
+            tinywallet_bus::names::methods::GENERATE_MNEMONIC,
+            (GenerateMnemonicRequest { word_count: 12 },),
+        )
+        .await
+        .expect_err("mnemonic generation must require confidential delivery");
+    assert_eq!(
+        error.wire_name(),
+        tinybus::Error::CONFIDENTIALITY_REQUIRED,
+        "the compiled manifest must keep mnemonic generation confidential"
+    );
+
     let generated: GenerateMnemonicResponse = proxy
         .call_confidential(
             tinywallet_bus::names::methods::GENERATE_MNEMONIC,

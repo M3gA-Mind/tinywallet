@@ -1439,6 +1439,7 @@ mod exports {
             "BuildUnsigned",
             "AttachSignature",
             "DeriveAccount",
+            "GenerateMnemonic",
             "SignTransaction",
             "ExportKey",
             "SignMessage",
