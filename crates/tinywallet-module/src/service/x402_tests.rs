@@ -351,7 +351,11 @@ async fn history_and_live_budget_operations_keep_the_configured_ledger() {
     assert_eq!(updated.monthly_max_atomic, 33);
     assert_eq!(updated.reserved_atomic, 2);
 
-    let detailed = runtime.detailed_summary(&X402SummaryRequest { service: handle.clone() }).unwrap();
+    let detailed = runtime
+        .detailed_summary(&X402SummaryRequest {
+            service: handle.clone(),
+        })
+        .unwrap();
     assert_eq!(detailed.session_total_atomic, 0);
     assert_eq!(detailed.session_count, 0);
     assert_eq!(detailed.reserved_atomic, 2);

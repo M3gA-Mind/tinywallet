@@ -641,8 +641,7 @@ impl Wallet {
         let Some(x402) = x402.as_ref() else {
             return Err(host_unavailable());
         };
-        x402
-            .detailed_summary(&request)
+        x402.detailed_summary(&request)
             .map_err(x402_operation_failed)
     }
 

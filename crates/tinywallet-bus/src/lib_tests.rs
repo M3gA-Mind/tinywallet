@@ -188,8 +188,8 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
 #[test]
 fn x402_history_and_budget_wire_vocabulary_preserves_rpc_record_shape() {
     use super::wire::{
-        X402ListPaymentsRequest, X402ListPaymentsResponse, X402PaymentRecord,
-        X402PaymentStatus, X402ServiceHandle, X402UpdateBudgetRequest,
+        X402ListPaymentsRequest, X402ListPaymentsResponse, X402PaymentRecord, X402PaymentStatus,
+        X402ServiceHandle, X402UpdateBudgetRequest,
     };
 
     let request = X402ListPaymentsRequest {
