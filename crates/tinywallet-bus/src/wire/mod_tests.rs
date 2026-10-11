@@ -344,3 +344,21 @@ fn address_validation_rejects_misspelled_sender_and_preserves_default_recipient(
         serde_json::from_value(serde_json::json!({"chain":"btc", "address":"fixture"})).unwrap();
     assert!(!recipient.sender);
 }
+
+#[test]
+fn x402_chain_secret_extension_preserves_legacy_serialization() {
+    let legacy = json!({
+        "service": {"handle": "fixture"},
+        "url": "https://fixture.invalid/resource",
+        "payment_required": "encoded-challenge",
+        "secret": {
+            "mnemonic": "secret phrase",
+            "derivation_path": "m/44'/60'/0'/0/0",
+            "chain": "evm"
+        }
+    });
+    let request: super::X402PreparePaymentRequest =
+        serde_json::from_value(legacy.clone()).unwrap();
+    assert!(request.additional_secrets.is_empty());
+    assert_eq!(serde_json::to_value(request).unwrap(), legacy);
+}
