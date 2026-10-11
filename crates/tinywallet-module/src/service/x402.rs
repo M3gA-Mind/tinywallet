@@ -434,7 +434,7 @@ impl PaymentSigner for ModulePaymentSigner {
             PaymentChain::Evm => tinywallet_bus::Chain::Evm,
             PaymentChain::Solana => tinywallet_bus::Chain::Solana,
         };
-        let secret = super::web3::clone_x402_secret(expected_chain)?;
+        let mut secret = super::web3::clone_x402_secret(expected_chain)?;
         let derived = super::derive_account(&secret).map_err(super::failure_message);
         wipe(&mut secret);
         let derived = derived?;
@@ -473,7 +473,7 @@ impl PaymentSigner for ModulePaymentSigner {
                 return Err("x402 payment requested an unsupported signing scheme".to_string());
             }
         };
-        let mut secret = super::web3::clone_x402_secret(expected_chain)?;
+        let secret = super::web3::clone_x402_secret(expected_chain)?;
         let mut request = tinywallet_bus::wire::SignMessageRequest {
             secret,
             message_hex: hex::encode(message),
