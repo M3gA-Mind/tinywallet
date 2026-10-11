@@ -195,7 +195,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
             "NativeWalletTxStatus",
             (tinywallet_bus::wire::NativeWalletTransactionRequest {
                 service: native.service.clone(),
-                chain: WalletChain::Evm,
+                chain: Chain::Evm,
                 evm_network: Some(tinywallet_bus::wire::EvmNetwork::EthereumMainnet),
                 hash: "0xfixture-default-endpoint".to_string(),
             },),
