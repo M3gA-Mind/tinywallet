@@ -86,6 +86,18 @@ devnet USDC mint, and, because a devnet link needs text after the hash, reports
 transfers link to `https://solscan.io/tx/<sig>?cluster=devnet`.
 `explorer_tx_url` takes the cluster for that reason.
 
+## Network reference data API
+
+`tinywallet-bus` owns only the `EvmNetwork` and `SolanaCluster` identifiers and
+their wire representations. Endpoint, explorer, mint, and display-label
+reference data belongs to this implementation crate. Import
+`EvmNetworkReferenceData` or `SolanaClusterReferenceData` from
+`crypto::defaults` to use the compatibility method syntax on those identifiers;
+the free functions such as `default_rpc_url_for_evm` remain available as well.
+This trait import is a Rust source migration for callers that previously used
+the enum methods from `tinywallet-bus`; it does not change serialized values or
+runtime behavior. The release workflow must use a pre-1.0 minor bump.
+
 ## Features
 
 | Feature | Default | Gates |

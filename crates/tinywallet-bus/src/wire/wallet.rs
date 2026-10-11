@@ -102,45 +102,6 @@ impl EvmNetwork {
             Self::BscMainnet => 56,
         }
     }
-
-    /// The built-in public JSON-RPC endpoint for this network.
-    #[must_use]
-    pub const fn default_rpc_url(self) -> &'static str {
-        match self {
-            Self::EthereumMainnet => "https://ethereum-rpc.publicnode.com",
-            Self::BaseMainnet => "https://mainnet.base.org",
-            Self::ArbitrumOne => "https://arb1.arbitrum.io/rpc",
-            Self::OptimismMainnet => "https://mainnet.optimism.io",
-            Self::PolygonMainnet => "https://polygon-rpc.com",
-            Self::BscMainnet => "https://bsc-dataseed.binance.org",
-        }
-    }
-
-    /// The block explorer's transaction URL prefix.
-    #[must_use]
-    pub const fn explorer_tx_base(self) -> &'static str {
-        match self {
-            Self::EthereumMainnet => "https://etherscan.io/tx/",
-            Self::BaseMainnet => "https://basescan.org/tx/",
-            Self::ArbitrumOne => "https://arbiscan.io/tx/",
-            Self::OptimismMainnet => "https://optimistic.etherscan.io/tx/",
-            Self::PolygonMainnet => "https://polygonscan.com/tx/",
-            Self::BscMainnet => "https://bscscan.com/tx/",
-        }
-    }
-
-    /// The kebab-case label used in summaries.
-    #[must_use]
-    pub const fn network_label(self) -> &'static str {
-        match self {
-            Self::EthereumMainnet => "ethereum-mainnet",
-            Self::BaseMainnet => "base-mainnet",
-            Self::ArbitrumOne => "arbitrum-one",
-            Self::OptimismMainnet => "optimism-mainnet",
-            Self::PolygonMainnet => "polygon-mainnet",
-            Self::BscMainnet => "bsc-mainnet",
-        }
-    }
 }
 
 /// A Solana cluster selected by the host.
@@ -151,44 +112,6 @@ pub enum SolanaCluster {
     Mainnet,
     /// Devnet.
     Devnet,
-}
-
-impl SolanaCluster {
-    /// Default JSON-RPC endpoint for this cluster.
-    #[must_use]
-    pub const fn rpc_url(self) -> &'static str {
-        match self {
-            Self::Mainnet => "https://api.mainnet-beta.solana.com",
-            Self::Devnet => "https://api.devnet.solana.com",
-        }
-    }
-
-    /// The kebab-case label used in summaries.
-    #[must_use]
-    pub const fn network_label(self) -> &'static str {
-        match self {
-            Self::Mainnet => "solana-mainnet-beta",
-            Self::Devnet => "solana-devnet",
-        }
-    }
-
-    /// Explorer query suffix for this cluster.
-    #[must_use]
-    pub const fn explorer_tx_suffix(self) -> &'static str {
-        match self {
-            Self::Mainnet => "",
-            Self::Devnet => "?cluster=devnet",
-        }
-    }
-
-    /// USDC SPL-token mint address for this cluster.
-    #[must_use]
-    pub const fn usdc_mint(self) -> &'static str {
-        match self {
-            Self::Mainnet => "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-            Self::Devnet => "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-        }
-    }
 }
 
 /// Where a host endpoint came from.
