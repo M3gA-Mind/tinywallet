@@ -36,9 +36,12 @@ use tinywallet::wire::{
 };
 use tinywallet::{Chain, tx};
 use tinywallet_bus::wire::{
-    AuthorizationResult, AuthorizeX402PaymentRequest, ChainTransportRequest, ChainTransportResult,
-    HostResponse, SecretMaterial, WalletAccountsResponse, WalletBackendRequest,
-    WalletBackendResponse, Web3CloseRequest, Web3ServiceHandle, X402CloseRequest,
+    AuthorizationResult, AuthorizeNativeWalletExecutionRequest, AuthorizeX402PaymentRequest,
+    ChainTransportRequest, ChainTransportResult, HostResponse, NativeWalletConfigRequest,
+    NativeWalletConfigResponse, NativeWalletExecuteRequest, NativeWalletPrepareTransferRequest,
+    NativeWalletServiceHandle, NetworkRequest, PrepareTransferParams, RpcEndpointKey,
+    SecretMaterial, SolanaCluster, WalletAccountsResponse, WalletBackendRequest,
+    WalletBackendResponse, WalletChain, Web3CloseRequest, Web3ServiceHandle, X402CloseRequest,
     X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest, X402RecordPaymentRequest,
     X402ServiceHandle, X402SummaryRequest,
 };
@@ -69,6 +72,17 @@ const EXPECTED_METHODS: &[&str] = &[
     "Web3Execute",
     "Web3Configure",
     "Web3Close",
+    "NativeWalletConfigure",
+    "NativeWalletClose",
+    "NativeWalletNetworkDefaults",
+    "NativeWalletSupportedAssets",
+    "NativeWalletChainStatus",
+    "NativeWalletBalances",
+    "NativeWalletPrepareTransfer",
+    "NativeWalletExecutePrepared",
+    "NativeWalletTxStatus",
+    "NativeWalletTxReceipt",
+    "NativeWalletLookupTx",
     "X402PreparePayment",
     "X402RecordPayment",
     "X402SpendingSummary",
@@ -95,6 +109,8 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         _host,
         host_bad_response,
         approved_web3,
+        approved_native,
+        native_transport_networks,
         submitted_tx,
         approved_x402,
         x402_approved,
@@ -122,6 +138,118 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         .await
         .unwrap();
     let mut web3_service: Web3ServiceHandle = proxy.call("Web3Configure", ((),)).await.unwrap();
+
+    // The new native engine crosses the compiled module ABI, not a copied host
+    // implementation: endpoint metadata stays opaque and signing approval
+    // receives the exact transaction built inside the loaded artifact.
+    let native: NativeWalletConfigResponse = proxy
+        .call(
+            "NativeWalletConfigure",
+            (NativeWalletConfigRequest {
+                solana_cluster: SolanaCluster::Mainnet,
+                overridden_endpoints: vec![RpcEndpointKey::Btc],
+            },),
+        )
+        .await
+        .unwrap();
+    let btc_defaults: Vec<tinywallet_bus::wire::WalletNetworkDefaults> = proxy
+        .call(
+            "NativeWalletNetworkDefaults",
+            (tinywallet_bus::wire::NativeWalletServiceRequest {
+                service: native.service.clone(),
+            },),
+        )
+        .await
+        .unwrap();
+    let btc_default = btc_defaults
+        .iter()
+        .find(|row| row.chain == WalletChain::Btc)
+        .unwrap();
+    assert_eq!(btc_default.rpc_url, native.endpoint_references[0].reference);
+    assert!(!btc_default.rpc_url.starts_with("http"));
+    let _ = proxy
+        .call::<serde_json::Value>(
+            "NativeWalletTxStatus",
+            (tinywallet_bus::wire::NativeWalletTransactionRequest {
+                service: native.service.clone(),
+                chain: WalletChain::Btc,
+                evm_network: None,
+                hash: "fixture-tx".to_string(),
+            },),
+        )
+        .await;
+    assert!(
+        native_transport_networks
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|network| {
+                network.chain == Chain::Btc
+                    && network.endpoint_ref.as_deref() == Some(btc_default.rpc_url.as_str())
+            })
+    );
+    let native_quote: tinywallet_bus::wire::PreparedTransaction = proxy
+        .call(
+            "NativeWalletPrepareTransfer",
+            (NativeWalletPrepareTransferRequest {
+                service: native.service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "native-artifact-thread".to_string(),
+                    client_id: "native-artifact-client".to_string(),
+                }),
+                params: PrepareTransferParams {
+                    chain: WalletChain::Evm,
+                    to_address: "0x3535353535353535353535353535353535353535".to_string(),
+                    amount_raw: "1000".to_string(),
+                    asset_symbol: None,
+                    evm_network: None,
+                },
+            },),
+        )
+        .await
+        .unwrap();
+    let native_execution: tinywallet_bus::wire::ExecutionResult = proxy
+        .call_confidential(
+            "NativeWalletExecutePrepared",
+            (NativeWalletExecuteRequest {
+                service: native.service.clone(),
+                owner: Some(tinywallet_bus::wire::QuoteOwner {
+                    thread_id: "native-artifact-thread".to_string(),
+                    client_id: "native-artifact-client".to_string(),
+                }),
+                quote_id: native_quote.quote_id.clone(),
+                confirmed: true,
+                secret: SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                    chain: Chain::Evm,
+                },
+            },),
+        )
+        .await
+        .unwrap();
+    assert_eq!(native_execution.transaction_hash, "0xfeedface");
+    {
+        let native_approval = approved_native.lock().unwrap();
+        assert_eq!(native_approval.as_ref().unwrap().quote, native_quote);
+        assert!(matches!(
+            &native_approval.as_ref().unwrap().intent,
+            tinywallet_bus::wire::NativeWalletExecutionIntent::Transaction {
+                transaction: TransactionSpec::Evm { chain_id: 1, .. }
+            }
+        ));
+    }
+    proxy
+        .call::<()>(
+            "NativeWalletClose",
+            (tinywallet_bus::wire::NativeWalletCloseRequest {
+                service: NativeWalletServiceHandle {
+                    handle: native.service.handle,
+                },
+            },),
+        )
+        .await
+        .unwrap();
 
     let routes: serde_json::Value = proxy.call("Web3Routes", ((),)).await.unwrap();
     assert_eq!(routes, serde_json::json!({"routes": ["evm", "solana"]}));
@@ -718,6 +846,8 @@ async fn admit_module() -> (
     Connection,
     Arc<AtomicBool>,
     Arc<Mutex<Option<tinywallet_bus::wire::AuthorizeWeb3ExecutionRequest>>>,
+    Arc<Mutex<Option<AuthorizeNativeWalletExecutionRequest>>>,
+    Arc<Mutex<Vec<NetworkRequest>>>,
     Arc<Mutex<Option<String>>>,
     Arc<Mutex<Option<AuthorizeX402PaymentRequest>>>,
     Arc<AtomicBool>,
@@ -752,6 +882,8 @@ async fn admit_module() -> (
         .unwrap();
     let host_bad_response = Arc::new(AtomicBool::new(false));
     let approved_web3 = Arc::new(Mutex::new(None));
+    let approved_native = Arc::new(Mutex::new(None));
+    let native_transport_networks = Arc::new(Mutex::new(Vec::new()));
     let submitted_tx = Arc::new(Mutex::new(None));
     let approved_x402 = Arc::new(Mutex::new(None));
     let x402_approved = Arc::new(AtomicBool::new(true));
@@ -761,6 +893,8 @@ async fn admit_module() -> (
         TestHost {
             bad_response: host_bad_response.clone(),
             approved_web3: approved_web3.clone(),
+            approved_native: approved_native.clone(),
+            native_transport_networks: native_transport_networks.clone(),
             submitted_tx: submitted_tx.clone(),
             approved_x402: approved_x402.clone(),
             x402_approved: x402_approved.clone(),
@@ -784,7 +918,7 @@ async fn admit_module() -> (
         "the compiled manifest must require the typed host callback contract"
     );
     assert!(loaded.manifest.requires[0].optional);
-    assert_eq!(tinywallet_bus::HOST_METHODS.len(), 5);
+    assert_eq!(tinywallet_bus::HOST_METHODS.len(), 6);
 
     let declared: Vec<&str> = loaded
         .manifest
@@ -818,6 +952,8 @@ async fn admit_module() -> (
         host,
         host_bad_response,
         approved_web3,
+        approved_native,
+        native_transport_networks,
         submitted_tx,
         approved_x402,
         x402_approved,
@@ -831,6 +967,8 @@ async fn admit_module() -> (
 struct TestHost {
     bad_response: Arc<AtomicBool>,
     approved_web3: Arc<Mutex<Option<tinywallet_bus::wire::AuthorizeWeb3ExecutionRequest>>>,
+    approved_native: Arc<Mutex<Option<AuthorizeNativeWalletExecutionRequest>>>,
+    native_transport_networks: Arc<Mutex<Vec<NetworkRequest>>>,
     submitted_tx: Arc<Mutex<Option<String>>>,
     approved_x402: Arc<Mutex<Option<AuthorizeX402PaymentRequest>>>,
     x402_approved: Arc<AtomicBool>,
@@ -895,10 +1033,27 @@ impl TestHost {
         }))
     }
 
+    async fn authorize_native_wallet_execution(
+        &self,
+        request: AuthorizeNativeWalletExecutionRequest,
+    ) -> tinybus::Result<HostResponse> {
+        *self.approved_native.lock().unwrap() = Some(request);
+        Ok(HostResponse::Authorization(AuthorizationResult {
+            approved: true,
+            reason: None,
+        }))
+    }
+
     async fn chain_transport(
         &self,
         request: ChainTransportRequest,
     ) -> tinybus::Result<HostResponse> {
+        let network = match &request {
+            ChainTransportRequest::JsonRpc { network, .. }
+            | ChainTransportRequest::RestGet { network, .. }
+            | ChainTransportRequest::RestPost { network, .. } => network.clone(),
+        };
+        self.native_transport_networks.lock().unwrap().push(network);
         let result = match request {
             ChainTransportRequest::JsonRpc { method, params, .. } => {
                 let value = match method.as_str() {

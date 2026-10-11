@@ -3,9 +3,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::{
-    EvmNetwork, RpcSource, SolanaCluster, asset_catalog, default_rpc_url, evm_asset_catalog,
-    explorer_tx_url, explorer_tx_url_for_evm_network, find_asset, find_asset_for_network,
-    network_defaults,
+    EvmNetwork, RpcSource, SolanaCluster, asset_catalog, default_rpc_url, default_rpc_url_for_evm,
+    default_rpc_url_for_solana, evm_asset_catalog, explorer_tx_base_for_evm, explorer_tx_url,
+    explorer_tx_url_for_evm_network, find_asset, find_asset_for_network, network_defaults,
+    network_label_for_evm, usdc_mint_for_solana,
 };
 use crate::crypto::wallet::WalletChain;
 use crate::test_support::FakeRpcEndpoints;
@@ -86,12 +87,15 @@ fn every_network_has_distinct_ids_labels_and_explorers() {
     ids.dedup();
     assert_eq!(ids.len(), EvmNetwork::ALL.len());
     for network in EvmNetwork::ALL {
-        assert!(network.default_rpc_url().starts_with("https://"));
+        assert!(default_rpc_url_for_evm(network).starts_with("https://"));
         assert!(
-            network.explorer_tx_base().ends_with("/tx/")
-                || network.explorer_tx_base().contains("tx")
+            explorer_tx_base_for_evm(network).ends_with("/tx/")
+                || explorer_tx_base_for_evm(network).contains("tx")
         );
-        assert_eq!(network.network_label().replace('-', "_"), network.as_str());
+        assert_eq!(
+            network_label_for_evm(network).replace('-', "_"),
+            network.as_str()
+        );
         let round: EvmNetwork =
             serde_json::from_value(serde_json::json!(network.as_str())).unwrap();
         assert_eq!(round, network);
@@ -154,10 +158,13 @@ fn find_asset_for_network_finds_base_usdc() {
 
 #[test]
 fn the_solana_cluster_drives_both_the_endpoint_and_the_mint() {
-    assert_eq!(MAINNET.rpc_url(), "https://api.mainnet-beta.solana.com");
+    assert_eq!(
+        default_rpc_url_for_solana(MAINNET),
+        "https://api.mainnet-beta.solana.com"
+    );
     assert_eq!(
         default_rpc_url(WalletChain::Solana, MAINNET),
-        MAINNET.rpc_url()
+        default_rpc_url_for_solana(MAINNET)
     );
     let devnet = SolanaCluster::Devnet;
     assert_eq!(
@@ -168,11 +175,11 @@ fn the_solana_cluster_drives_both_the_endpoint_and_the_mint() {
     let dev_usdc = find_asset(WalletChain::Solana, "USDC", devnet).unwrap();
     assert_eq!(
         main_usdc.contract_address.as_deref(),
-        Some(MAINNET.usdc_mint())
+        Some(usdc_mint_for_solana(MAINNET))
     );
     assert_eq!(
         dev_usdc.contract_address.as_deref(),
-        Some(devnet.usdc_mint())
+        Some(usdc_mint_for_solana(devnet))
     );
     assert_ne!(main_usdc.contract_address, dev_usdc.contract_address);
 }
@@ -181,7 +188,7 @@ fn the_solana_cluster_drives_both_the_endpoint_and_the_mint() {
 fn default_endpoints_exist_for_every_chain() {
     assert_eq!(
         default_rpc_url(WalletChain::Evm, MAINNET),
-        EvmNetwork::EthereumMainnet.default_rpc_url()
+        default_rpc_url_for_evm(EvmNetwork::EthereumMainnet)
     );
     assert!(default_rpc_url(WalletChain::Btc, MAINNET).contains("blockstream"));
     assert!(default_rpc_url(WalletChain::Tron, MAINNET).contains("trongrid"));
@@ -245,7 +252,10 @@ fn mainnet_network_defaults_describe_mainnet_beta() {
     assert_eq!(row.explorer_tx_url_base, "https://solscan.io/tx/");
     assert_eq!(row.explorer_tx_url_suffix, None);
     let usdc = row.assets.iter().find(|a| a.symbol == "USDC").unwrap();
-    assert_eq!(usdc.contract_address.as_deref(), Some(MAINNET.usdc_mint()));
+    assert_eq!(
+        usdc.contract_address.as_deref(),
+        Some(usdc_mint_for_solana(MAINNET))
+    );
     let json = serde_json::to_value(&row).unwrap();
     assert!(
         json.get("explorerTxUrlSuffix").is_none(),
@@ -264,8 +274,14 @@ fn devnet_network_defaults_describe_devnet() {
         Some("?cluster=devnet")
     );
     let usdc = row.assets.iter().find(|a| a.symbol == "USDC").unwrap();
-    assert_eq!(usdc.contract_address.as_deref(), Some(devnet.usdc_mint()));
-    assert_ne!(usdc.contract_address.as_deref(), Some(MAINNET.usdc_mint()));
+    assert_eq!(
+        usdc.contract_address.as_deref(),
+        Some(usdc_mint_for_solana(devnet))
+    );
+    assert_ne!(
+        usdc.contract_address.as_deref(),
+        Some(usdc_mint_for_solana(MAINNET))
+    );
     // Base plus hash plus suffix is the same link `explorer_tx_url` builds.
     assert_eq!(
         format!(

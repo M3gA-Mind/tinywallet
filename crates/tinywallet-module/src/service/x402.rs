@@ -120,7 +120,7 @@ impl X402Runtime {
         let callbacks = self.callbacks.clone();
         let proof = with_execution_context(request.owner, request.secret, None, async {
             let signer: Arc<dyn PaymentSigner> = Arc::new(ModulePaymentSigner);
-            let transport = Arc::new(HostTransport(self.callbacks.clone()));
+            let transport = Arc::new(HostTransport::new(self.callbacks.clone()));
             let builder = CryptoPayments::new(signer, transport);
             handle_402_and_pay_authorized(
                 &builder,

@@ -67,13 +67,14 @@ impl WalletEngine {
         // so a leaked quote id cannot be hijacked from another session.
         let caller = self.scope.current_owner();
         let quote = self.quotes.take_for(&params.quote_id, caller.as_ref())?;
-        let chain = quote.chain;
+        let chain = quote.transaction.chain;
         let restorable = quote.clone();
+        let transaction = quote.transaction;
         let result = match chain {
-            WalletChain::Evm => evm::execute_evm_quote(self, quote).await,
-            WalletChain::Btc => btc::execute_btc_quote(self, quote).await,
-            WalletChain::Solana => solana::execute_solana_quote(self, quote).await,
-            WalletChain::Tron => tron::execute_tron_quote(self, quote).await,
+            WalletChain::Evm => evm::execute_evm_quote(self, transaction).await,
+            WalletChain::Btc => btc::execute_btc_quote(self, transaction).await,
+            WalletChain::Solana => solana::execute_solana_quote(self, transaction).await,
+            WalletChain::Tron => tron::execute_tron_quote(self, transaction).await,
         };
         let mut final_result = match result {
             Ok(value) => value,

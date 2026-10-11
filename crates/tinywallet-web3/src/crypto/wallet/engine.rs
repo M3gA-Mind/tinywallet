@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tinywallet_crypto::rpc::{NetworkId, Transport, TransportError};
 
 use crate::crypto::defaults::{EvmNetwork, explorer_tx_url};
-use crate::crypto::execution::PreparedTransaction;
+use crate::crypto::execution::{PreparedTransaction, PreparedTransferQuote};
 use crate::crypto::seams::{RpcEndpoints, WalletAccounts, WalletSigner};
 use crate::quote::QuoteStore;
 use crate::seams::QuoteScope;
@@ -53,7 +53,7 @@ pub struct WalletEngine {
     pub(crate) signer: Arc<dyn WalletSigner>,
     pub(crate) accounts: Arc<dyn WalletAccounts>,
     pub(crate) scope: Arc<dyn QuoteScope>,
-    pub(crate) quotes: QuoteStore<PreparedTransaction>,
+    pub(crate) quotes: QuoteStore<PreparedTransferQuote>,
 }
 
 impl fmt::Debug for WalletEngine {
@@ -82,7 +82,30 @@ impl WalletEngine {
     /// what a flow prepared.
     #[must_use]
     pub fn prepared_quotes(&self) -> Vec<PreparedTransaction> {
-        self.quotes.live()
+        self.quotes
+            .live()
+            .into_iter()
+            .map(|quote| quote.transaction)
+            .collect()
+    }
+
+    /// Inspect one live prepared quote after its owner has been checked.
+    ///
+    /// This lets a module present the quote facts to an approval callback
+    /// before the engine atomically consumes it for execution. A missing or
+    /// differently owned quote has the same not-found result.
+    ///
+    /// # Errors
+    ///
+    /// Returns the quote store's not-found, expired or consumed error.
+    pub fn prepared_quote_for_owner(
+        &self,
+        quote_id: &str,
+        owner: Option<&crate::quote::QuoteOwner>,
+    ) -> Result<PreparedTransaction, String> {
+        self.quotes
+            .get_for(quote_id, owner)
+            .map(|quote| quote.transaction)
     }
 
     /// The explorer link for `tx_hash` on `chain`, on the Solana cluster the

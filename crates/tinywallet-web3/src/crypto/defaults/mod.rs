@@ -16,6 +16,11 @@ pub use catalog::{
 pub use types::{
     EvmNetwork, RpcSource, SolanaCluster, WalletAssetDefinition, WalletNetworkDefaults,
 };
+pub use types::{
+    default_rpc_url_for_evm, default_rpc_url_for_solana, explorer_tx_base_for_evm,
+    explorer_tx_base_for_solana, explorer_tx_suffix_for_solana, network_label_for_evm,
+    network_label_for_solana, usdc_mint_for_solana,
+};
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

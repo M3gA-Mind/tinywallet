@@ -40,11 +40,31 @@ chain gate and depends on nothing but `serde` — so a host takes the crate with
 `default-features = false`, shares one definition of the contract, and links no
 chain library.
 
+Contract 1.5 keeps those members and the existing Web3/x402 arities intact and
+adds typed `NativeWalletConfigure` / `NativeWalletClose` lifecycle members plus
+the nine native-wallet query, transfer and transaction lookup operations. The
+implementation owns the chain catalog, provider algorithms, quotes, transaction
+building, signing, broadcast and parsing. The optional host callback contract
+still owns public account facts, authenticated transport, endpoint resolution
+and approval policy. Native transfer approval receives the exact transaction
+or Solana signing message at the module signer seam; the host returns only an
+authorization decision.
+
+Native configuration carries the Solana cluster and endpoint override keys,
+never URLs or credentials. For an override, the module advertises an opaque
+service-scoped reference and returns it on transport calls. The host resolves
+that reference to its private URL. The confidential native execute member uses
+the existing attested-module secret path, then signs and broadcasts inside the
+module. See [native wallet engine contract](native-wallet-engine-module.md)
+for the exact DTOs and lifecycle.
+
 ## The two-call split is the security property
 
-The host holds the key. It asks what needs signing, signs locally, and hands
-back only a signature. **No method accepts key material**, so there is nothing
-in the module a leak could disclose.
+Legacy `BuildUnsigned` and `AttachSignature` let a host hold the key, ask what
+needs signing, sign locally and hand back only a signature. The confidential
+signing and native execution members accept key material only through an
+attested-module call, so the module can keep the signing operation inside its
+implementation without changing the legacy flow.
 
 `AttachSignature` re-sends the transaction fields rather than a handle, so the
 module keeps no state between calls — no store, no bound on it, no expiry for

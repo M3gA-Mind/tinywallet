@@ -50,6 +50,7 @@ use tinywallet::wire::{
 use tinywallet::{Chain, key, tx};
 
 mod host;
+mod native_wallet;
 mod web3;
 mod x402;
 
@@ -76,6 +77,7 @@ const BUILD_FAILED_ERROR: &str = "ai.tinyhumans.tinywallet.Error.BuildFailed";
 struct Wallet {
     callbacks: Option<host::HostCallbacks>,
     web3: tokio::sync::RwLock<Option<web3::Web3Runtime>>,
+    native: tokio::sync::RwLock<Option<native_wallet::NativeWalletRuntime>>,
     x402: tokio::sync::RwLock<Option<x402::X402Runtime>>,
 }
 
@@ -310,6 +312,255 @@ impl Wallet {
             .map_err(web3_operation_failed)?;
         *web3 = None;
         Ok(())
+    }
+
+    /// Open or replace a native wallet engine with host-selected cluster and
+    /// endpoint override keys. URLs and credentials stay in the host.
+    async fn native_wallet_configure(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletConfigRequest,
+    ) -> BusResult<tinywallet_bus::wire::NativeWalletConfigResponse> {
+        let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
+        let mut active = self.native.write().await;
+        let (next, response) = native_wallet::NativeWalletRuntime::new(callbacks, request)
+            .map_err(native_wallet_operation_failed)?;
+        *active = Some(next);
+        Ok(response)
+    }
+
+    /// Close one native wallet engine and discard its unexecuted transfer quotes.
+    async fn native_wallet_close(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletCloseRequest,
+    ) -> BusResult<()> {
+        let mut active = self.native.write().await;
+        let Some(current) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        current
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        *active = None;
+        Ok(())
+    }
+
+    /// Return implementation-owned network defaults using only opaque host
+    /// references for endpoints overridden by the host.
+    async fn native_wallet_network_defaults(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletServiceRequest,
+    ) -> BusResult<Vec<tinywallet_bus::wire::WalletNetworkDefaults>> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        Ok(active.engine.network_defaults())
+    }
+
+    /// Return the implementation's complete chain-aware supported asset catalog.
+    async fn native_wallet_supported_assets(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletServiceRequest,
+    ) -> BusResult<Vec<tinywallet_bus::wire::SupportedAsset>> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        Ok(active.engine.supported_assets())
+    }
+
+    /// Probe configured accounts against the providers selected by the host.
+    async fn native_wallet_chain_status(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletServiceRequest,
+    ) -> BusResult<Vec<tinywallet_bus::wire::ChainStatus>> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        active
+            .engine
+            .chain_status()
+            .await
+            .map_err(native_wallet_operation_failed)
+    }
+
+    /// Read native balances across the configured accounts and networks.
+    async fn native_wallet_balances(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletServiceRequest,
+    ) -> BusResult<Vec<tinywallet_bus::wire::BalanceInfo>> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        active
+            .engine
+            .balances()
+            .await
+            .map_err(native_wallet_operation_failed)
+    }
+
+    /// Validate and store an owner-scoped transfer quote inside the module.
+    async fn native_wallet_prepare_transfer(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletPrepareTransferRequest,
+    ) -> BusResult<tinywallet_bus::wire::PreparedTransaction> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        web3::with_quote_owner(request.owner, async {
+            active
+                .engine
+                .prepare_transfer(request.params)
+                .await
+                .map_err(native_wallet_operation_failed)
+        })
+        .await
+    }
+
+    /// Confirm, authorize, sign and broadcast one prepared transfer.
+    #[tinybus(confidential)]
+    async fn native_wallet_execute_prepared(
+        &self,
+        mut request: tinywallet_bus::wire::NativeWalletExecuteRequest,
+    ) -> BusResult<tinywallet_bus::wire::ExecutionResult> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            wipe(&mut request.secret);
+            return Err(host_unavailable());
+        };
+        if let Err(error) = active.require_handle(&request.service) {
+            wipe(&mut request.secret);
+            return Err(native_wallet_operation_failed(error));
+        }
+        if !request.confirmed {
+            wipe(&mut request.secret);
+            return Err(invalid_input(
+                "native wallet execution requires confirmed: true".to_string(),
+            ));
+        }
+        let owner = request
+            .owner
+            .as_ref()
+            .map(|owner| tinywallet_web3::quote::QuoteOwner {
+                thread_id: owner.thread_id.clone(),
+                client_id: owner.client_id.clone(),
+            });
+        let quote = match active
+            .engine
+            .prepared_quote_for_owner(&request.quote_id, owner.as_ref())
+        {
+            Ok(quote) => quote,
+            Err(error) => {
+                wipe(&mut request.secret);
+                return Err(native_wallet_operation_failed(error));
+            }
+        };
+        let secret = std::mem::replace(
+            &mut request.secret,
+            SecretMaterial {
+                mnemonic: String::new(),
+                derivation_path: String::new(),
+                chain: Chain::Evm,
+            },
+        );
+        let quote_id = request.quote_id;
+        let confirmed = request.confirmed;
+        let owner = request.owner;
+        let approval = web3::NativeApprovalContext {
+            callbacks: active.callbacks.clone(),
+            quote,
+        };
+        let result = Box::pin(web3::with_execution_context(owner, secret, None, async {
+            web3::with_native_approval(approval, async {
+                active
+                    .engine
+                    .execute_prepared(tinywallet_bus::wire::ExecutePreparedParams {
+                        quote_id,
+                        confirmed,
+                    })
+                    .await
+                    .map_err(native_wallet_operation_failed)
+            })
+            .await
+        }))
+        .await;
+        wipe(&mut request.secret);
+        result
+    }
+
+    /// Read transaction confirmation status from the selected provider.
+    async fn native_wallet_tx_status(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletTransactionRequest,
+    ) -> BusResult<tinywallet_bus::wire::TxStatusInfo> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        active
+            .engine
+            .tx_status(request.chain, request.evm_network, &request.hash)
+            .await
+            .map_err(native_wallet_operation_failed)
+    }
+
+    /// Read a transaction receipt from the selected provider.
+    async fn native_wallet_tx_receipt(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletTransactionRequest,
+    ) -> BusResult<tinywallet_bus::wire::TxReceiptInfo> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        active
+            .engine
+            .tx_receipt(request.chain, request.evm_network, &request.hash)
+            .await
+            .map_err(native_wallet_operation_failed)
+    }
+
+    /// Look up a raw transaction from the selected provider.
+    async fn native_wallet_lookup_tx(
+        &self,
+        request: tinywallet_bus::wire::NativeWalletTransactionRequest,
+    ) -> BusResult<tinywallet_bus::wire::TxLookupInfo> {
+        let active = self.native.read().await;
+        let Some(active) = active.as_ref() else {
+            return Err(host_unavailable());
+        };
+        active
+            .require_handle(&request.service)
+            .map_err(native_wallet_operation_failed)?;
+        active
+            .engine
+            .lookup_tx(request.chain, request.evm_network, &request.hash)
+            .await
+            .map_err(native_wallet_operation_failed)
     }
 
     /// Record a paid retry result and release its module-owned reservation.
@@ -1072,6 +1323,7 @@ async fn setup(connection: Connection) -> BusResult<()> {
     let wallet = Wallet {
         callbacks: Some(callbacks.clone()),
         web3: tokio::sync::RwLock::new(None),
+        native: tokio::sync::RwLock::new(None),
         x402: tokio::sync::RwLock::new(None),
     };
     connection.serve_at(OBJECT_PATH.try_into()?, wallet).await?;
@@ -1110,6 +1362,13 @@ fn web3_operation_failed(message: String) -> BusError {
 fn x402_operation_failed(message: String) -> BusError {
     BusError::MethodFailed {
         name: "ai.tinyhumans.tinywallet.Error.X402OperationFailed".to_string(),
+        message,
+    }
+}
+
+fn native_wallet_operation_failed(message: String) -> BusError {
+    BusError::MethodFailed {
+        name: "ai.tinyhumans.tinywallet.Error.NativeWalletOperationFailed".to_string(),
         message,
     }
 }
@@ -1154,6 +1413,17 @@ mod exports {
             "Web3Execute",
             "Web3Configure",
             "Web3Close",
+            "NativeWalletConfigure",
+            "NativeWalletClose",
+            "NativeWalletNetworkDefaults",
+            "NativeWalletSupportedAssets",
+            "NativeWalletChainStatus",
+            "NativeWalletBalances",
+            "NativeWalletPrepareTransfer",
+            "NativeWalletExecutePrepared",
+            "NativeWalletTxStatus",
+            "NativeWalletTxReceipt",
+            "NativeWalletLookupTx",
             "X402PreparePayment",
             "X402RecordPayment",
             "X402SpendingSummary",

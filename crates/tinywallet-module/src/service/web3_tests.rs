@@ -20,10 +20,10 @@ fn network_names_round_trip_for_every_supported_chain() {
         (Chain::Tron, tinywallet_bus::Chain::Tron),
     ] {
         let id = network(crypto, Some(137));
-        let request = network_request(id).unwrap();
+        let request = network_request(id, None).unwrap();
         assert_eq!(request.chain, bus);
         assert_eq!(request.evm_chain_id, Some(137));
-        assert_eq!(network_id(request).unwrap(), id);
+        assert_eq!(network_id(&request).unwrap(), id);
     }
 }
 
@@ -112,6 +112,10 @@ async fn task_scopes_bind_quote_owner_and_consume_secret_once() {
 #[derive(Clone)]
 struct TestHost {
     authorize: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    native_requests: std::sync::Arc<
+        std::sync::Mutex<Vec<tinywallet_bus::wire::AuthorizeNativeWalletExecutionRequest>>,
+    >,
+    transport_requests: std::sync::Arc<std::sync::Mutex<Vec<ChainTransportRequest>>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinywallet.Host")]
@@ -192,10 +196,21 @@ impl TestHost {
         request: ChainTransportRequest,
     ) -> tinybus::Result<tinywallet_bus::wire::HostResponse> {
         use tinywallet_bus::wire::{ChainTransportResult, HostResponse};
+        self.transport_requests
+            .lock()
+            .unwrap()
+            .push(request.clone());
         let result = match request {
-            ChainTransportRequest::JsonRpc { method, params, .. } => {
+            ChainTransportRequest::JsonRpc {
+                network,
+                method,
+                params,
+            } => {
                 let body = match method.as_str() {
-                    "eth_chainId" | "eth_gasPrice" => serde_json::json!("0x1"),
+                    "eth_chainId" => {
+                        serde_json::json!(format!("0x{:x}", network.evm_chain_id.unwrap_or(1)))
+                    }
+                    "eth_gasPrice" => serde_json::json!("0x1"),
                     "eth_getTransactionCount" => serde_json::json!("0x0"),
                     "eth_estimateGas" => serde_json::json!("0x5208"),
                     "eth_sendRawTransaction" => serde_json::json!("0xfeedface"),
@@ -241,6 +256,23 @@ impl TestHost {
         clippy::unused_async_trait_impl,
         reason = "TinyBus interface methods must be async even when this fixture returns immediately"
     )]
+    async fn authorize_native_wallet_execution(
+        &self,
+        request: tinywallet_bus::wire::AuthorizeNativeWalletExecutionRequest,
+    ) -> tinybus::Result<tinywallet_bus::wire::HostResponse> {
+        use tinywallet_bus::wire::{AuthorizationResult, HostResponse};
+        self.native_requests.lock().unwrap().push(request);
+        Ok(HostResponse::Authorization(AuthorizationResult {
+            approved: true,
+            reason: None,
+        }))
+    }
+
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "TinyBus interface methods must be async even when this fixture returns immediately"
+    )]
     async fn authorize_x402_payment(
         &self,
         _request: tinywallet_bus::wire::AuthorizeX402PaymentRequest,
@@ -253,9 +285,13 @@ impl TestHost {
     }
 }
 
-async fn callbacks() -> (
+pub(super) async fn callbacks() -> (
     HostCallbacks,
     std::sync::Arc<std::sync::atomic::AtomicBool>,
+    std::sync::Arc<
+        std::sync::Mutex<Vec<tinywallet_bus::wire::AuthorizeNativeWalletExecutionRequest>>,
+    >,
+    std::sync::Arc<std::sync::Mutex<Vec<ChainTransportRequest>>>,
     tinybus::Connection,
     tokio::task::JoinHandle<tinybus::Result<()>>,
 ) {
@@ -268,10 +304,14 @@ async fn callbacks() -> (
         .await
         .unwrap();
     let authorize = std::sync::Arc::new(AtomicBool::new(true));
+    let native_requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let transport_requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     host.serve_at(
         crate::service::HOST_OBJECT_PATH.try_into().unwrap(),
         TestHost {
             authorize: authorize.clone(),
+            native_requests: native_requests.clone(),
+            transport_requests: transport_requests.clone(),
         },
     )
     .await
@@ -290,7 +330,14 @@ async fn callbacks() -> (
             .iter()
             .any(|name| name.as_str() == crate::service::HOST_INTERFACE)
     );
-    (HostCallbacks::new(&client).unwrap(), authorize, host, task)
+    (
+        HostCallbacks::new(&client).unwrap(),
+        authorize,
+        native_requests,
+        transport_requests,
+        host,
+        task,
+    )
 }
 
 #[tokio::test]
@@ -302,7 +349,7 @@ async fn host_adapters_and_quote_approval_cover_supported_operations() {
     use tinywallet_web3::crypto::defaults::EvmNetwork;
     use tinywallet_web3::crypto::service::{BridgeQuoteParams, DappCallParams, SwapQuoteParams};
 
-    let (callbacks, _, _host, broker_task) = callbacks().await;
+    let (callbacks, _, _, _, _host, broker_task) = callbacks().await;
     let accounts = HostAccounts(callbacks.clone()).status().await.unwrap();
     assert!(accounts.configured);
     assert_eq!(accounts.accounts.len(), 4);
@@ -321,7 +368,7 @@ async fn host_adapters_and_quote_approval_cover_supported_operations() {
             .is_ok()
     );
 
-    let transport = HostTransport(callbacks.clone());
+    let transport = HostTransport::new(callbacks.clone());
     let id = network(Chain::Evm, Some(1));
     assert_eq!(
         transport
@@ -452,7 +499,7 @@ async fn host_adapters_and_quote_approval_cover_supported_operations() {
 async fn wallet_web3_handlers_cover_configured_quote_and_close_lifecycle() {
     use tinywallet_bus::wire::{Web3CloseRequest, Web3ExecuteRequest, Web3QuoteRequest};
 
-    let (callbacks, _authorize, _host, broker_task) = callbacks().await;
+    let (callbacks, _authorize, _, _, _host, broker_task) = callbacks().await;
     let wallet = crate::service::Wallet {
         callbacks: Some(callbacks),
         ..crate::service::Wallet::default()
@@ -603,7 +650,7 @@ async fn module_signer_checks_approval_and_secret_chain_before_signing() {
     use tinywallet_web3::crypto::seams::WalletSigner;
     use tinywallet_web3::crypto::wallet::WalletChain;
 
-    let (callbacks, authorize, _host, broker_task) = callbacks().await;
+    let (callbacks, authorize, _, _, _host, broker_task) = callbacks().await;
     let signer = ModuleSigner(callbacks);
     let secret = SecretMaterial {
         mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),

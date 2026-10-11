@@ -7,7 +7,12 @@
 use crate::crypto::seams::RpcEndpoints;
 use crate::crypto::wallet::WalletChain;
 
-use super::types::{EvmNetwork, SolanaCluster, WalletAssetDefinition, WalletNetworkDefaults};
+use super::types::{
+    EvmNetwork, SolanaCluster, WalletAssetDefinition, WalletNetworkDefaults,
+    default_rpc_url_for_evm, default_rpc_url_for_solana, explorer_tx_base_for_evm,
+    explorer_tx_suffix_for_solana, network_label_for_evm, network_label_for_solana,
+    usdc_mint_for_solana,
+};
 
 const BLOCKSTREAM_TX_BASE: &str = "https://blockstream.info/tx/";
 const SOLSCAN_TX_BASE: &str = "https://solscan.io/tx/";
@@ -20,9 +25,9 @@ const DEFAULT_TRON_REST_URL: &str = "https://api.trongrid.io";
 #[must_use]
 pub const fn default_rpc_url(chain: WalletChain, cluster: SolanaCluster) -> &'static str {
     match chain {
-        WalletChain::Evm => EvmNetwork::EthereumMainnet.default_rpc_url(),
+        WalletChain::Evm => default_rpc_url_for_evm(EvmNetwork::EthereumMainnet),
         WalletChain::Btc => DEFAULT_BTC_REST_URL,
-        WalletChain::Solana => cluster.rpc_url(),
+        WalletChain::Solana => default_rpc_url_for_solana(cluster),
         WalletChain::Tron => DEFAULT_TRON_REST_URL,
     }
 }
@@ -38,9 +43,9 @@ pub fn explorer_tx_url(
     tx_hash: &str,
 ) -> Option<String> {
     let (base, suffix) = match chain {
-        WalletChain::Evm => (EvmNetwork::EthereumMainnet.explorer_tx_base(), ""),
+        WalletChain::Evm => (explorer_tx_base_for_evm(EvmNetwork::EthereumMainnet), ""),
         WalletChain::Btc => (BLOCKSTREAM_TX_BASE, ""),
-        WalletChain::Solana => (SOLSCAN_TX_BASE, cluster.explorer_tx_suffix()),
+        WalletChain::Solana => (SOLSCAN_TX_BASE, explorer_tx_suffix_for_solana(cluster)),
         WalletChain::Tron => (TRONSCAN_TX_BASE, ""),
     };
     Some(format!("{base}{tx_hash}{suffix}"))
@@ -49,7 +54,7 @@ pub fn explorer_tx_url(
 /// The explorer link for a transaction on a specific EVM network.
 #[must_use]
 pub fn explorer_tx_url_for_evm_network(network: EvmNetwork, tx_hash: &str) -> Option<String> {
-    Some(format!("{}{}", network.explorer_tx_base(), tx_hash))
+    Some(format!("{}{}", explorer_tx_base_for_evm(network), tx_hash))
 }
 
 fn asset(
@@ -87,7 +92,7 @@ pub fn asset_catalog(chain: WalletChain, cluster: SolanaCluster) -> Vec<WalletAs
                 "USDC",
                 "USD Coin (Solana)",
                 6,
-                Some(cluster.usdc_mint()),
+                Some(usdc_mint_for_solana(cluster)),
             ),
         ],
         WalletChain::Tron => vec![
@@ -188,11 +193,11 @@ pub fn network_defaults(endpoints: &dyn RpcEndpoints) -> Vec<WalletNetworkDefaul
         out.push(WalletNetworkDefaults {
             chain: WalletChain::Evm,
             evm_network: Some(network),
-            network: network.network_label().to_string(),
+            network: network_label_for_evm(network).to_string(),
             chain_id: Some(network.chain_id()),
             rpc_url: endpoints.url(WalletChain::Evm, Some(network)),
             rpc_source: endpoints.source(WalletChain::Evm, Some(network)),
-            explorer_tx_url_base: network.explorer_tx_base().to_string(),
+            explorer_tx_url_base: explorer_tx_base_for_evm(network).to_string(),
             explorer_tx_url_suffix: None,
             supports_broadcast: true,
             supports_token_transfers: true,
@@ -204,9 +209,9 @@ pub fn network_defaults(endpoints: &dyn RpcEndpoints) -> Vec<WalletNetworkDefaul
         (WalletChain::Btc, "bitcoin-mainnet", BLOCKSTREAM_TX_BASE, ""),
         (
             WalletChain::Solana,
-            cluster.network_label(),
+            network_label_for_solana(cluster),
             SOLSCAN_TX_BASE,
-            cluster.explorer_tx_suffix(),
+            explorer_tx_suffix_for_solana(cluster),
         ),
         (WalletChain::Tron, "tron-mainnet", TRONSCAN_TX_BASE, ""),
     ] {

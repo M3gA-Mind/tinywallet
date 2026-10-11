@@ -5,13 +5,15 @@
 use log::debug;
 
 use crate::crypto::defaults::{
-    EvmNetwork, asset_catalog, evm_asset_catalog, find_asset_for_network,
+    EvmNetwork, asset_catalog, evm_asset_catalog, find_asset_for_network, network_label_for_evm,
 };
 use crate::crypto::wallet::{WalletChain, WalletEngine};
 use crate::quote::now_ms;
 
 use super::LOG_PREFIX;
-use super::types::{PrepareTransferParams, PreparedKind, PreparedStatus, PreparedTransaction};
+use super::types::{
+    PrepareTransferParams, PreparedKind, PreparedStatus, PreparedTransaction, PreparedTransferQuote,
+};
 use super::validate::{estimated_fee_raw, format_amount, validate_address, validate_amount};
 
 impl WalletEngine {
@@ -74,10 +76,10 @@ impl WalletEngine {
         }
         let now = now_ms();
         let label = match network {
-            Some(net) => format!("{} ({})", params.chain.as_str(), net.network_label()),
+            Some(net) => format!("{} ({})", params.chain.as_str(), network_label_for_evm(net)),
             None => params.chain.as_str().to_string(),
         };
-        let quote = PreparedTransaction {
+        let transaction = PreparedTransaction {
             quote_id: self.quotes.next_id(),
             kind,
             chain: params.chain,
@@ -99,16 +101,19 @@ impl WalletEngine {
                 "Prepared {} transfer on {} using default network settings.",
                 asset.symbol, label
             )],
-            owner: self.scope.current_owner(),
         };
         debug!(
             "{LOG_PREFIX} prepare_transfer chain={} kind={:?} quote_id={} amount={} asset={}",
             params.chain.as_str(),
             kind,
-            quote.quote_id,
-            quote.amount_raw,
-            quote.asset_symbol
+            transaction.quote_id,
+            transaction.amount_raw,
+            transaction.asset_symbol
         );
-        Ok(self.quotes.insert(quote))
+        let quote = self.quotes.insert(PreparedTransferQuote {
+            transaction,
+            owner: self.scope.current_owner(),
+        });
+        Ok(quote.transaction)
     }
 }

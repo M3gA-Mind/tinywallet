@@ -8,7 +8,8 @@ use tinywallet_crypto::rpc::{NetworkId, TransportError};
 
 use super::{WalletChain, WalletEngine, WalletSeams, transport_message};
 use crate::crypto::defaults::EvmNetwork;
-use crate::test_support::{Rig, configured_status};
+use crate::crypto::seams::RpcEndpoints;
+use crate::test_support::{FakeRpcEndpoints, Rig, configured_status};
 
 #[test]
 fn chains_serialize_as_snake_case_and_map_onto_the_crypto_chain() {
@@ -56,6 +57,16 @@ fn network_ids_pick_the_evm_chain_id_or_the_bare_chain() {
 }
 
 #[test]
+fn legacy_endpoint_providers_have_no_opaque_reference_by_default() {
+    let endpoints = FakeRpcEndpoints::new();
+    assert_eq!(
+        endpoints.endpoint_ref(WalletChain::Btc, None),
+        None,
+        "providers written before opaque endpoint references stay compatible"
+    );
+}
+
+#[test]
 fn transport_messages_pass_through_without_the_network_prefix() {
     let network = NetworkId::chain(Chain::Btc);
     let unreachable = TransportError::Unreachable {
@@ -79,7 +90,7 @@ fn transport_messages_pass_through_without_the_network_prefix() {
 #[test]
 fn an_engine_starts_with_no_quotes_and_debugs_without_leaking() {
     let rig = Rig::new();
-    assert!(rig.engine.prepared_quotes().is_empty());
+    assert_eq!(rig.engine.prepared_quotes(), Vec::new());
     let debug = format!("{:?}", rig.engine);
     assert!(debug.contains("WalletEngine"), "{debug}");
     let seams = WalletSeams {
