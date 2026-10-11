@@ -32,6 +32,47 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(step)
         self.assertRegex(step["with"], r"(?m)^\s+toolchain:\s+stable\s*$")
 
+    def test_module_build_accepts_versioned_host_labels_without_paths(self):
+        result = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "scripts/build-module.sh"),
+                "--crate",
+                "tinywallet-module",
+                "--version",
+                "0.10.0",
+                "--target",
+                "unsupported-target",
+                "--host",
+                "ubuntu-22.04-x86_64",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unsupported module target", result.stderr)
+
+        unsafe_host = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "scripts/build-module.sh"),
+                "--crate",
+                "tinywallet-module",
+                "--version",
+                "0.10.0",
+                "--target",
+                "unsupported-target",
+                "--host",
+                "../escape",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(unsafe_host.returncode, 2)
+        self.assertIn("usage:", unsafe_host.stderr)
+
     def test_existing_tag_recovery_does_not_skip_bundle_job(self):
         job = self.workflow.split("  module-release:\n", 1)[1]
         condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)[1]
