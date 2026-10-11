@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use zeroize::Zeroize;
 
 use crate::Chain;
 
@@ -52,11 +51,6 @@ impl std::fmt::Debug for DeriveMnemonicSeedRequest {
     }
 }
 
-impl Drop for DeriveMnemonicSeedRequest {
-    fn drop(&mut self) {
-        self.mnemonic.zeroize();
-    }
-}
 
 /// Returns the standard 64-byte BIP-39 seed from a confidential call.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,11 +68,6 @@ impl std::fmt::Debug for DeriveMnemonicSeedResponse {
     }
 }
 
-impl Drop for DeriveMnemonicSeedResponse {
-    fn drop(&mut self) {
-        self.seed.zeroize();
-    }
-}
 
 /// A wallet chain family.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
