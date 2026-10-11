@@ -1,8 +1,10 @@
-//! Deterministic key derivation from a BIP-39 mnemonic.
+//! BIP-39 mnemonic generation and deterministic key derivation.
 //!
-//! [`derive()`] turns a mnemonic and a derivation path into the signing key and
-//! address for one chain. It is a pure function: same inputs, same key, every
-//! time, with no I/O and no global state.
+//! [`generate_mnemonic()`] creates a fresh English recovery phrase using the
+//! system-seeded cryptographic random generator. [`derive()`] turns a mnemonic
+//! and a derivation path into the signing key and address for one chain. Key
+//! derivation is a pure function: same inputs, same key, every time, with no
+//! I/O and no global state.
 //!
 //! ## This crate derives keys; it does not keep them
 //!
@@ -64,6 +66,13 @@ pub enum Error {
     /// quote the offending word, which is one twelfth of a seed phrase.
     #[error("invalid BIP-39 mnemonic")]
     InvalidMnemonic,
+
+    /// The requested generated phrase length is not a BIP-39 word count.
+    #[error("unsupported BIP-39 mnemonic word count {count}")]
+    InvalidMnemonicWordCount {
+        /// The rejected number of words.
+        count: usize,
+    },
 
     /// A public SEC1 encoding does not represent a secp256k1 point.
     #[error("invalid SEC1 public key")]
@@ -229,6 +238,25 @@ pub fn derive(chain: Chain, mnemonic: &str, path: &str) -> Result<DerivedKey> {
         #[allow(unreachable_patterns)]
         other => Err(Error::ChainNotCompiled { chain: other }),
     }
+}
+
+/// Generate a BIP-39 English recovery phrase with cryptographic randomness.
+///
+/// Supported word counts are 12, 15, 18, 21, and 24. The phrase is returned
+/// to the caller and is never retained by this crate; hosts remain responsible
+/// for encrypting and storing it.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidMnemonicWordCount`] when `word_count` is not a
+/// supported BIP-39 length.
+pub fn generate_mnemonic(word_count: usize) -> Result<String> {
+    use coins_bip39::{English, Mnemonic};
+
+    let mut rng = rand::rng();
+    Mnemonic::<English>::from_rng_with_count(&mut rng, word_count)
+        .map(|mnemonic| mnemonic.to_phrase())
+        .map_err(|_| Error::InvalidMnemonicWordCount { count: word_count })
 }
 
 /// Turn a BIP-39 phrase into its 64-byte seed.

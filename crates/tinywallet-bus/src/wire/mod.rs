@@ -54,13 +54,13 @@ pub use host::{
 };
 pub use wallet::{
     BalanceInfo, ChainStatus, EvmNetwork, ExecutePreparedParams, ExecutionResult,
-    HostEndpointReference, NativeWalletCloseRequest, NativeWalletConfigRequest,
-    NativeWalletConfigResponse, NativeWalletExecuteRequest, NativeWalletExecutionIntent,
-    NativeWalletPrepareTransferRequest, NativeWalletServiceHandle, NativeWalletServiceRequest,
-    NativeWalletTransactionRequest, PrepareTransferParams, PreparedKind, PreparedStatus,
-    PreparedTransaction, ProviderStatus, RpcEndpointKey, RpcSource, SolanaCluster, SupportedAsset,
-    TxLookupInfo, TxReceiptInfo, TxState, TxStatusInfo, WalletAssetDefinition, WalletChain,
-    WalletNetworkDefaults,
+    GenerateMnemonicRequest, GenerateMnemonicResponse, HostEndpointReference,
+    NativeWalletCloseRequest, NativeWalletConfigRequest, NativeWalletConfigResponse,
+    NativeWalletExecuteRequest, NativeWalletExecutionIntent, NativeWalletPrepareTransferRequest,
+    NativeWalletServiceHandle, NativeWalletServiceRequest, NativeWalletTransactionRequest,
+    PrepareTransferParams, PreparedKind, PreparedStatus, PreparedTransaction, ProviderStatus,
+    RpcEndpointKey, RpcSource, SolanaCluster, SupportedAsset, TxLookupInfo, TxReceiptInfo, TxState,
+    TxStatusInfo, WalletAssetDefinition, WalletChain, WalletNetworkDefaults,
 };
 
 use crate::Chain;

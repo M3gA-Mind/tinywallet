@@ -58,6 +58,8 @@ pub mod methods {
     pub const SIGN_MESSAGE: &str = "SignMessage";
     /// Exports the private key for a derivation path. Confidential.
     pub const EXPORT_KEY: &str = "ExportKey";
+    /// Generates a recovery phrase for host encryption and custody. Confidential.
+    pub const GENERATE_MNEMONIC: &str = "GenerateMnemonic";
     /// Validates a recipient or Bitcoin sender address inside the module.
     pub const VALIDATE_ADDRESS: &str = "ValidateAddress";
     /// Lists supported swap and bridge routes.
@@ -117,6 +119,7 @@ pub const METHODS: &[&str] = &[
     methods::CONSTRUCT_EVM_TRANSACTION,
     methods::DERIVE_ACCOUNT,
     methods::EXPORT_KEY,
+    methods::GENERATE_MNEMONIC,
     methods::NATIVE_WALLET_BALANCES,
     methods::NATIVE_WALLET_CHAIN_STATUS,
     methods::NATIVE_WALLET_CLOSE,
@@ -155,6 +158,7 @@ pub const METHODS: &[&str] = &[
 pub const CONFIDENTIAL_METHODS: &[&str] = &[
     methods::DERIVE_ACCOUNT,
     methods::EXPORT_KEY,
+    methods::GENERATE_MNEMONIC,
     methods::NATIVE_WALLET_EXECUTE_PREPARED,
     methods::SIGN_MESSAGE,
     methods::SIGN_TRANSACTION,

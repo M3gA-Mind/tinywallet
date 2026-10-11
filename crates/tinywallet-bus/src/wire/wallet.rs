@@ -7,6 +7,34 @@ use crate::Chain;
 
 use super::{QuoteOwner, SecretMaterial, TransactionSpec};
 
+/// Requests a freshly generated BIP-39 recovery phrase.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GenerateMnemonicRequest {
+    /// Number of words in the phrase; supported values are 12, 15, 18, 21,
+    /// and 24.
+    pub word_count: u8,
+}
+
+/// A new BIP-39 recovery phrase returned to the host for encryption and custody.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerateMnemonicResponse {
+    /// The newly generated English recovery phrase. Treat this field as secret.
+    pub phrase: String,
+    /// Number of words in `phrase`.
+    pub word_count: u8,
+}
+
+impl std::fmt::Debug for GenerateMnemonicResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GenerateMnemonicResponse")
+            .field("phrase", &"<redacted>")
+            .field("word_count", &self.word_count)
+            .finish()
+    }
+}
+
 /// A wallet chain family.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]

@@ -58,6 +58,10 @@ The optional field is omitted when absent, so existing override payloads keep
 their serialized shape. The host still owns generic URL safety checks and
 authenticated transport; it does not select or infer module defaults.
 
+Contract 1.9 adds confidential `GenerateMnemonic(word_count)`. The module
+generates BIP-39 entropy and returns the phrase for the host to encrypt and
+store; the host remains responsible for custody and persistence.
+
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are
 rejected; fee/calldata/request bounds execute in the module. See

@@ -171,6 +171,27 @@ fn a_wrong_length_mnemonic_is_rejected() {
 }
 
 #[test]
+fn generated_mnemonics_have_the_requested_valid_word_count() {
+    use coins_bip39::{English, Mnemonic};
+
+    for word_count in [12, 15, 18, 21, 24] {
+        let phrase = super::generate_mnemonic(word_count).expect("supported count");
+        let parsed = phrase
+            .parse::<Mnemonic<English>>()
+            .expect("generated phrase has valid BIP-39 checksum");
+        assert_eq!(parsed.to_phrase().split_whitespace().count(), word_count);
+    }
+}
+
+#[test]
+fn mnemonic_generation_rejects_unsupported_word_counts() {
+    assert_eq!(
+        super::generate_mnemonic(13),
+        Err(crate::key::Error::InvalidMnemonicWordCount { count: 13 })
+    );
+}
+
+#[test]
 fn a_malformed_path_is_rejected_and_names_the_path() {
     // A path is public metadata about which account was meant, so unlike the
     // mnemonic it is safe — and useful — to echo.

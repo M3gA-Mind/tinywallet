@@ -76,6 +76,12 @@ host override reference is selected; absent values are omitted from JSON, and
 old payloads deserialize with no URL. The host validates the supplied URL and
 performs transport without reimplementing the wallet's default selection.
 
+Contract 1.9 adds confidential `GenerateMnemonic(word_count)`. The module uses
+cryptographic randomness to create a valid English BIP-39 phrase and returns
+it to the host for encryption and persistence. The module does not retain the
+phrase, and the host continues to own consent, encryption, storage, and
+recovery display.
+
 ## The two-call split is the security property
 
 Legacy `BuildUnsigned` and `AttachSignature` let a host hold the key, ask what

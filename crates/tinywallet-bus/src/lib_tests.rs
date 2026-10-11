@@ -110,7 +110,7 @@ fn network_request_keeps_legacy_json_and_omits_unset_endpoint_url() {
 
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
-    assert_eq!(CONTRACT_VERSION, (1, 8));
+    assert_eq!(CONTRACT_VERSION, (1, 9));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));
@@ -136,13 +136,14 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 32);
+    assert_eq!(METHODS.len(), 33);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
         names::methods::CONSTRUCT_EVM_TRANSACTION,
         names::methods::DERIVE_ACCOUNT,
         names::methods::EXPORT_KEY,
+        names::methods::GENERATE_MNEMONIC,
         names::methods::SIGN_MESSAGE,
         names::methods::SIGN_TRANSACTION,
         names::methods::VALIDATE_ADDRESS,
@@ -213,7 +214,7 @@ fn native_wallet_members_are_additive_and_use_one_typed_argument() {
         methods::NATIVE_WALLET_TX_RECEIPT,
         methods::NATIVE_WALLET_LOOKUP_TX,
     ];
-    assert_eq!(METHODS.len(), 32);
+    assert_eq!(METHODS.len(), 33);
     assert!(native_members.iter().all(|member| METHODS.contains(member)));
     assert_eq!(HOST_METHODS.len(), 6);
     assert!(HOST_METHODS.contains(&host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION));
@@ -335,4 +336,5 @@ fn every_confidential_member_is_a_member() {
     // that is the whole point of the two-round-trip flow.
     assert!(!CONFIDENTIAL_METHODS.contains(&names::methods::BUILD_UNSIGNED));
     assert!(!CONFIDENTIAL_METHODS.contains(&names::methods::ATTACH_SIGNATURE));
+    assert!(CONFIDENTIAL_METHODS.contains(&names::methods::GENERATE_MNEMONIC));
 }

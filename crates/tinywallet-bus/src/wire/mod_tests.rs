@@ -11,9 +11,31 @@
 use serde_json::json;
 
 use super::{
-    AttachRequest, PublicKey, Scheme, Signature, SignedTransaction, SigningPayload, SigningRequest,
-    TransactionSpec, UnsignedTransaction, Utxo, WalletChain, Web3QuoteKind, Web3QuoteResponse,
+    AttachRequest, GenerateMnemonicRequest, GenerateMnemonicResponse, PublicKey, Scheme, Signature,
+    SignedTransaction, SigningPayload, SigningRequest, TransactionSpec, UnsignedTransaction, Utxo,
+    WalletChain, Web3QuoteKind, Web3QuoteResponse,
 };
+
+#[test]
+fn mnemonic_generation_wire_shape_is_explicit_and_secret_marked_by_member() {
+    let request = GenerateMnemonicRequest { word_count: 24 };
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        json!({ "word_count": 24 })
+    );
+    let response = GenerateMnemonicResponse {
+        phrase: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into(),
+        word_count: 12,
+    };
+    assert!(!format!("{response:?}").contains("abandon"));
+    assert_eq!(
+        serde_json::to_value(response).unwrap(),
+        json!({
+            "phrase": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            "word_count": 12
+        })
+    );
+}
 
 #[test]
 fn a_signing_request_round_trips_through_json() {
