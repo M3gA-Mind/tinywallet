@@ -192,6 +192,20 @@ fn mnemonic_generation_rejects_unsupported_word_counts() {
 }
 
 #[test]
+fn mnemonic_seed_matches_the_published_bip39_vector() {
+    let seed = super::mnemonic_seed(VECTOR).expect("the published phrase is valid");
+    let seed_hex = seed
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    assert_eq!(
+        seed_hex,
+        "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4"
+    );
+}
+
+#[test]
 fn a_malformed_path_is_rejected_and_names_the_path() {
     // A path is public metadata about which account was meant, so unlike the
     // mnemonic it is safe — and useful — to echo.
