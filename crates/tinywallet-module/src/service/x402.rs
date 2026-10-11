@@ -325,7 +325,7 @@ impl X402Runtime {
     /// Return recent ledger records in the stable host-facing wire vocabulary.
     pub(crate) fn list_payments(
         &self,
-        request: X402ListPaymentsRequest,
+        request: &X402ListPaymentsRequest,
     ) -> Result<X402ListPaymentsResponse, String> {
         self.require_handle(&request.service)?;
         let limit = request.limit.min(500) as usize;
@@ -341,7 +341,7 @@ impl X402Runtime {
     /// Change the live limits without replacing the ledger or releasing holds.
     pub(crate) fn update_budget(
         &self,
-        request: X402UpdateBudgetRequest,
+        request: &X402UpdateBudgetRequest,
     ) -> Result<X402SpendingSummary, String> {
         self.require_handle(&request.service)?;
         ledger::with_ledger_mut(|ledger| {

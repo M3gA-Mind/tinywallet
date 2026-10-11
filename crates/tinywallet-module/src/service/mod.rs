@@ -617,7 +617,9 @@ impl Wallet {
         let Some(x402) = x402.as_ref() else {
             return Err(host_unavailable());
         };
-        x402.list_payments(request).map_err(x402_operation_failed)
+        x402
+            .list_payments(&request)
+            .map_err(x402_operation_failed)
     }
 
     /// Update the active spending limits without replacing its ledger.
@@ -629,7 +631,9 @@ impl Wallet {
         let Some(x402) = x402.as_ref() else {
             return Err(host_unavailable());
         };
-        x402.update_budget(request).map_err(x402_operation_failed)
+        x402
+            .update_budget(&request)
+            .map_err(x402_operation_failed)
     }
 
     /// Report totals and limits together with payment counts for current hosts.
