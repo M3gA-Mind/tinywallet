@@ -1108,6 +1108,25 @@ async fn setup_serves_typed_validation_over_the_real_in_memory_bus() -> tinybus:
 }
 
 #[tokio::test]
+async fn generate_mnemonic_returns_a_valid_phrase_and_rejects_invalid_counts() {
+    let wallet = super::Wallet::default();
+    let generated = wallet
+        .generate_mnemonic(tinywallet_bus::wire::GenerateMnemonicRequest { word_count: 12 })
+        .await
+        .unwrap();
+    assert_eq!(generated.word_count, 12);
+    assert_eq!(generated.phrase.split_whitespace().count(), 12);
+    assert!(!format!("{generated:?}").contains(&generated.phrase));
+
+    let error = wallet
+        .generate_mnemonic(tinywallet_bus::wire::GenerateMnemonicRequest { word_count: 13 })
+        .await
+        .unwrap_err();
+    assert!(matches!(error, tinybus::Error::MethodFailed { name, .. }
+        if name == "ai.tinyhumans.tinywallet.Error.InvalidInput"));
+}
+
+#[tokio::test]
 async fn module_builds_and_attaches_a_bitcoin_fixture_without_a_node() {
     let wallet = super::Wallet::default();
     let material = secret(Chain::Btc, "m/84'/0'/0'/0/0");
