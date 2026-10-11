@@ -55,7 +55,8 @@ pub use host::{
     X402UpdateBudgetRequest,
 };
 pub use wallet::{
-    BalanceInfo, ChainStatus, DeriveMnemonicSeedRequest, DeriveMnemonicSeedResponse, EvmNetwork,
+    BalanceInfo, ChainStatus, DeriveMnemonicSeedRequest, DeriveMnemonicSeedResponse,
+    EncodeErc20TransferRequest, EncodeErc20TransferResponse, EvmNetwork,
     ExecutePreparedParams, ExecutionResult, GenerateMnemonicRequest, GenerateMnemonicResponse,
     HostEndpointReference, NativeWalletCloseRequest, NativeWalletConfigRequest,
     NativeWalletConfigResponse, NativeWalletExecuteRequest, NativeWalletExecutionIntent,

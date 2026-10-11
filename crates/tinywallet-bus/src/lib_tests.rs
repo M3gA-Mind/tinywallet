@@ -110,7 +110,7 @@ fn network_request_keeps_legacy_json_and_omits_unset_endpoint_url() {
 
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
-    assert_eq!(CONTRACT_VERSION, (1, 12));
+    assert_eq!(CONTRACT_VERSION, (1, 13));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));
@@ -143,6 +143,7 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         names::methods::CONSTRUCT_EVM_TRANSACTION,
         names::methods::DERIVE_ACCOUNT,
         names::methods::DERIVE_MNEMONIC_SEED,
+        names::methods::ENCODE_ERC20_TRANSFER,
         names::methods::EXPORT_KEY,
         names::methods::GENERATE_MNEMONIC,
         names::methods::SIGN_MESSAGE,
@@ -279,7 +280,7 @@ fn native_wallet_members_are_additive_and_use_one_typed_argument() {
         methods::NATIVE_WALLET_TX_RECEIPT,
         methods::NATIVE_WALLET_LOOKUP_TX,
     ];
-    assert_eq!(METHODS.len(), 37);
+    assert_eq!(METHODS.len(), 38);
     assert!(native_members.iter().all(|member| METHODS.contains(member)));
     assert_eq!(HOST_METHODS.len(), 6);
     assert!(HOST_METHODS.contains(&host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION));

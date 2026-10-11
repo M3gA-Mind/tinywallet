@@ -96,6 +96,19 @@ mod construction;
     reason = "the generated TinyBus async trait requires async methods for synchronous cryptographic operations"
 )]
 impl Wallet {
+    /// Encode standard ERC-20 transfer calldata inside the module.
+    async fn encode_erc20_transfer(
+        &self,
+        request: tinywallet_bus::wire::EncodeErc20TransferRequest,
+    ) -> BusResult<tinywallet_bus::wire::EncodeErc20TransferResponse> {
+        let calldata = tinywallet_x402::abi::encode_erc20_transfer(
+            &request.to_address,
+            &request.amount_raw,
+        )
+        .map_err(|error| web3_operation_failed(error.to_string()))?;
+        Ok(tinywallet_bus::wire::EncodeErc20TransferResponse { calldata })
+    }
+
     /// List swap and bridge routes through the host's authenticated backend
     /// transport. Route parsing and all follow-on quote behavior stay here.
     async fn web3_routes(&self, _request: ()) -> BusResult<serde_json::Value> {
@@ -1499,6 +1512,7 @@ mod exports {
             "AttachSignature",
             "DeriveAccount",
             "DeriveMnemonicSeed",
+            "EncodeErc20Transfer",
             "GenerateMnemonic",
             "SignTransaction",
             "ExportKey",

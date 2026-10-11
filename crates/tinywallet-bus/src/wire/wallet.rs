@@ -7,6 +7,24 @@ use crate::Chain;
 
 use super::{QuoteOwner, SecretMaterial, TransactionSpec};
 
+/// Requests standard ERC-20 `transfer(address,uint256)` calldata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncodeErc20TransferRequest {
+    /// The 20-byte recipient address, with or without an `0x` prefix.
+    pub to_address: String,
+    /// The unsigned base-unit amount as a decimal string.
+    pub amount_raw: String,
+}
+
+/// The module-encoded ERC-20 transfer calldata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncodeErc20TransferResponse {
+    /// Hex calldata including the `0x` prefix.
+    pub calldata: String,
+}
+
 /// Requests a freshly generated BIP-39 recovery phrase.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
