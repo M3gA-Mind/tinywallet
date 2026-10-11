@@ -371,5 +371,12 @@ fn wipe(secret: &mut SecretMaterial) {
 }
 
 #[cfg(test)]
+static LEDGER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(test)]
 #[path = "x402_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "x402_lifecycle_tests.rs"]
+mod lifecycle_tests;

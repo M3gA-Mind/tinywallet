@@ -268,7 +268,8 @@ impl Wallet {
     }
 
     /// Parse a 402 challenge, reserve its budget, and build the payment proof.
-    /// The host retries HTTP using the returned header and commits the outcome.
+    /// The module durably records the pending authorization before returning;
+    /// the host retries HTTP and supplies a trusted receipt for settlement.
     #[tinybus(confidential)]
     async fn x402_prepare_payment(
         &self,
@@ -342,13 +343,13 @@ impl Wallet {
         &self,
         request: tinywallet_bus::wire::X402ConfigureRequest,
     ) -> BusResult<tinywallet_bus::wire::X402ServiceHandle> {
+        let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
         let mut x402 = self.x402.write().await;
         if let Some(current) = x402.as_mut() {
             current
                 .close(&current.handle())
                 .map_err(x402_operation_failed)?;
         }
-        let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
         let next = x402::X402Runtime::new(callbacks, request.config);
         let handle = next.handle();
         *x402 = Some(next);

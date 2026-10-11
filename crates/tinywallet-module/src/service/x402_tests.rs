@@ -8,8 +8,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
-static LEDGER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 fn pending_record(
     id: &str,
     authorization_valid_until: Option<chrono::DateTime<chrono::Utc>>,
