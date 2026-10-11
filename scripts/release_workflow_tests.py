@@ -73,6 +73,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(unsafe_host.returncode, 2)
         self.assertIn("usage:", unsafe_host.stderr)
 
+    def test_arch_release_install_disables_unsupported_container_sandbox(self):
+        script = (ROOT / "scripts/test-distro.sh").read_text()
+        self.assertRegex(script, r"pacman -Syu --noconfirm --disable-sandbox\b")
+
     def test_existing_tag_recovery_does_not_skip_bundle_job(self):
         job = self.workflow.split("  module-release:\n", 1)[1]
         condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)[1]
