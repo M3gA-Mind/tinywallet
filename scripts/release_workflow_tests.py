@@ -24,6 +24,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(paths, [], "cargo package must not resolve unpublished sibling crates from crates.io")
         self.assertEqual(package["name"], "tinywallet-bus")
 
+    def test_release_job_selects_an_explicit_rust_toolchain(self):
+        step = re.search(
+            r"- uses: dtolnay/rust-toolchain@[^\n]+\n(?P<with>\s+with:\n(?:\s+[^\n]+\n)+)",
+            self.workflow,
+        )
+        self.assertIsNotNone(step)
+        self.assertRegex(step["with"], r"(?m)^\s+toolchain:\s+stable\s*$")
+
     def test_existing_tag_recovery_does_not_skip_bundle_job(self):
         job = self.workflow.split("  module-release:\n", 1)[1]
         condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)[1]
