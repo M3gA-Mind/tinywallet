@@ -20,21 +20,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
             ["cargo", "metadata", "--locked", "--offline", "--no-deps", "--format-version", "1"], cwd=ROOT
         )
 
-    def test_packaging_selects_a_contract_without_unpublished_path_dependencies(self):
-        command = re.search(r"run: cargo package --locked --package (\S+)", self.workflow)
-        self.assertIsNotNone(command)
-        package = next(p for p in json.loads(self.metadata)["packages"] if p["name"] == command[1])
-        paths = [d["name"] for d in package["dependencies"] if d.get("path")]
-        self.assertEqual(paths, [], "cargo package must not resolve unpublished sibling crates from crates.io")
-        self.assertEqual(package["name"], "tinywallet-bus")
-
-    def test_release_job_selects_an_explicit_rust_toolchain(self):
-        step = re.search(
-            r"- uses: dtolnay/rust-toolchain@[^\n]+\n(?P<with>\s+with:\n(?:\s+[^\n]+\n)+)",
-            self.workflow,
-        )
-        self.assertIsNotNone(step)
-        self.assertRegex(step["with"], r"(?m)^\s+toolchain:\s+stable\s*$")
+    def test_release_uses_the_canonical_module_pipeline(self):
+        """Every archive is built by the shared pipeline from the selected tag."""
+        self.assertIn("tinyhumansai/.github/.github/workflows/module-release.yml@", self.workflow)
+        self.assertIn("module-crate: tinywallet-module", self.workflow)
+        self.assertNotIn("git push", self.workflow)
+        self.assertNotIn("cargo package", self.workflow)
 
     def test_module_build_accepts_versioned_host_labels_without_paths(self):
         result = subprocess.run(
@@ -188,19 +179,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_existing_tag_recovery_does_not_skip_bundle_job(self):
-        job = self.workflow.split("  module-release:\n", 1)[1]
-        condition = re.search(r"^    if: (.+)$", job, re.MULTILINE)[1]
-        self.assertIn("always()", condition, "a skipped versioning ancestor must not implicitly skip recovery bundles")
-        self.assertIn("needs.release-target.result == 'success'", condition, "recovery must still require successful target resolution")
-
-    def test_release_identity_comes_from_the_root_library(self):
-        selectors = re.findall(r"jq -r '([^']+)' <<< \"\$metadata\"", self.workflow)
-        self.assertGreaterEqual(len(selectors), 2)
-        selected = [subprocess.check_output(["jq", "-r", selector], input=self.metadata).decode().strip() for selector in selectors[:2]]
-        root = next(p for p in json.loads(self.metadata)["packages"] if p["name"] == "tinywallet")
-        self.assertEqual(selected, [root["name"], root["version"]])
-
+    def test_existing_tag_resolves_without_a_version_bump_ancestor(self):
+        """Tag resolution rejects invalid refs and passes valid version tags through."""
+        script = self.workflow.split("        run: |\n", 1)[1].split("  module-release:", 1)[0]
+        script = "\n".join(line[10:] for line in script.splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            for tag, valid in [("v1.0.0", True), ("v1.0.0-beta.1", True), ("main", False),
+                               ("v1.0.0; echo injected", False)]:
+                output = Path(directory) / "output"
+                output.write_text("")
+                result = subprocess.run(["bash", "-c", script],
+                    env=dict(os.environ, TAG=tag, GITHUB_OUTPUT=str(output)), capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, valid, result.stderr)
+                if valid:
+                    self.assertEqual(output.read_text(), "tag="+tag+"\nversion="+tag[1:]+"\n")
 
 if __name__ == "__main__":
     unittest.main()
