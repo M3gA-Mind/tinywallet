@@ -679,7 +679,7 @@ impl Wallet {
     async fn derive_account(&self, mut secret: SecretMaterial) -> BusResult<DerivedAccount> {
         let result = derive_account(&secret);
         wipe(&mut secret);
-        result.map_err(|error| invalid_input(error.to_string()))
+        result.map_err(into_bus_error)
     }
 
     /// Generate a BIP-39 phrase for the host to encrypt and retain.
@@ -715,7 +715,7 @@ impl Wallet {
             }
         });
         zeroize::Zeroize::zeroize(&mut request.mnemonic);
-        result.map_err(into_bus_error)
+        result.map_err(|error| invalid_input(error.to_string()))
     }
 
     /// Derive, build, sign and assemble, without the key leaving this module.
