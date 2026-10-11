@@ -452,7 +452,10 @@ impl WalletSigner for ModuleSigner {
         &self,
         _chain: WalletChain,
     ) -> Result<tinywallet_bus::wire::DerivedAccount, String> {
-        let mut secret = take_secret()?;
+        // Solana and Tron derive the sender address immediately before signing.
+        // Keep the scoped copy for that later signer call; the local clone is
+        // still wiped as soon as derivation completes.
+        let mut secret = clone_secret()?;
         let result = super::derive_account(&secret).map_err(super::failure_message);
         zeroize::Zeroize::zeroize(&mut secret.mnemonic);
         result

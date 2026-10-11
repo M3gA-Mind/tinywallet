@@ -386,6 +386,38 @@ async fn native_wallet_signer_authorizes_exact_transaction_facts_for_all_chains(
     broker_task.abort();
 }
 
+#[tokio::test]
+async fn native_signer_can_derive_and_then_sign_with_one_scoped_secret() {
+    use tinywallet_bus::wire::{Scheme, SecretMaterial};
+    use tinywallet_web3::crypto::seams::WalletSigner;
+    use tinywallet_web3::crypto::wallet::WalletChain;
+
+    let (callbacks, _, _, _, _host, broker_task) = callbacks().await;
+    let signer = ModuleSigner(callbacks);
+    let secret = SecretMaterial {
+        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+        derivation_path: "m/44'/501'/0'/0'".to_string(),
+        chain: tinywallet_bus::Chain::Solana,
+    };
+
+    let (account, signature) = with_execution_context(None, secret, None, async {
+        let account = signer.derive_account(WalletChain::Solana).await?;
+        let signature = signer
+            .sign_message(WalletChain::Solana, b"native transfer", Scheme::Ed25519)
+            .await?;
+        Ok::<_, String>((account, signature))
+    })
+    .await
+    .unwrap();
+
+    assert_ne!(account.address, "");
+    assert!(matches!(
+        signature,
+        tinywallet_bus::wire::Signature::Ed25519 { .. }
+    ));
+    broker_task.abort();
+}
+
 struct LegacyHost;
 
 #[tinybus::interface(name = "ai.tinyhumans.tinywallet.Host")]
