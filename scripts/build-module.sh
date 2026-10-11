@@ -20,7 +20,7 @@ while (($#)); do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[[ "$crate" == tinywallet-module && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "$rust_target" && "$host" =~ ^[A-Za-z0-9_-]+$ ]] || {
+[[ "$crate" == tinywallet-module && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "$rust_target" && "$host" =~ ^[A-Za-z0-9._-]+$ ]] || {
   echo "usage: build-module.sh --crate tinywallet-module --version VERSION --target TARGET --host HOST [--extra-files-json JSON] [--output-dir DIR]" >&2
   exit 2
 }
