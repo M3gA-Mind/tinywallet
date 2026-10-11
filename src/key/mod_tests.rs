@@ -14,6 +14,7 @@
 
 use super::{Error, derive};
 use crate::chain::Chain;
+use std::fmt::Write as _;
 
 /// The canonical BIP-39 test vector: 11 × "abandon" + "about".
 const VECTOR: &str = "abandon abandon abandon abandon abandon abandon \
@@ -188,6 +189,20 @@ fn mnemonic_generation_rejects_unsupported_word_counts() {
     assert_eq!(
         super::generate_mnemonic(13),
         Err(crate::key::Error::InvalidMnemonicWordCount { count: 13 })
+    );
+}
+
+#[test]
+fn mnemonic_seed_matches_the_published_bip39_vector() {
+    let seed = super::mnemonic_seed(VECTOR).expect("the published phrase is valid");
+    let mut seed_hex = String::with_capacity(seed.len() * 2);
+    for byte in seed.iter() {
+        write!(seed_hex, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+
+    assert_eq!(
+        seed_hex,
+        "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4"
     );
 }
 

@@ -700,6 +700,24 @@ impl Wallet {
         })
     }
 
+    /// Derive the standard BIP-39 seed for a host-owned storage-key KDF.
+    ///
+    /// The phrase is accepted only through `TinyBus`'s confidential channel and
+    /// wiped from the decoded request before returning.
+    #[tinybus(confidential)]
+    async fn derive_mnemonic_seed(
+        &self,
+        mut request: tinywallet_bus::wire::DeriveMnemonicSeedRequest,
+    ) -> BusResult<tinywallet_bus::wire::DeriveMnemonicSeedResponse> {
+        let result = tinywallet::key::mnemonic_seed(&request.mnemonic).map(|seed| {
+            tinywallet_bus::wire::DeriveMnemonicSeedResponse {
+                seed: seed.to_vec(),
+            }
+        });
+        zeroize::Zeroize::zeroize(&mut request.mnemonic);
+        result.map_err(|error| invalid_input(error.to_string()))
+    }
+
     /// Derive, build, sign and assemble, without the key leaving this module.
     ///
     /// Confidential. This is the method a host should use for everything it
@@ -1439,6 +1457,7 @@ mod exports {
             "BuildUnsigned",
             "AttachSignature",
             "DeriveAccount",
+            "DeriveMnemonicSeed",
             "GenerateMnemonic",
             "SignTransaction",
             "ExportKey",

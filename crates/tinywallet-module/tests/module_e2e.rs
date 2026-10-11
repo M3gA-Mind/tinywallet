@@ -38,6 +38,7 @@ const EXPECTED_METHODS: &[&str] = &[
     "BuildUnsigned",
     "AttachSignature",
     "DeriveAccount",
+    "DeriveMnemonicSeed",
     "GenerateMnemonic",
     "SignTransaction",
     "ExportKey",

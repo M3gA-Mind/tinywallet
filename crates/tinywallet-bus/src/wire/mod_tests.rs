@@ -38,6 +38,30 @@ fn mnemonic_generation_wire_shape_is_explicit_and_secret_marked_by_member() {
 }
 
 #[test]
+fn mnemonic_seed_wire_types_redact_secret_debug_and_keep_the_seed_byte_shape() {
+    use super::{DeriveMnemonicSeedRequest, DeriveMnemonicSeedResponse};
+
+    let request = DeriveMnemonicSeedRequest {
+        mnemonic: "secret recovery phrase".into(),
+    };
+    let response = DeriveMnemonicSeedResponse {
+        seed: vec![0x5e; 64],
+    };
+
+    assert!(!format!("{request:?}").contains("secret recovery phrase"));
+    assert_eq!(
+        format!("{response:?}"),
+        "DeriveMnemonicSeedResponse { seed: \"<redacted>\" }"
+    );
+    let encoded = serde_json::to_value(&response).expect("seed response serializes");
+    assert_eq!(encoded["seed"].as_array().map(Vec::len), Some(64));
+    assert_eq!(
+        serde_json::from_value::<DeriveMnemonicSeedResponse>(encoded).unwrap(),
+        response
+    );
+}
+
+#[test]
 fn a_signing_request_round_trips_through_json() {
     let request = SigningRequest {
         transaction: TransactionSpec::Evm {

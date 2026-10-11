@@ -52,6 +52,8 @@ pub mod methods {
     pub const ATTACH_SIGNATURE: &str = "AttachSignature";
     /// Reports the address and public key for a recovery phrase. Confidential.
     pub const DERIVE_ACCOUNT: &str = "DeriveAccount";
+    /// Derives the standard BIP-39 seed for an existing host storage-key KDF. Confidential.
+    pub const DERIVE_MNEMONIC_SEED: &str = "DeriveMnemonicSeed";
     /// Derives, builds, signs and assembles in one call. Confidential.
     pub const SIGN_TRANSACTION: &str = "SignTransaction";
     /// Signs arbitrary bytes with a derived key. Confidential.
@@ -118,6 +120,7 @@ pub const METHODS: &[&str] = &[
     methods::BUILD_UNSIGNED,
     methods::CONSTRUCT_EVM_TRANSACTION,
     methods::DERIVE_ACCOUNT,
+    methods::DERIVE_MNEMONIC_SEED,
     methods::EXPORT_KEY,
     methods::GENERATE_MNEMONIC,
     methods::NATIVE_WALLET_BALANCES,
@@ -157,6 +160,7 @@ pub const METHODS: &[&str] = &[
 /// recovery phrase on the wire.
 pub const CONFIDENTIAL_METHODS: &[&str] = &[
     methods::DERIVE_ACCOUNT,
+    methods::DERIVE_MNEMONIC_SEED,
     methods::EXPORT_KEY,
     methods::GENERATE_MNEMONIC,
     methods::NATIVE_WALLET_EXECUTE_PREPARED,
