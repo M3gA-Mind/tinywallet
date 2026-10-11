@@ -151,3 +151,24 @@
    Compiling flate2 v1.1.9
    Compiling sha2 v0.11.0
    Compiling tinywallet-bus v0.14.1 (/home/enamakel/work/tinywallet-release-owner/worktrees/wallet-generate-mnemonic/crates/tinywallet-bus)
+   Compiling http-body-util v0.1.5
+   Compiling curve25519-dalek v4.1.3
+   Compiling const-hex v1.19.1
+   Compiling ripemd v0.1.3
+   Compiling hex_lit v0.1.1
+   Compiling zip v2.4.2
+   Compiling winnow v1.0.4
+   Compiling bech32 v0.9.1
+   Compiling tap v1.0.1
+   Compiling bech32 v0.12.0
+   Compiling equivalent v1.0.2
+   Compiling iana-time-zone v0.1.65
+   Compiling base64 v0.21.7
+   Compiling hex v0.4.3
+   Compiling parking_lot_core v0.9.12
+   Compiling hashbrown v0.17.1
+   Compiling bumpalo v3.20.3
+   Compiling coins-core v0.13.1
+   Compiling indexmap v2.14.0
+   Compiling zopfli v0.8.3
+   Compiling tinywallet-crypto v0.14.1 (/home/enamakel/work/tinywallet-release-owner/worktrees/wallet-generate-mnemonic/crates/tinywallet-crypto)
