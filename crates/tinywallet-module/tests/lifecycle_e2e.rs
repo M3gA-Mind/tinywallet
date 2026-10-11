@@ -693,6 +693,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     assert_eq!(history.payments[0].id, payment["payment_id"]);
     assert_eq!(history.payments[0].status, X402PaymentStatus::Pending);
     assert_eq!(history.payments[0].session_id, "module-e2e");
+    assert_eq!(history.payments[0].amount_display, "0.000100 USDC");
 
     let updated_budget: tinywallet_bus::wire::X402SpendingSummary = proxy
         .call(
