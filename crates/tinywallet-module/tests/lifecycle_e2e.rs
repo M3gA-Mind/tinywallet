@@ -659,57 +659,6 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         "0x0000000000000000000000000000000000000002"
     );
 
-    let solana_challenge = BASE64.encode(
-        serde_json::to_vec(&serde_json::json!({
-            "x402Version": 2,
-            "resource": {"url": "https://fixture.test/solana-resource"},
-            "accepts": [{
-                "scheme": "exact",
-                "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-                "amount": "100",
-                "asset": "EPjFWdd5AufqSSqeM2qWw89b7aQf1nZ5V9u7vG3Gf6D",
-                "payTo": "11111111111111111111111111111111",
-                "maxTimeoutSeconds": 60,
-                "extra": {
-                    "feePayer": "EwWqGE4ZFKLofuestmU4LDdK7XM1N4ALgdZccwYugwGd",
-                    "memo": "module-chain-secret-fixture"
-                }
-            }],
-            "extensions": {}
-        }))
-        .unwrap(),
-    );
-    let selected_payment: serde_json::Value = proxy
-        .call_confidential(
-            "X402PreparePayment",
-            (X402PreparePaymentRequest {
-                service: x402_service.clone(),
-                url: "https://fixture.test/solana-resource".to_string(),
-                payment_required: solana_challenge,
-                owner: None,
-                secret: SecretMaterial {
-                    mnemonic: VECTOR.to_string(),
-                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
-                    chain: Chain::Evm,
-                },
-                additional_secrets: vec![SecretMaterial {
-                    mnemonic: VECTOR.to_string(),
-                    derivation_path: "m/44'/501'/0'/0'".to_string(),
-                    chain: Chain::Solana,
-                }],
-            },),
-        )
-        .await
-        .expect("module must select the Solana secret after parsing the challenge");
-    assert_eq!(
-        selected_payment["network"],
-        "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-    );
-    assert_eq!(
-        approved_x402.lock().unwrap().as_ref().unwrap().network,
-        "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-        "the actual parsed chain must reach the normal approval callback"
-    );
     proxy
         .call::<()>(
             "X402RecordPayment",
@@ -911,6 +860,58 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     assert_eq!(
         legacy_address["result"]["Ok"],
         "0x0000000000000000000000000000000000000001"
+    );
+
+    let solana_challenge = BASE64.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "x402Version": 2,
+            "resource": {"url": "https://fixture.test/solana-resource"},
+            "accepts": [{
+                "scheme": "exact",
+                "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+                "amount": "100",
+                "asset": "EPjFWdd5AufqSSqeM2qWw89b7aQf1nZ5V9u7vG3Gf6D",
+                "payTo": "11111111111111111111111111111111",
+                "maxTimeoutSeconds": 60,
+                "extra": {
+                    "feePayer": "EwWqGE4ZFKLofuestmU4LDdK7XM1N4ALgdZccwYugwGd",
+                    "memo": "module-chain-secret-fixture"
+                }
+            }],
+            "extensions": {}
+        }))
+        .unwrap(),
+    );
+    let selected_payment: serde_json::Value = proxy
+        .call_confidential(
+            "X402PreparePayment",
+            (X402PreparePaymentRequest {
+                service: x402_service.clone(),
+                url: "https://fixture.test/solana-resource".to_string(),
+                payment_required: solana_challenge,
+                owner: None,
+                secret: SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/60'/0'/0/0".to_string(),
+                    chain: Chain::Evm,
+                },
+                additional_secrets: vec![SecretMaterial {
+                    mnemonic: VECTOR.to_string(),
+                    derivation_path: "m/44'/501'/0'/0'".to_string(),
+                    chain: Chain::Solana,
+                }],
+            },),
+        )
+        .await
+        .expect("module must select the Solana secret after parsing the challenge");
+    assert_eq!(
+        selected_payment["network"],
+        "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+    );
+    assert_eq!(
+        approved_x402.lock().unwrap().as_ref().unwrap().network,
+        "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        "the actual parsed chain must reach the normal approval callback"
     );
 
     proxy
