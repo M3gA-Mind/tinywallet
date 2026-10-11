@@ -195,7 +195,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
             "NativeWalletTxStatus",
             (tinywallet_bus::wire::NativeWalletTransactionRequest {
                 service: native.service.clone(),
-                chain: Chain::Evm,
+                chain: WalletChain::Evm,
                 evm_network: Some(tinywallet_bus::wire::EvmNetwork::EthereumMainnet),
                 hash: "0xfixture-default-endpoint".to_string(),
             },),
@@ -1535,7 +1535,7 @@ async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
             (SecretMaterial {
                 mnemonic: generated.phrase,
                 derivation_path: "m/44'/60'/0'/0/0".into(),
-                chain: WalletChain::Evm,
+                chain: Chain::Evm,
             },),
         )
         .await
