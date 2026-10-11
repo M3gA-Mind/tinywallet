@@ -110,7 +110,7 @@ fn network_request_keeps_legacy_json_and_omits_unset_endpoint_url() {
 
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
-    assert_eq!(CONTRACT_VERSION, (1, 11));
+    assert_eq!(CONTRACT_VERSION, (1, 12));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));
