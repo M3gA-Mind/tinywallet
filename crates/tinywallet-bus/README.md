@@ -51,6 +51,13 @@ chain transport requests; the host resolves each reference against its private
 endpoint configuration. The configured service keeps cluster-dependent
 reference data inside the implementation.
 
+Contract 1.8 adds an optional public `endpoint_url` to chain transport
+requests only when the module selected its default endpoint. Requests for a
+host-configured endpoint continue to carry only the opaque `endpoint_ref`.
+The optional field is omitted when absent, so existing override payloads keep
+their serialized shape. The host still owns generic URL safety checks and
+authenticated transport; it does not select or infer module defaults.
+
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are
 rejected; fee/calldata/request bounds execute in the module. See

@@ -81,9 +81,36 @@ fn web3_endpoint_configuration_contains_keys_but_no_endpoint_urls() {
     );
 }
 
+#[cfg(feature = "wire")]
+#[test]
+fn network_request_keeps_legacy_json_and_omits_unset_endpoint_url() {
+    use super::Chain;
+    use super::wire::NetworkRequest;
+
+    let legacy = serde_json::json!({
+        "chain": "evm",
+        "evm_chain_id": 1,
+        "endpoint_ref": "configured-endpoint"
+    });
+    let decoded: NetworkRequest = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(decoded.endpoint_url, None);
+    assert_eq!(serde_json::to_value(decoded).unwrap(), legacy);
+
+    let default = NetworkRequest {
+        chain: Chain::Evm,
+        evm_chain_id: Some(1),
+        endpoint_ref: None,
+        endpoint_url: Some("https://rpc.example".to_string()),
+    };
+    assert_eq!(
+        serde_json::to_value(default).unwrap()["endpoint_url"],
+        "https://rpc.example"
+    );
+}
+
 #[test]
 fn the_contract_accepts_its_own_version_and_newer_minors() {
-    assert_eq!(CONTRACT_VERSION, (1, 7));
+    assert_eq!(CONTRACT_VERSION, (1, 8));
     assert!(is_compatible(CONTRACT_VERSION));
     assert!(is_compatible((CONTRACT_VERSION.0, CONTRACT_VERSION.1 + 1)));
     assert!(!is_compatible((CONTRACT_VERSION.0 + 1, 0)));

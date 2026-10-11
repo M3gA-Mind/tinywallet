@@ -522,11 +522,21 @@ fn network_request(
             .into_iter()
             .find(|network| network.chain_id() == id)
     });
+    let endpoint_ref =
+        endpoints.and_then(|endpoints| endpoints.endpoint_ref(wallet_chain, evm_network));
+    let endpoint_url = if endpoint_ref.is_none() {
+        Some(match endpoints {
+            Some(endpoints) => endpoints.url(wallet_chain, evm_network),
+            None => DefaultEndpoints.url(wallet_chain, evm_network),
+        })
+    } else {
+        None
+    };
     Ok(NetworkRequest {
         chain: wallet_chain.to_chain(),
         evm_chain_id: network.evm_chain_id,
-        endpoint_ref: endpoints
-            .and_then(|endpoints| endpoints.endpoint_ref(wallet_chain, evm_network)),
+        endpoint_ref,
+        endpoint_url,
     })
 }
 

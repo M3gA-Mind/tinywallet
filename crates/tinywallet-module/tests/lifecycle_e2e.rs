@@ -189,6 +189,31 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
                     && network.endpoint_ref.as_deref() == Some(btc_default.rpc_url.as_str())
             })
     );
+    let _ = proxy
+        .call::<serde_json::Value>(
+            "NativeWalletTxStatus",
+            (tinywallet_bus::wire::NativeWalletTransactionRequest {
+                service: native.service.clone(),
+                chain: WalletChain::Evm,
+                evm_network: Some(tinywallet_bus::wire::EvmNetwork::EthereumMainnet),
+                hash: "0xfixture-default-endpoint".to_string(),
+            },),
+        )
+        .await;
+    assert!(
+        native_transport_networks
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|network| {
+                network.chain == Chain::Evm
+                    && network.evm_chain_id == Some(1)
+                    && network.endpoint_ref.is_none()
+                    && network.endpoint_url.as_deref()
+                        == Some("https://ethereum-rpc.publicnode.com")
+            }),
+        "default endpoint choice must cross the compiled module ABI"
+    );
     let native_quote: tinywallet_bus::wire::PreparedTransaction = proxy
         .call(
             "NativeWalletPrepareTransfer",
