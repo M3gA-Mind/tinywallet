@@ -212,3 +212,6 @@
    Compiling parking_lot v0.12.5
    Compiling ripemd v0.2.0
    Compiling hmac v0.13.0
+   Compiling tinywallet-web3 v0.14.1 (/home/enamakel/work/tinywallet-release-owner/worktrees/wallet-generate-mnemonic/crates/tinywallet-web3)
+   Compiling uuid v1.26.1
+   Compiling tinywallet v0.14.1 (/home/enamakel/work/tinywallet-release-owner/worktrees/wallet-generate-mnemonic)
