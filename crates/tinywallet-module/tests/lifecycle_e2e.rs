@@ -60,6 +60,7 @@ const EXPECTED_METHODS: &[&str] = &[
     "BuildUnsigned",
     "AttachSignature",
     "DeriveAccount",
+    "DeriveMnemonicSeed",
     "GenerateMnemonic",
     "SignTransaction",
     "ExportKey",
@@ -1517,7 +1518,10 @@ async fn refuses_confidential_secret_delivery_to_an_unattested_artifact() {
 }
 
 async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
-    use tinywallet_bus::wire::{GenerateMnemonicRequest, GenerateMnemonicResponse};
+    use tinywallet_bus::wire::{
+        DeriveMnemonicSeedRequest, DeriveMnemonicSeedResponse, GenerateMnemonicRequest,
+        GenerateMnemonicResponse,
+    };
 
     let error = proxy
         .call::<GenerateMnemonicResponse>(
@@ -1541,6 +1545,39 @@ async fn generates_mnemonics_inside_the_artifact(proxy: &tinybus::Proxy) {
         .unwrap();
     assert_eq!(generated.word_count, 12);
     assert_eq!(generated.phrase.split_whitespace().count(), 12);
+
+    let seed_request = DeriveMnemonicSeedRequest {
+        mnemonic: VECTOR.to_string(),
+    };
+    let error = proxy
+        .call::<DeriveMnemonicSeedResponse>(
+            tinywallet_bus::names::methods::DERIVE_MNEMONIC_SEED,
+            (seed_request.clone(),),
+        )
+        .await
+        .expect_err("BIP-39 phrases must reject ordinary delivery");
+    assert_eq!(
+        error.wire_name(),
+        tinybus::Error::CONFIDENTIALITY_REQUIRED,
+        "the compiled manifest must keep mnemonic seed derivation confidential"
+    );
+
+    let seed: DeriveMnemonicSeedResponse = proxy
+        .call_confidential(
+            tinywallet_bus::names::methods::DERIVE_MNEMONIC_SEED,
+            (seed_request,),
+        )
+        .await
+        .unwrap();
+    let seed_hex = seed
+        .seed
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(
+        seed_hex,
+        "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4"
+    );
 
     let derived: DerivedAccount = proxy
         .call_confidential(
