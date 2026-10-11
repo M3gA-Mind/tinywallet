@@ -136,12 +136,13 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 33);
+    assert_eq!(METHODS.len(), 34);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
         names::methods::CONSTRUCT_EVM_TRANSACTION,
         names::methods::DERIVE_ACCOUNT,
+        names::methods::DERIVE_MNEMONIC_SEED,
         names::methods::EXPORT_KEY,
         names::methods::GENERATE_MNEMONIC,
         names::methods::SIGN_MESSAGE,
@@ -214,7 +215,7 @@ fn native_wallet_members_are_additive_and_use_one_typed_argument() {
         methods::NATIVE_WALLET_TX_RECEIPT,
         methods::NATIVE_WALLET_LOOKUP_TX,
     ];
-    assert_eq!(METHODS.len(), 33);
+    assert_eq!(METHODS.len(), 34);
     assert!(native_members.iter().all(|member| METHODS.contains(member)));
     assert_eq!(HOST_METHODS.len(), 6);
     assert!(HOST_METHODS.contains(&host_methods::AUTHORIZE_NATIVE_WALLET_EXECUTION));
