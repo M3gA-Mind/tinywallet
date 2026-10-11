@@ -16,6 +16,8 @@ publish = false
 [dependencies]
 # Serialized shared payloads and identifiers.
 serde = { version = "1", optional = true }
+# The wire host callback DTOs carry opaque JSON payloads.
+serde_json = { version = "1", optional = true }
 # Error vocabulary derives; no crypto execution crosses this dependency.
 thiserror = "2"
 
@@ -26,7 +28,7 @@ serde_json = "1"
 [features]
 default = ["wire"]
 serde = ["dep:serde", "serde/derive"]
-wire = ["serde"]
+wire = ["serde", "dep:serde_json"]
 # Legacy feature names accepted for a transition release; none links behavior.
 # Consumers must call the compiled module instead of importing algorithms.
 btc = []

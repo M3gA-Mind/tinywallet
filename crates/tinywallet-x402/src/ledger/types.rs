@@ -23,10 +23,30 @@ pub struct PaymentRecord {
     pub network: String,
     /// The settlement transaction, once the server reported one.
     pub tx_signature: Option<String>,
-    /// Where the payment stands.
+    /// Where the payment stands. Settled payments and unresolved signed
+    /// authorizations count against the spending budget.
     pub status: PaymentStatus,
-    /// When this line was written.
+    /// When this state was written. A Solana expiry observation preserves the
+    /// original pending authorization timestamp so its possible settlement
+    /// interval remains intact.
     pub timestamp: DateTime<Utc>,
+    /// When an exported authorization becomes unusable, when the rail exposes
+    /// a definitive deadline. Absence means the ledger retains it until an
+    /// explicit outcome is recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_valid_until: Option<DateTime<Utc>>,
+    /// Solana's `lastValidBlockHeight`, bound to the finalized blockhash used
+    /// by the exported transaction. Missing values are retained conservatively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solana_last_valid_block_height: Option<u64>,
+    /// Time at which a finalized height greater than
+    /// `solana_last_valid_block_height` was observed. This reclaims admission
+    /// and future-window capacity without releasing the durable amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expired_at: Option<DateTime<Utc>>,
+    /// Finalized height supporting `authorization_expired_at`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expiry_observed_height: Option<u64>,
     /// The ledger session that made the payment: the process that opened the
     /// ledger. [`SpendingSummary::session_total_atomic`] counts by this.
     pub session_id: String,
@@ -40,11 +60,14 @@ pub struct PaymentRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaymentStatus {
-    /// Signed and sent, not yet settled.
+    /// Signed and sent, not yet settled. Its amount remains budgeted until a
+    /// trusted settlement result proves the final outcome.
     Pending,
-    /// The server accepted it. The only status that counts against a budget.
+    /// A trusted settlement receipt confirms payment.
     Settled,
-    /// The server rejected it, or the retry failed.
+    /// A trusted result established that the payment did not settle. Historical
+    /// rows with a validity deadline remain budgeted conservatively because
+    /// older releases also used this status for timeout alone.
     Failed,
     /// Refused before anything was signed.
     Denied,
@@ -74,9 +97,9 @@ pub struct SpendingSummary {
 pub struct SpendingBudget {
     /// The most one request may cost.
     pub per_request_max_atomic: u64,
-    /// The most that may settle in a day.
+    /// The most that may settle or remain unresolved in a day.
     pub daily_max_atomic: u64,
-    /// The most that may settle in a month.
+    /// The most that may settle or remain unresolved in a month.
     pub monthly_max_atomic: u64,
 }
 
@@ -107,14 +130,15 @@ pub enum BudgetCheck {
     },
     /// Settled today plus this request is over the daily cap.
     ExceedsDailyBudget {
-        /// Settled so far today.
+        /// Settled and unresolved authorized amounts so far today.
         current: u64,
         /// The daily cap.
         cap: u64,
     },
-    /// Settled this month plus this request is over the monthly cap.
+    /// Settled and unresolved authorized amounts this month plus this request
+    /// is over the monthly cap.
     ExceedsMonthlyBudget {
-        /// Settled so far this month.
+        /// Settled and unresolved authorized amounts so far this month.
         current: u64,
         /// The monthly cap.
         cap: u64,
@@ -140,14 +164,14 @@ pub enum BudgetRefusal {
     },
     /// Held and settled today plus this request is over the daily cap.
     Daily {
-        /// Settled and held so far today.
+        /// Settled, unresolved authorized, and held amounts so far today.
         current: u64,
         /// The daily cap.
         cap: u64,
     },
     /// Held and settled this month plus this request is over the monthly cap.
     Monthly {
-        /// Settled and held so far this month.
+        /// Settled, unresolved authorized, and held amounts so far this month.
         current: u64,
         /// The monthly cap.
         cap: u64,

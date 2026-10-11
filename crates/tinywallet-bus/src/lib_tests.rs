@@ -3,7 +3,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::{
-    BUS_NAME, CONFIDENTIAL_METHODS, CONTRACT_VERSION, METHODS, OBJECT_PATH, is_compatible, names,
+    BUS_NAME, CONFIDENTIAL_METHODS, CONTRACT_VERSION, HOST_INTERFACE, HOST_METHODS,
+    HOST_OBJECT_PATH, METHODS, OBJECT_PATH, is_compatible, names,
 };
 
 #[test]
@@ -33,7 +34,7 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         METHODS,
         "sorted dispatch order, no repeats"
     );
-    assert_eq!(METHODS.len(), 8);
+    assert_eq!(METHODS.len(), 20);
     for member in [
         names::methods::ATTACH_SIGNATURE,
         names::methods::BUILD_UNSIGNED,
@@ -43,12 +44,40 @@ fn the_method_list_is_sorted_complete_and_free_of_duplicates() {
         names::methods::SIGN_MESSAGE,
         names::methods::SIGN_TRANSACTION,
         names::methods::VALIDATE_ADDRESS,
+        names::methods::WEB3_ROUTES,
+        names::methods::WEB3_SWAP_QUOTE,
+        names::methods::WEB3_BRIDGE_QUOTE,
+        names::methods::WEB3_DAPP_QUOTE,
+        names::methods::WEB3_EXECUTE,
+        names::methods::WEB3_CLOSE,
+        names::methods::WEB3_CONFIGURE,
+        names::methods::X402_PREPARE_PAYMENT,
+        names::methods::X402_RECORD_PAYMENT,
+        names::methods::X402_SPENDING_SUMMARY,
+        names::methods::X402_CLOSE,
+        names::methods::X402_CONFIGURE,
     ] {
         assert!(
             METHODS.contains(&member),
             "{member} is missing from METHODS"
         );
     }
+}
+
+#[test]
+fn host_callbacks_are_the_used_typed_capabilities() {
+    let mut sorted = HOST_METHODS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.as_slice(), HOST_METHODS);
+    assert_eq!(HOST_METHODS.len(), 5);
+    assert_eq!(HOST_INTERFACE, "ai.tinyhumans.tinywallet.Host");
+    assert_eq!(HOST_OBJECT_PATH, "/ai/tinyhumans/tinywallet/Host");
+    assert!(HOST_METHODS.contains(&names::host_methods::AUTHORIZE_WEB3_EXECUTION));
+    assert!(HOST_METHODS.contains(&names::host_methods::AUTHORIZE_X402_PAYMENT));
+    assert!(HOST_METHODS.contains(&names::host_methods::CHAIN_TRANSPORT));
+    assert!(HOST_METHODS.contains(&names::host_methods::WALLET_ACCOUNTS));
+    assert!(HOST_METHODS.contains(&names::host_methods::WALLET_BACKEND));
 }
 
 #[test]

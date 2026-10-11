@@ -17,6 +17,19 @@ crate-type = ["rlib", "cdylib"]
 # definition: a host that spells `BUS_NAME` itself and a module that spells it
 # itself is exactly the drift this crate exists to remove.
 tinywallet-bus = { path = "../tinywallet-bus" }
+# Executes chain construction and signing inside the compiled module.
+tinywallet-crypto = { path = "../tinywallet-crypto", default-features = false, features = ["net"] }
+# Owns provider routes, quotes, and approved Web3 execution.
+tinywallet-web3 = { path = "../tinywallet-web3" }
+# Owns payment authorization, budget reservations, and ledger accounting.
+tinywallet-x402 = { path = "../tinywallet-x402", features = ["pay"] }
+# Only used for the standard header map passed into TinyWallet's parser; no
+# module operation opens an HTTP client or makes a direct network request.
+reqwest = { version = "0.13", default-features = false }
+# Encodes signed EVM transactions and signing payload bytes.
+hex = "0.4"
+# Supplies payment timestamps and expiry values for module-owned services.
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 # The pure wallet library stays independently publishable and bus-agnostic.
 # Every chain feature is on here: carrying them is the entire point of the
 # module, since it is what lets the host drop them.
@@ -39,12 +52,16 @@ tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", def
 ] }
 # The module-side SDK owns its runtime and exports the stable C entrypoints.
 tinybus-module = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus-module" }
-# The interface macro requires every method to be `async fn`, so a runtime has
-# to exist even though nothing here awaits I/O.
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# The module runtime drives asynchronous host callbacks and serializes service
+# lifecycle changes against in-flight operations.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 # Method arguments and returns are the `tinywallet::wire` contract, decoded from
 # and encoded to JSON frames.
 serde_json = "1"
+# Derives serialization for module-side callback and service types.
+serde = "1"
+# Implements asynchronous provider ports used by Web3 and x402.
+async-trait = "0.1"
 # Base58 for a Solana transaction id, which is its 64-byte signature. The
 # library's own encoder takes a 32-byte address, so it does not fit here.
 bs58 = "0.5"
@@ -60,11 +77,19 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # frame the bus decoded from. It bounds how long this module's own copy stays
 # legible, which keeps it out of core dumps and swap. See `wipe`.
 zeroize = "1"
+# Generates opaque service, quote, and pending-payment identifiers.
+uuid = { version = "1", features = ["v4"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+# Encodes and decodes the Solana transaction fixtures in native tests.
+base64 = "0.23"
+# The native lifecycle fixture stages and hashes the actual cdylib to attest it.
+sha2 = "0.11"
+# Isolates native artifact admission and ledger fixtures from user files.
+tempfile = "3"
 # The loader E2E admits the built module from its adjacent digest manifest and
 # uses TinyBus's shared lifecycle helpers.
 tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", default-features = false, features = [

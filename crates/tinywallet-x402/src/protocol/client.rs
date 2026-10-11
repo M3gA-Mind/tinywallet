@@ -1,8 +1,10 @@
 //! The high-level x402 client (intercept 402, pay, retry) and the lower-level
 //! `handle_402*` entry points the HTTP tool layer drives directly.
 
+use chrono::{DateTime, Utc};
 use log::{debug, warn};
 use reqwest::header::{HeaderMap, HeaderValue};
+use std::future::Future;
 use std::sync::Arc;
 
 use super::LOG_PREFIX;
@@ -205,6 +207,12 @@ pub struct X402PaymentResult {
     pub network: String,
     /// The URL the payment is for.
     pub url: String,
+    /// Expiry of the authorization when its rail has an explicit deadline.
+    /// Solana blockhash validity has no wall-clock deadline in this wire type.
+    pub authorization_valid_until: Option<DateTime<Utc>>,
+    /// Solana blockhash's `lastValidBlockHeight`, when a real chain transport
+    /// bound it to the transaction payload.
+    pub solana_last_valid_block_height: Option<u64>,
     /// The budget held for this payment. Keep it alive until the outcome is
     /// recorded, then [`commit`](Reservation::commit) it with the final record;
     /// dropping it releases the hold without recording anything.
@@ -237,9 +245,41 @@ pub async fn handle_402_and_pay(
     response_headers: &HeaderMap,
     request_url: &str,
 ) -> Result<X402PaymentResult, X402Error> {
+    handle_402_and_pay_authorized(builder, response_headers, request_url, |_, _, _, _| async {
+        Ok(())
+    })
+    .await
+}
+
+/// Parse and atomically reserve one challenge before asking the caller to
+/// approve it, then build the payment only after approval.
+///
+/// The callback receives the challenge's resource URL and selected, validated
+/// payment terms after the budget hold exists. Returning an error drops the
+/// reservation before this method returns. This lets a composing module put
+/// its host approval boundary between budget admission and secret-bearing
+/// signing without reimplementing challenge selection or budget accounting.
+///
+/// # Errors
+///
+/// Returns the same protocol, budget, ledger, and signing errors as
+/// [`handle_402_and_pay`], plus [`X402Error::Wallet`] when authorization refuses
+/// the selected payment.
+pub async fn handle_402_and_pay_authorized<F, Fut>(
+    builder: &dyn PaymentBuilder,
+    response_headers: &HeaderMap,
+    request_url: &str,
+    authorize: F,
+) -> Result<X402PaymentResult, X402Error>
+where
+    F: FnOnce(String, PaymentRequirements, PaymentChain, u64) -> Fut,
+    Fut: Future<Output = Result<(), String>>,
+{
     let (challenge, idx, chain) = handle_402(response_headers)?;
-    let requirement = &challenge.accepts[idx];
-    let amount = parse_amount(requirement)?;
+    let requirement = challenge.accepts[idx].clone();
+    let amount = parse_amount(&requirement)?;
+
+    refresh_solana_authorizations(builder).await?;
 
     // Check the budget and hold the amount in one critical section, before
     // anything is signed: a check on its own would let concurrent payments that
@@ -265,13 +305,24 @@ pub async fn handle_402_and_pay(
         }
     };
 
+    authorize(
+        challenge.resource.url.clone(),
+        requirement.clone(),
+        chain,
+        amount,
+    )
+    .await
+    .map_err(X402Error::Wallet)?;
+
     debug!(
         "{LOG_PREFIX} paying {} atomic {} to {} for {} chain={:?}",
         amount, requirement.asset, requirement.pay_to, request_url, chain
     );
 
-    let payment = builder.build(&challenge, requirement, chain).await?;
-    let header_value = encode_payment(&payment)?;
+    let payment = builder
+        .build_with_metadata(&challenge, &requirement, chain)
+        .await?;
+    let header_value = encode_payment(&payment.payload)?;
 
     Ok(X402PaymentResult {
         header_value,
@@ -280,8 +331,61 @@ pub async fn handle_402_and_pay(
         recipient: requirement.pay_to.clone(),
         network: requirement.network.clone(),
         url: request_url.to_string(),
+        authorization_valid_until: payment.authorization_valid_until,
+        solana_last_valid_block_height: payment.solana_last_valid_block_height,
         reservation,
     })
+}
+
+/// Refresh pending Solana authorization bounds using finalized chain evidence.
+/// Network calls happen before taking the ledger lock; each append then
+/// rechecks that the same authorization remains pending.
+///
+/// # Errors
+///
+/// Returns [`X402Error::Wallet`] when the process-wide ledger is unavailable.
+pub async fn refresh_solana_authorizations(builder: &dyn PaymentBuilder) -> Result<(), X402Error> {
+    let (generation, candidates): (_, Vec<_>) = ledger::with_ledger(|ledger| {
+        (
+            ledger.generation(),
+            ledger
+                .pending_payments()
+                .into_iter()
+                .filter_map(|record| {
+                    (record.authorization_expired_at.is_none())
+                        .then_some(record.solana_last_valid_block_height)
+                        .flatten()
+                        .map(|last_valid_height| (record.id, record.timestamp, last_valid_height))
+                })
+                .collect(),
+        )
+    })
+    .map_err(X402Error::Wallet)?;
+    if candidates.is_empty() {
+        return Ok(());
+    }
+    // Failure or malformed evidence leaves every authorization conservatively
+    // pending; it does not imply expiry or prevent an otherwise allowed call.
+    let Some(observed_height) = builder.finalized_solana_block_height().await.ok().flatten() else {
+        return Ok(());
+    };
+    let observed_at = Utc::now();
+    ledger::with_ledger_mut(|ledger| {
+        for (id, issued_at, last_valid_height) in candidates {
+            // A write failure leaves the proof active and budgeted. Continue so
+            // independent records can still acquire their own evidence.
+            let _ = ledger.observe_solana_expiry(
+                generation,
+                &id,
+                issued_at,
+                last_valid_height,
+                observed_height,
+                observed_at,
+            );
+        }
+    })
+    .map_err(X402Error::Wallet)?;
+    Ok(())
 }
 
 fn parse_amount(requirement: &PaymentRequirements) -> Result<u64, X402Error> {

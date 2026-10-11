@@ -16,8 +16,13 @@
 //! # Budgets
 //!
 //! [`PaymentLedger::check_budget`] enforces a per-request cap and daily and
-//! monthly totals over *settled* payments plus outstanding reservations, so a
-//! failed or denied attempt does not eat the budget.
+//! monthly totals over settled payments, unresolved signed authorizations, and
+//! outstanding reservations. A bounded authorization is charged to each
+//! calendar window it could have settled in. Once the proof is no longer
+//! usable, future non-overlapping windows can admit new spending, while the
+//! unresolved amount remains in durable outstanding totals until a trusted
+//! receipt resolves it. Rails without trustworthy expiry evidence remain
+//! conservatively charged to future windows.
 //!
 //! # Reservations
 //!
@@ -27,7 +32,8 @@
 //! checks and holds the amount in one critical section, before anything is
 //! signed. The hold is a [`Reservation`]: dropped, it releases; committed with
 //! [`Reservation::commit`], it turns into the recorded payment atomically.
-//! Holds live in memory only.
+//! Holds live in memory only until their signed authorization is durably
+//! recorded; that record then protects the budget across restart.
 //!
 //! # The process-wide handle
 //!
@@ -42,7 +48,7 @@ mod types;
 
 #[cfg(test)]
 pub(crate) use global::{TEST_LOCK, reset_global};
-pub use global::{init_global, with_ledger, with_ledger_mut};
+pub use global::{clear_global, init_global, with_ledger, with_ledger_mut};
 pub use reservation::{Reservation, reserve};
 pub use store::PaymentLedger;
 pub use types::{
@@ -53,3 +59,7 @@ pub use types::{
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod test;
+
+#[cfg(test)]
+#[path = "mod_authorization_tests.rs"]
+mod authorization_test;

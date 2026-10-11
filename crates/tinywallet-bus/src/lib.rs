@@ -32,7 +32,10 @@ pub use chain::Chain;
 pub use error::{Error, Result};
 pub use transfer::TronTransfer;
 
-pub use names::{BUS_NAME, CONFIDENTIAL_METHODS, METHODS, OBJECT_PATH};
+pub use names::{
+    BUS_NAME, CONFIDENTIAL_METHODS, HOST_INTERFACE, HOST_METHODS, HOST_OBJECT_PATH, METHODS,
+    OBJECT_PATH,
+};
 pub use version::{CONTRACT_VERSION, is_compatible};
 
 #[cfg(test)]

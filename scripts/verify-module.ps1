@@ -25,6 +25,8 @@ try {
     $env:TINYWALLET_TEST_MODULE = $library
     cargo test --locked --release --package tinywallet-module --test module_e2e -- --ignored
     if ($LASTEXITCODE -ne 0) { throw 'TinyWallet module verification failed' }
+    cargo test --locked --release --package tinywallet-module --test lifecycle_e2e -- --ignored
+    if ($LASTEXITCODE -ne 0) { throw 'TinyWallet lifecycle verification failed' }
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force
 }

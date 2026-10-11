@@ -50,7 +50,7 @@ pub(super) async fn build_solana_payment(
     our_pubkey: [u8; 32],
     challenge: &PaymentRequired,
     req: &PaymentRequirements,
-) -> Result<PaymentPayload, X402Error> {
+) -> Result<(PaymentPayload, u64), X402Error> {
     let amount: u64 = req
         .amount
         .parse()
@@ -106,7 +106,7 @@ pub(super) async fn build_solana_payment(
         build_memo(7, &memo_data),
     ];
 
-    let blockhash = fetch_recent_blockhash(transport).await?;
+    let (blockhash, last_valid_block_height) = fetch_recent_blockhash(transport).await?;
     let message = encode_legacy_message(header, &account_keys, &blockhash, &instructions);
 
     // Wire format: 2 signature slots; slot 0 (the fee payer) is left zeroed for
@@ -134,7 +134,7 @@ pub(super) async fn build_solana_payment(
         req.asset
     );
 
-    Ok(PaymentPayload {
+    let payload = PaymentPayload {
         x402_version: X402_VERSION,
         resource: Some(challenge.resource.clone()),
         accepted: req.clone(),
@@ -142,7 +142,8 @@ pub(super) async fn build_solana_payment(
             transaction: tx_b64,
         }),
         extensions: serde_json::Map::new(),
-    })
+    };
+    Ok((payload, last_valid_block_height))
 }
 
 /// Decode a base58 string that must be exactly 32 bytes.
@@ -289,7 +290,7 @@ pub(super) fn random_memo_nonce() -> Vec<u8> {
 }
 
 /// The latest finalized blockhash, through the host's [`Transport`].
-async fn fetch_recent_blockhash(transport: &dyn Transport) -> Result<[u8; 32], X402Error> {
+async fn fetch_recent_blockhash(transport: &dyn Transport) -> Result<([u8; 32], u64), X402Error> {
     #[derive(Deserialize)]
     struct BlockhashResponse {
         value: BlockhashValue,
@@ -297,6 +298,8 @@ async fn fetch_recent_blockhash(transport: &dyn Transport) -> Result<[u8; 32], X
     #[derive(Deserialize)]
     struct BlockhashValue {
         blockhash: String,
+        #[serde(rename = "lastValidBlockHeight")]
+        last_valid_block_height: u64,
     }
 
     const METHOD: &str = "getLatestBlockhash";
@@ -312,5 +315,8 @@ async fn fetch_recent_blockhash(transport: &dyn Transport) -> Result<[u8; 32], X
     let result: BlockhashResponse = rpc::decode(network, METHOD, value)
         .map_err(|e| X402Error::Wallet(format!("fetch blockhash: {e}")))?;
 
-    b58_to_32(&result.value.blockhash)
+    Ok((
+        b58_to_32(&result.value.blockhash)?,
+        result.value.last_valid_block_height,
+    ))
 }

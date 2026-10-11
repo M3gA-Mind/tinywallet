@@ -715,7 +715,7 @@ fn a_message_signature_equals_what_the_transaction_path_produces() {
 #[tokio::test]
 async fn module_validation_preserves_trimmed_addresses_and_bitcoin_sender_rules() {
     use tinywallet_bus::wire::ValidateAddressRequest;
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let response = wallet
         .validate_address(ValidateAddressRequest {
             chain: Chain::Evm,
@@ -744,7 +744,7 @@ async fn module_validation_preserves_trimmed_addresses_and_bitcoin_sender_rules(
 
 #[tokio::test]
 async fn service_entrypoints_preserve_split_signatures_and_confidential_results() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let material = secret(Chain::Evm, "m/44'/60'/0'/0/0");
     let account = wallet.derive_account(material.clone()).await.unwrap();
     let exported = wallet
@@ -798,7 +798,7 @@ async fn service_entrypoints_preserve_split_signatures_and_confidential_results(
 
 #[tokio::test]
 async fn service_rejected_secret_material_never_echoes_the_phrase_or_path() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let invalid = SecretMaterial {
         chain: Chain::Evm,
         mnemonic: "private-invalid-phrase".into(),
@@ -839,7 +839,7 @@ async fn service_rejected_secret_material_never_echoes_the_phrase_or_path() {
 
 #[tokio::test]
 async fn service_refuses_malformed_transaction_fields_and_signature_bytes() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let public = PublicKey {
         key_hex: compressed_public(&evm_key()),
     };
@@ -933,7 +933,7 @@ async fn a_valid_tron_contract_survives_module_build_sign_and_attach() {
             amount_sun: 1_000_000,
         },
     };
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let material = secret(Chain::Tron, "m/44'/195'/0'/0/0");
     let derived = tinywallet::key::derive(
         material.chain,
@@ -1109,7 +1109,7 @@ async fn setup_serves_typed_validation_over_the_real_in_memory_bus() -> tinybus:
 
 #[tokio::test]
 async fn module_builds_and_attaches_a_bitcoin_fixture_without_a_node() {
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let material = secret(Chain::Btc, "m/84'/0'/0'/0/0");
     let account = wallet.derive_account(material.clone()).await.unwrap();
     let transaction = TransactionSpec::Btc {
@@ -1419,7 +1419,7 @@ fn helper_rejections_cover_chain_and_signature_mismatches() {
 async fn bus_service_methods_cover_the_public_wire_handlers() {
     use tinywallet::wire::{ExportRequest, SignMessageRequest, SignRequest};
 
-    let wallet = super::Wallet;
+    let wallet = super::Wallet::default();
     let key = evm_key();
     let public_key = PublicKey {
         key_hex: compressed_public(&key),
@@ -1494,5 +1494,117 @@ async fn bus_service_methods_cover_the_public_wire_handlers() {
         !rejected
             .to_string()
             .contains("invalid phrase must not leak")
+    );
+}
+
+#[tokio::test]
+async fn web3_routes_fail_closed_when_the_host_callback_is_unavailable() {
+    let error = super::Wallet::default().web3_routes(()).await.unwrap_err();
+    assert!(matches!(
+        error,
+        tinybus::Error::MethodFailed { name, .. }
+            if name == "ai.tinyhumans.tinywallet.Error.HostUnavailable"
+    ));
+}
+
+#[tokio::test]
+async fn user_scoped_operations_fail_closed_before_configuration() {
+    use tinywallet_bus::wire::{
+        Web3CloseRequest, Web3ExecuteRequest, Web3QuoteRequest, Web3ServiceHandle,
+        X402CloseRequest, X402ConfigResponse, X402ConfigureRequest, X402PreparePaymentRequest,
+        X402RecordPaymentRequest, X402ServiceHandle, X402SummaryRequest,
+    };
+
+    let wallet = super::Wallet::default();
+    let web3_handle = Web3ServiceHandle {
+        handle: "stale-web3".to_string(),
+    };
+    let x402_handle = X402ServiceHandle {
+        handle: "stale-x402".to_string(),
+    };
+    let web3_quote = || Web3QuoteRequest {
+        service: web3_handle.clone(),
+        owner: None,
+        params: serde_json::json!({}),
+    };
+    let x402_config = X402ConfigResponse {
+        workspace_dir: "/unused".to_string(),
+        session_id: "unused".to_string(),
+        per_request_max_atomic: 1,
+        daily_max_atomic: 1,
+        monthly_max_atomic: 1,
+    };
+
+    assert!(wallet.web3_configure(()).await.is_err());
+    assert!(wallet.web3_routes(()).await.is_err());
+    assert!(wallet.web3_swap_quote(web3_quote()).await.is_err());
+    assert!(wallet.web3_bridge_quote(web3_quote()).await.is_err());
+    assert!(wallet.web3_dapp_quote(web3_quote()).await.is_err());
+    assert!(
+        wallet
+            .web3_execute(Web3ExecuteRequest {
+                service: web3_handle.clone(),
+                owner: None,
+                quote_id: "missing".to_string(),
+                confirmed: true,
+                secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .web3_close(Web3CloseRequest {
+                service: web3_handle,
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_prepare_payment(X402PreparePaymentRequest {
+                service: x402_handle.clone(),
+                url: "https://example.invalid".to_string(),
+                payment_required: String::new(),
+                owner: None,
+                secret: secret(Chain::Evm, "m/44'/60'/0'/0/0"),
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_record_payment(X402RecordPaymentRequest {
+                service: x402_handle.clone(),
+                payment_id: "missing".to_string(),
+                response_status: 200,
+                settlement_response: None,
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_spending_summary(X402SummaryRequest {
+                service: x402_handle.clone(),
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_configure(X402ConfigureRequest {
+                config: x402_config
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        wallet
+            .x402_close(X402CloseRequest {
+                service: x402_handle,
+            })
+            .await
+            .is_err()
     );
 }

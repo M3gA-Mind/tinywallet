@@ -33,3 +33,5 @@ $hash = (Get-FileHash -LiteralPath $library -Algorithm SHA256).Hash.ToLowerInvar
 $env:TINYWALLET_TEST_MODULE = $library
 cargo test --locked --release --package tinywallet-module --test module_e2e -- --ignored
 if ($LASTEXITCODE -ne 0) { throw 'TinyWallet module E2E failed' }
+cargo test --locked --release --package tinywallet-module --test lifecycle_e2e -- --ignored
+if ($LASTEXITCODE -ne 0) { throw 'TinyWallet lifecycle E2E failed' }

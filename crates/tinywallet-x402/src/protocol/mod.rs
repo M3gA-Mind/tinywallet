@@ -22,9 +22,10 @@ mod headers;
 mod proxy;
 mod select;
 
-pub use builder::PaymentBuilder;
+pub use builder::{PaymentBuild, PaymentBuilder};
 pub use client::{
-    X402Client, X402PaymentResult, handle_402, handle_402_and_pay, pay_challenge_header,
+    X402Client, X402PaymentResult, handle_402, handle_402_and_pay, handle_402_and_pay_authorized,
+    pay_challenge_header, refresh_solana_authorizations,
 };
 pub use error::X402Error;
 pub use headers::{encode_payment, parse_402_headers, parse_settlement_response};

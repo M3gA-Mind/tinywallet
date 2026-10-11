@@ -2,8 +2,8 @@
 
 The minimal TinyBus contract for TinyWallet: names, version, shared chain
 identifiers, error vocabulary, transfer types and request/result DTOs. Normal
-and build dependencies are limited to serde and thiserror plus their derive
-closure. No feature links crypto, x402, web3, transport or native libraries.
+and build dependencies are limited to serde, serde_json and thiserror plus their approved
+serialization and derive closure. No feature links crypto, x402, web3, transport or native libraries.
 
 Contract 1.1 adds `ValidateAddress`. It returns the trimmed address or the same
 structured errors as the implementation, including Bitcoin's narrower sender
@@ -21,8 +21,14 @@ imports. Implementations re-export `Chain`, `UnknownChain`, `Error`, `Result`, a
 
 Host integrations must use module calls and wait for a compatible released
 artifact pinned with its verified digest. They must not replace the removed
-re-exports with direct crypto/x402/web3 dependencies. Further web3, budget,
-ledger and x402 execution members remain separate migration work.
+re-exports with direct crypto/x402/web3 dependencies. The optional Host
+interface in contract 1.4 exposes typed account, custody, approval, transport,
+and backend callbacks; it does not move quote, payment, budget, or ledger
+algorithms into the host. Web3 and x402 services are opened explicitly after
+host account/workspace policy is ready and return opaque module-scoped handles.
+Reconfiguration and close wait for in-flight operations, discard old quotes or
+pending reservations, and invalidate old handles. Secret-bearing calls are
+confidential and require an attested artifact.
 
 Contract 1.2 adds stateless ConstructEvmTransaction for native/ERC-20/contract
 actions, exact signing payloads and host approval facts. Secret fields are

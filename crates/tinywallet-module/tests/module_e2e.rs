@@ -1,9 +1,8 @@
 //! End-to-end test for loading the built `TinyWallet` module into `TinyBus`.
 //!
-//! The only test that exercises the real thing: the built `cdylib`, the ABI
-//! descriptor, manifest admission, the dynamic loader, and a broker routing
-//! actual frames. Everything else in this crate calls Rust functions directly
-//! and would keep passing if the artifact stopped loading altogether.
+//! One of the native tests that exercises the real thing: the built `cdylib`,
+//! the ABI descriptor, manifest admission, the dynamic loader, and a broker
+//! routing actual frames. The lifecycle round-trip is in `lifecycle_e2e.rs`.
 //!
 //! What it proves that a unit test cannot: a transaction signed *through the
 //! loaded module* is byte-for-byte the transaction the library produces signing
@@ -44,6 +43,18 @@ const EXPECTED_METHODS: &[&str] = &[
     "SignMessage",
     "ValidateAddress",
     "ConstructEvmTransaction",
+    "Web3Routes",
+    "Web3SwapQuote",
+    "Web3BridgeQuote",
+    "Web3DappQuote",
+    "Web3Execute",
+    "Web3Configure",
+    "Web3Close",
+    "X402PreparePayment",
+    "X402RecordPayment",
+    "X402SpendingSummary",
+    "X402Configure",
+    "X402Close",
 ];
 
 /// The BIP-39 test vector mnemonic. Never use it for real funds.

@@ -37,6 +37,26 @@ impl Reservation {
         }
     }
 
+    /// Durably record the outcome before releasing this hold.
+    ///
+    /// On write failure the reservation remains active until this value is
+    /// dropped, so callers can refuse to expose a signed payment whose budget
+    /// accounting was not saved.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the global ledger is unavailable or the record
+    /// cannot be durably appended.
+    pub fn commit_durable(mut self, record: PaymentRecord) -> Result<(), String> {
+        let Some(id) = self.id else {
+            return Ok(());
+        };
+        let result = with_ledger_mut(|ledger| ledger.try_commit_reservation(id, record))?;
+        result?;
+        self.id = None;
+        Ok(())
+    }
+
     /// End the hold without recording anything. The same as dropping it.
     pub fn release(self) {}
 }

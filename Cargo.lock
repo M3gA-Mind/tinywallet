@@ -2009,15 +2009,27 @@ dependencies = [
 name = "tinywallet-module"
 version = "0.9.0"
 dependencies = [
+ "async-trait",
+ "base64 0.23.1",
  "bitcoin",
  "bs58",
+ "chrono",
  "ed25519-dalek",
+ "hex",
+ "reqwest",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
  "tinybus",
  "tinybus-module",
  "tinywallet",
  "tinywallet-bus",
+ "tinywallet-crypto",
+ "tinywallet-web3",
+ "tinywallet-x402",
  "tokio",
+ "uuid",
  "zeroize",
 ]
 

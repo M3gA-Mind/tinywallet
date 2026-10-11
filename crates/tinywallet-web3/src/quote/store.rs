@@ -133,6 +133,33 @@ impl<T: Quoted + Clone> QuoteStore<T> {
         Ok(quote)
     }
 
+    /// Inspect one live quote after applying the same owner gate as
+    /// [`QuoteStore::take_for`], without consuming or extending its lifetime.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same not-found, consumed, and expired errors as
+    /// [`QuoteStore::take_for`]. A mismatched owner is indistinguishable from
+    /// a missing quote.
+    pub fn get_for(&self, quote_id: &str, caller: Option<&QuoteOwner>) -> Result<T, String> {
+        let not_found = || format!("quote '{quote_id}' not found");
+        let store = self.quotes.lock();
+        let quote = store
+            .iter()
+            .find(|quote| quote.quote_id() == quote_id)
+            .ok_or_else(not_found)?;
+        if quote.owner() != caller {
+            return Err(not_found());
+        }
+        if quote.is_consumed() {
+            return Err(format!("quote '{quote_id}' already executed"));
+        }
+        if quote.expires_at_ms() <= now_ms() {
+            return Err(format!("quote '{quote_id}' expired"));
+        }
+        Ok(quote.clone())
+    }
+
     /// Every quote that can still be executed.
     #[must_use]
     pub fn live(&self) -> Vec<T> {

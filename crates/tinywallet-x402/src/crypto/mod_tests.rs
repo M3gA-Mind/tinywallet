@@ -654,6 +654,45 @@ async fn the_blockhash_comes_from_the_transport_for_the_solana_network() {
 }
 
 #[tokio::test]
+async fn the_solana_expiry_bound_is_kept_out_of_wire_payload_and_uses_finalized_height() {
+    let transport = Arc::new(FakeTransport::default());
+    let payments = CryptoPayments::new(Arc::new(FakePaymentSigner::default()), transport.clone());
+    let requirement = solana_requirement();
+    let build = payments
+        .build_with_metadata(&challenge(vec![]), &requirement, PaymentChain::Solana)
+        .await
+        .unwrap();
+    assert_eq!(build.solana_last_valid_block_height, Some(9));
+    assert!(build.authorization_valid_until.is_none());
+    let encoded = crate::protocol::encode_payment(&build.payload).unwrap();
+    assert!(!encoded.contains("lastValidBlockHeight"));
+
+    let height_transport = Arc::new(FakeTransport::answering(Ok(json!(10))));
+    let height_builder = CryptoPayments::new(
+        Arc::new(FakePaymentSigner::default()),
+        height_transport.clone(),
+    );
+    assert_eq!(
+        height_builder
+            .finalized_solana_block_height()
+            .await
+            .unwrap(),
+        Some(10)
+    );
+    assert_eq!(
+        *height_transport.calls.lock().unwrap(),
+        vec![(
+            NetworkId::chain(Chain::Solana),
+            "getBlockHeight".to_string()
+        )]
+    );
+    assert_eq!(
+        *height_transport.params.lock().unwrap(),
+        vec![json!([{"commitment": "finalized"}])]
+    );
+}
+
+#[tokio::test]
 async fn blockhash_failures_are_wallet_errors() {
     let cases = [
         (
@@ -668,7 +707,10 @@ async fn blockhash_failures_are_wallet_errors() {
             "x402 wallet: fetch blockhash: ",
         ),
         (
-            FakeTransport::answering(Ok(json!({"value": {"blockhash": "abc"}}))),
+            FakeTransport::answering(Ok(json!({"value": {
+                "blockhash": "abc",
+                "lastValidBlockHeight": 9
+            }}))),
             "x402 protocol: expected 32-byte key",
         ),
     ];

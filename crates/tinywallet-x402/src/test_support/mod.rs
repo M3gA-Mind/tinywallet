@@ -147,6 +147,8 @@ pub(crate) struct FakeTransport {
     pub(crate) responses: Mutex<VecDeque<TransportResult<Value>>>,
     /// Every `(network, method)` requested.
     pub(crate) calls: Mutex<Vec<(NetworkId, String)>>,
+    /// Parameters for each request, to pin commitment consistency.
+    pub(crate) params: Mutex<Vec<Value>>,
 }
 
 impl FakeTransport {
@@ -169,12 +171,13 @@ impl Transport for FakeTransport {
         &self,
         network: NetworkId,
         method: &str,
-        _params: Value,
+        params: Value,
     ) -> TransportResult<Value> {
         self.calls
             .lock()
             .unwrap()
             .push((network, method.to_string()));
+        self.params.lock().unwrap().push(params);
         self.responses
             .lock()
             .unwrap()

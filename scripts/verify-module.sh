@@ -33,3 +33,5 @@ esac
 test -f "$work/modules.toml"
 TINYWALLET_TEST_MODULE="$library" cargo test --locked --release \
   --package tinywallet-module --test module_e2e -- --ignored
+TINYWALLET_TEST_MODULE="$library" cargo test --locked --release \
+  --package tinywallet-module --test lifecycle_e2e -- --ignored
