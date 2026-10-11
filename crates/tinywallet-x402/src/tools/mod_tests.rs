@@ -721,4 +721,8 @@ fn amounts_are_shown_as_six_decimal_usdc() {
     assert_eq!(request::format_usdc(2_500), "0.002500 USDC");
     assert_eq!(request::format_usdc(1_000_000), "1.000000 USDC");
     assert_eq!(request::format_usdc(0), "0.000000 USDC");
+    assert_eq!(
+        request::format_usdc(u64::MAX),
+        "18446744073709.551615 USDC"
+    );
 }

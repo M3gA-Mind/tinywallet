@@ -205,7 +205,7 @@ impl X402Runtime {
             url: proof.url.clone(),
             asset: proof.asset.clone(),
             amount_atomic: proof.amount_atomic,
-            amount_display: format!("{} atomic", proof.amount_atomic),
+            amount_display: tinywallet_x402::ledger::format_usdc(proof.amount_atomic),
             recipient: proof.recipient.clone(),
             network: proof.network.clone(),
             tx_signature: None,
