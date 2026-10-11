@@ -49,5 +49,6 @@ docker run --rm \
   --env MODULE_TARGET="$rust_target" \
   --env MODULE_HOST="$host" \
   --env EXTRA_PACKAGED_FILES="$extras" \
+  --env HOST_UID="$(id -u)" --env HOST_GID="$(id -g)" \
   --env OUTPUT_DIR="${output_path#"$root"/}" \
   "$image" bash /workspace/scripts/build-module-in-distro.sh
