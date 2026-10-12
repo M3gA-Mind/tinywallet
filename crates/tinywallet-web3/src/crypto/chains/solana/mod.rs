@@ -20,7 +20,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use log::debug;
 use serde::Deserialize;
 use serde_json::json;
-use tinywallet_bus::wire::{Scheme, Signature};
+use tinywallet_bus::wire::{Scheme, Signature, TransactionSpec};
 
 use crate::crypto::execution::{
     ExecutionResult, PreparedKind, PreparedStatus, PreparedTransaction,
@@ -218,14 +218,34 @@ pub(crate) async fn execute_solana_quote(
         ));
     }
 
-    let to_pubkey = b58_to_pubkey(&to_addr)?;
-    let message_bytes = transfer_message(engine, &quote, from_pk, to_pubkey, amount).await?;
-
-    let sig_bytes = solana_sign(engine, &message_bytes).await?;
-    let mut wire = Vec::with_capacity(1 + 64 + message_bytes.len());
-    wire.extend(encode_shortvec(1));
-    wire.extend(sig_bytes);
-    wire.extend(&message_bytes);
+    let wire = match quote.kind {
+        PreparedKind::NativeTransfer => {
+            let recent_blockhash = fetch_recent_blockhash(engine).await?;
+            let transaction = TransactionSpec::Solana {
+                from: from_addr,
+                to: to_addr,
+                lamports: amount,
+                recent_blockhash: pubkey_to_b58(&recent_blockhash),
+            };
+            let signed = engine
+                .signer
+                .sign_transaction(WalletChain::Solana, &transaction)
+                .await?;
+            B64.decode(signed.raw)
+                .map_err(|error| format!("invalid signed Solana transaction: {error}"))?
+        }
+        PreparedKind::TokenTransfer => {
+            let to_pubkey = b58_to_pubkey(&to_addr)?;
+            let message_bytes =
+                transfer_message(engine, &quote, from_pk, to_pubkey, amount).await?;
+            let sig_bytes = solana_sign(engine, &message_bytes).await?;
+            let mut wire = Vec::with_capacity(1 + 64 + message_bytes.len());
+            wire.extend(encode_shortvec(1));
+            wire.extend(sig_bytes);
+            wire.extend(&message_bytes);
+            wire
+        }
+    };
 
     let tx_sig = broadcast_solana(engine, &wire).await?;
     quote.status = PreparedStatus::Broadcasted;
