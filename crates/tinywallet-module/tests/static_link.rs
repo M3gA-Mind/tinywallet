@@ -35,10 +35,13 @@ async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
         .unwrap()
         .expect("linked module is attested, so confidential members are deliverable");
     let exe = std::fs::read(std::env::current_exe().unwrap()).unwrap();
-    let hex: String = Sha256::digest(exe)
+    let hex = Sha256::digest(exe)
         .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+        .fold(String::new(), |mut out, b| {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{b:02x}");
+            out
+        });
     assert_eq!(attestation.sha256, hex);
 
     // The point of attestation: a secret-bearing confidential member is
