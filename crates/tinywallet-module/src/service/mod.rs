@@ -1497,7 +1497,7 @@ fn host_build_failed(message: String) -> BusError {
     reason = "generated C ABI symbols are documented by the TinyBus module SDK"
 )]
 mod exports {
-    tinybus_module::module_export! {
+    tinybus_module::module_export_optional_static! {
         setup = super::setup,
         worker_threads = 2,
         provides = ["ai.tinyhumans.tinywallet.Wallet"],
@@ -1551,6 +1551,11 @@ mod exports {
         lazy = false,
     }
 }
+
+/// Entry points and manifest for a host that links this module in-process
+/// (local dev and tests only; released modules load as the `cdylib`).
+#[cfg(feature = "static-link")]
+pub use exports::linked_module;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

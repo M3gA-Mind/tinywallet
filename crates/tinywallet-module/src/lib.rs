@@ -16,4 +16,6 @@
 
 mod service;
 
+#[cfg(feature = "static-link")]
+pub use service::linked_module;
 pub use service::{BUS_NAME, HOST_INTERFACE, HOST_OBJECT_PATH, OBJECT_PATH};
