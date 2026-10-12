@@ -176,6 +176,30 @@ for f in btc evm solana tron keccak; do
 done
 ```
 
+### Linking `tinywallet-module` in-process (local dev and tests only)
+
+`tinywallet-module` builds as both `rlib` and `cdylib`. Released modules are
+always the `cdylib`, loaded by digest. For local development a host can instead
+build with the `static-link` feature (`linked` is an alias): the C ABI symbols
+are not exported, and `tinywallet_module::linked_module()` returns the module for
+`ModuleHost::attach_linked_with_config`, so several modules can share one
+executable without duplicate `TINYBUS_MODULE_ABI_V1` symbols.
+
+- Attestation works when linked: the host attests a linked module with the
+  executable's SHA-256, so confidential members (anything carrying a recovery
+  phrase) are delivered. `tests/static_link.rs` admits the linked module,
+  checks the attestation digest and signs over a confidential call.
+- Process-global state: the module keeps none that two modules could collide
+  on. Per-call secrets and approvals are `tokio::task_local!` slots, and the
+  wallet, Web3, native-wallet and x402 services are per-instance values built in
+  `setup`. The one `static` mutex lives in a test module.
+- Never ship or pin a `static-link` build; CI and product builds use the
+  released `cdylib`.
+
+```sh
+cargo test -p tinywallet-module --features static-link --test static_link
+```
+
 ## Roadmap
 
 Address handling is the first slice. The natural next ones, in order of how
