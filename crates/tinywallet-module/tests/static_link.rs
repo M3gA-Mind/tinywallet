@@ -1,6 +1,7 @@
 //! The `static-link` build exports `linked_module()` and the host admits it
 //! in-process, attesting it as host code (the executable's digest).
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use sha2::{Digest, Sha256};
 use tinybus::Connection;
 use tinybus::broker::Broker;
