@@ -80,6 +80,14 @@ zeroize = "1"
 # Generates opaque service, quote, and pending-payment identifiers.
 uuid = { version = "1", features = ["v4"] }
 
+[features]
+default = []
+# Local dev/test only: export the module through `linked_module()` instead of the
+# C ABI symbols so several modules can share one executable. Released modules
+# are always built without it.
+static-link = []
+linked = ["static-link"]
+
 [lints]
 workspace = true
 
@@ -107,3 +115,8 @@ bitcoin = { version = "0.32", default-features = false, features = ["std", "secp
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # The E2E drives a real broker and a real loader.
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[[test]]
+name = "static_link"
+path = "tests/static_link.rs"
+required-features = ["static-link"]
