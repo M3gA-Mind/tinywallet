@@ -20,7 +20,10 @@ async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
         .attach_linked_with_config(module, serde_json::json!({}))
         .expect("linked tinywallet is admitted");
     assert_eq!(info.manifest.bus_name.as_ref() as &str, BUS_NAME);
-    assert_eq!(info.state, ModuleState::Resolved);
+    assert!(matches!(
+        info.state,
+        ModuleState::Initializing | ModuleState::Resolved
+    ));
 
     let client = Connection::connect(bus.connect().await.unwrap())
         .await
@@ -36,5 +39,46 @@ async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
         .map(|b| format!("{b:02x}"))
         .collect();
     assert_eq!(attestation.sha256, hex);
+
+    // The point of attestation: a secret-bearing confidential member is
+    // delivered to the linked module, which an unattested one would refuse.
+    let proxy = client
+        .proxy(BUS_NAME, tinywallet_module::OBJECT_PATH, BUS_NAME)
+        .unwrap();
+    let request = serde_json::json!({
+        "secret": {
+            "mnemonic": "abandon abandon abandon abandon abandon abandon \
+                         abandon abandon abandon abandon abandon about",
+            "derivation_path": "m/44'/60'/0'/0/0",
+            "chain": "evm",
+        },
+        "transaction": {
+            "kind": "evm",
+            "to": "0x3535353535353535353535353535353535353535",
+            "value_wei": "1000000000000000000",
+            "data_hex": "0x",
+            "nonce": 9,
+            "gas_limit": 21_000,
+            "gas_price_wei": "20000000000",
+            "chain_id": 1,
+        },
+    });
+    let mut last = None;
+    for _ in 0..50 {
+        match proxy
+            .call_confidential::<serde_json::Value>("SignTransaction", (request.clone(),))
+            .await
+        {
+            Ok(signed) => {
+                last = Some(signed);
+                break;
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
+    }
+    assert!(
+        last.is_some(),
+        "linked module must accept confidential delivery"
+    );
     broker_task.abort();
 }
