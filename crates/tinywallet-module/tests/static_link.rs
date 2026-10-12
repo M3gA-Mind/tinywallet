@@ -6,7 +6,7 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::{ModuleHost, ModuleState};
 use tinybus::transport::memory::MemoryBus;
-use tinywallet_module::{BUS_NAME, OBJECT_PATH, linked_module};
+use tinywallet_module::{BUS_NAME, linked_module};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
@@ -19,17 +19,14 @@ async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
     let info = host
         .attach_linked_with_config(module, serde_json::json!({}))
         .expect("linked tinywallet is admitted");
-    assert_eq!(info.manifest.bus_name, BUS_NAME);
-    assert!(matches!(
-        info.state,
-        ModuleState::Resolved | ModuleState::Running | ModuleState::Ready
-    ) || !format!("{:?}", info.state).is_empty());
+    assert_eq!(info.manifest.bus_name.as_ref() as &str, BUS_NAME);
+    assert_eq!(info.state, ModuleState::Resolved);
 
     let client = Connection::connect(bus.connect().await.unwrap())
         .await
         .unwrap();
     let attestation = client
-        .attestation(BUS_NAME.to_string())
+        .attestation(info.manifest.bus_name.clone())
         .await
         .unwrap()
         .expect("linked module is attested, so confidential members are deliverable");
@@ -39,6 +36,5 @@ async fn linked_module_is_admitted_and_attested_as_the_host_executable() {
         .map(|b| format!("{b:02x}"))
         .collect();
     assert_eq!(attestation.sha256, hex);
-    let _ = OBJECT_PATH;
     broker_task.abort();
 }
