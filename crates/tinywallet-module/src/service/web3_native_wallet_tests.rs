@@ -486,6 +486,9 @@ async fn native_signer_can_derive_and_then_sign_with_one_scoped_secret() {
     broker_task.abort();
 }
 
+#[path = "web3_native_wallet_tests/native_solana_signing_tests.rs"]
+mod native_solana_signing_tests;
+
 struct LegacyHost;
 
 #[tinybus::interface(name = "ai.tinyhumans.tinywallet.Host")]

@@ -7,7 +7,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Verifier as _;
 use serde_json::{Value, json};
-use tinywallet_bus::wire::Signature;
+use tinywallet_bus::wire::{Signature, TransactionSpec};
 
 use super::wire::{b58_to_pubkey, encode_shortvec, token_program_id};
 use super::{
@@ -93,6 +93,8 @@ async fn balance_reads_lamports() {
 async fn a_native_transfer_is_signed_by_the_wallet_and_broadcast() {
     let rig = Rig::new();
     script_node(&rig);
+    rig.signer
+        .set_raw(&B64.encode(b"signed native transaction"));
     let result = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::NativeTransfer))
         .await
         .unwrap();
@@ -112,19 +114,38 @@ async fn a_native_transfer_is_signed_by_the_wallet_and_broadcast() {
         .collect();
     assert_eq!(methods, ["getLatestBlockhash", "sendTransaction"]);
 
-    // The broadcast wire is one signature slot plus the message, and the
-    // signature verifies against the wallet's key.
-    let wire = broadcast_wire(&rig);
-    assert_eq!(wire[0], 1, "exactly one signature");
-    let (sig, message) = wire[1..].split_at(64);
-    let key = FakeSigner::solana_key().verifying_key();
-    let signature = ed25519_dalek::Signature::from_slice(sig).unwrap();
-    key.verify(message, &signature)
-        .expect("the broadcast signature is valid over the message");
+    assert_eq!(broadcast_wire(&rig), b"signed native transaction");
     assert!(
         rig.signer
             .calls()
             .contains(&SignerCall::Derive(WalletChain::Solana))
+    );
+}
+
+#[tokio::test]
+async fn a_native_transfer_uses_quote_bound_transaction_signing() {
+    let rig = Rig::new();
+    script_node(&rig);
+    let quote = sol_quote(PreparedKind::NativeTransfer);
+    execute_solana_quote(&rig.engine, quote.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        rig.signer.transactions(),
+        vec![TransactionSpec::Solana {
+            from: quote.from_address,
+            to: quote.to_address,
+            lamports: 1000,
+            recent_blockhash: BLOCKHASH.to_string(),
+        }]
+    );
+    assert!(
+        !rig.signer
+            .calls()
+            .iter()
+            .any(|call| matches!(call, SignerCall::Message(..))),
+        "native SOL transfers must not use opaque message signing"
     );
 }
 
@@ -262,9 +283,13 @@ async fn signer_failures_are_surfaced_verbatim() {
 
     let rig = Rig::new();
     script_node(&rig);
+    rig.transport.on_rpc(
+        "getAccountInfo",
+        json!({"context": {"slot": 0}, "value": {"lamports": 2_039_280u64, "owner": "Tokenkeg", "data": ["", "base64"]}}),
+    );
     rig.signer
         .fail_message("failed to sign the Solana message: module unavailable");
-    let err = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::NativeTransfer))
+    let err = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::TokenTransfer))
         .await
         .unwrap_err();
     assert_eq!(err, "failed to sign the Solana message: module unavailable");
@@ -302,8 +327,12 @@ async fn a_wrong_kind_or_malformed_signature_from_the_signer_is_refused() {
     for (reply, expected) in cases {
         let rig = Rig::new();
         script_node(&rig);
+        rig.transport.on_rpc(
+            "getAccountInfo",
+            json!({"context": {"slot": 0}, "value": {"lamports": 2_039_280u64, "owner": "Tokenkeg", "data": ["", "base64"]}}),
+        );
         rig.signer.reply_message(reply);
-        let err = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::NativeTransfer))
+        let err = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::TokenTransfer))
             .await
             .unwrap_err();
         assert!(err.starts_with(expected), "{err}");
@@ -315,10 +344,14 @@ async fn a_wrong_kind_or_malformed_signature_from_the_signer_is_refused() {
 async fn a_non_ascii_signature_is_an_error_not_a_panic() {
     let rig = Rig::new();
     script_node(&rig);
+    rig.transport.on_rpc(
+        "getAccountInfo",
+        json!({"context": {"slot": 0}, "value": {"lamports": 2_039_280u64, "owner": "Tokenkeg", "data": ["", "base64"]}}),
+    );
     rig.signer.reply_message(Signature::Ed25519 {
         signature_hex: "é".repeat(64),
     });
-    let err = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::NativeTransfer))
+    let err = execute_solana_quote(&rig.engine, sol_quote(PreparedKind::TokenTransfer))
         .await
         .unwrap_err();
     assert!(err.contains("from the wallet module"), "{err}");
