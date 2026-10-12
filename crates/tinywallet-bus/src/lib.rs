@@ -21,6 +21,7 @@
 //! The `serde` feature derives wire serialization; `wire` enables call DTOs.
 //! Legacy feature names remain accepted but never enable implementation code.
 
+pub mod mnemonic;
 pub mod names;
 #[cfg(feature = "wire")]
 pub mod tools;
@@ -38,6 +39,10 @@ pub use transfer::TronTransfer;
 pub use names::{
     BUS_NAME, CONFIDENTIAL_METHODS, HOST_INTERFACE, HOST_METHODS, HOST_OBJECT_PATH, METHODS,
     OBJECT_PATH,
+};
+pub use mnemonic::{
+    MNEMONIC_WORD_COUNTS, UnsupportedWordCount, validate_mnemonic_word_count,
+    validate_mnemonic_word_count_usize,
 };
 pub use version::{CONTRACT_VERSION, is_compatible};
 
