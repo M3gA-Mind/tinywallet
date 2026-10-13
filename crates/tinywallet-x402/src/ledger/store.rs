@@ -259,16 +259,17 @@ impl PaymentLedger {
             // the record on this read; a reader that still sees the hold
             // counts it unless its record carries the same committed hold key.
             // That key also covers a writer paused between append and release.
-            // A concurrent hold change makes the CAS below fail and retry. Reading records first would leave a window in
-            // which neither is counted.
+            // A concurrent hold change makes the CAS below fail and retry.
+            // Reading records first would leave a window in which neither is
+            // counted.
             self.refresh_records()?;
             doc.holds.retain(|key, hold| {
                 hold.expires_at_ms > now_ms && !self.committed_holds.contains(key)
             });
             self.holds.clone_from(&doc.holds);
             if let Some(refusal) = self.check_budget_at(now, amount).refusal() {
-                // The snapshot may straddle another writer's commit (its record
-                // appended, its hold still in our copy) and double count. Only
+                // A legacy writer without commit metadata can still straddle
+                // this snapshot and double count its record and hold. Only
                 // refuse on a snapshot the hold document still matches after
                 // excluding holds identified by durable commit records;
                 // otherwise retry against the current one.
