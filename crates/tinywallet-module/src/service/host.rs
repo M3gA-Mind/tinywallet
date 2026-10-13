@@ -93,6 +93,7 @@ impl HostCallbacks {
 
     /// Serve `storage` to the ledger in place of the storage bus.
     #[cfg(test)]
+    #[allow(clippy::unwrap_used)]
     pub(crate) fn set_test_ledger_storage(&self, storage: LedgerStorage) {
         *self.test_ledger_storage.lock().unwrap() = Some(storage);
     }
