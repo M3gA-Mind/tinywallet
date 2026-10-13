@@ -37,9 +37,8 @@ async fn fixture() -> Fixture {
     let backend = MemoryStorage::new();
     let host = backend.for_scope(&Scope::local()).unwrap();
     let served_scope = host.clone();
-    let endpoint = PerCallerEndpoint::new(move |_sender| {
-        Some(StorageServer::new(served_scope.clone()))
-    });
+    let endpoint =
+        PerCallerEndpoint::new(move |_sender| Some(StorageServer::new(served_scope.clone())));
     let served = serve(&host_connection, Arc::new(endpoint)).await.unwrap();
     // Keep the host connection alive for the life of the fixture.
     std::mem::forget(host_connection);
@@ -103,7 +102,11 @@ async fn configure_persists_payments_and_budget_holds_on_the_host_storage() {
     let streams = Arc::clone(fixture.host.streams());
     let documents = Arc::clone(fixture.host.documents());
     assert_eq!(streams.len("x402.payments").await.unwrap(), 1);
-    let holds = documents.get("x402_budget", "holds").await.unwrap().unwrap();
+    let holds = documents
+        .get("x402_budget", "holds")
+        .await
+        .unwrap()
+        .unwrap();
     let amounts: Vec<u64> = holds.doc["holds"]
         .as_object()
         .unwrap()
@@ -281,13 +284,30 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
             .unwrap()
     };
     let documents = Arc::clone(fixture.host.documents());
-    let before = expiry(&documents.get("x402_budget", "holds").await.unwrap().unwrap().doc);
+    let before = expiry(
+        &documents
+            .get("x402_budget", "holds")
+            .await
+            .unwrap()
+            .unwrap()
+            .doc,
+    );
 
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     renew_holds_once().await;
 
-    let after = expiry(&documents.get("x402_budget", "holds").await.unwrap().unwrap().doc);
-    assert!(after > before, "renewal moved the expiry: {before} -> {after}");
+    let after = expiry(
+        &documents
+            .get("x402_budget", "holds")
+            .await
+            .unwrap()
+            .unwrap()
+            .doc,
+    );
+    assert!(
+        after > before,
+        "renewal moved the expiry: {before} -> {after}"
+    );
 
     fixture
         .wallet
@@ -312,9 +332,7 @@ async fn concurrent_reservations_over_the_bus_do_not_starve_the_runtime() {
     // Eight tasks on a two-worker runtime each block on bus-backed storage.
     // The day allows 100, each asks for 25: exactly four fit.
     let tasks: Vec<_> = (0..8)
-        .map(|_| {
-            tokio::spawn(async { ledger::reserve(25).expect("storage answers").ok() })
-        })
+        .map(|_| tokio::spawn(async { ledger::reserve(25).expect("storage answers").ok() }))
         .collect();
     // Keep the winners alive: a dropped reservation releases its hold.
     let mut held = Vec::new();

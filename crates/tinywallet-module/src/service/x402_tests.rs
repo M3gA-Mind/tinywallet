@@ -386,7 +386,11 @@ async fn x402_bus_methods_serve_history_budget_and_detailed_summary() {
         ..Default::default()
     };
     let workspace = tempfile::tempdir().unwrap();
-    wallet.callbacks.as_ref().unwrap().set_test_ledger_storage(tinywallet_x402::ledger::LedgerStorage::memory());
+    wallet
+        .callbacks
+        .as_ref()
+        .unwrap()
+        .set_test_ledger_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let service = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {
@@ -613,7 +617,11 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         ..crate::service::Wallet::default()
     });
     let workspace = tempfile::tempdir().unwrap();
-    wallet.callbacks.as_ref().unwrap().set_test_ledger_storage(tinywallet_x402::ledger::LedgerStorage::memory());
+    wallet
+        .callbacks
+        .as_ref()
+        .unwrap()
+        .set_test_ledger_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {

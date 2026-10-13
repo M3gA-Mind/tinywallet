@@ -3,14 +3,14 @@
 use std::sync::Arc;
 
 use log::debug;
-use tinystoragedrivers_core::{ScopedStorage, StorageBackend};
-use tinywallet_x402::ledger::LedgerStorage;
 use tinybus::{Connection, Error as BusError, Proxy};
+use tinystoragedrivers_core::{ScopedStorage, StorageBackend};
 use tinywallet_bus::wire::{
     AuthorizationResult, AuthorizeNativeWalletExecutionRequest, AuthorizeWeb3ExecutionRequest,
     AuthorizeX402PaymentRequest, ChainTransportRequest, ChainTransportResult, HostResponse,
     WalletAccountsResponse, WalletBackendRequest, WalletBackendResponse,
 };
+use tinywallet_x402::ledger::LedgerStorage;
 
 use super::{HOST_INTERFACE, HOST_OBJECT_PATH};
 

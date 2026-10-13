@@ -135,9 +135,10 @@ fn a_commit_between_the_hold_read_and_the_record_read_cannot_be_missed() {
     // hold document would see neither and admit 50 (130 > 100).
     let base = LedgerStorage::memory();
     let mut a_doc = HoldsDoc::default();
-    a_doc
-        .holds
-        .insert("other:1".into(), hold(80, now().timestamp_millis() + HOLD_TTL_MS));
+    a_doc.holds.insert(
+        "other:1".into(),
+        hold(80, now().timestamp_millis() + HOLD_TTL_MS),
+    );
     put_holds(&base, &a_doc);
 
     let b_storage = base.clone();
