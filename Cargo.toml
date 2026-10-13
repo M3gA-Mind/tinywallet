@@ -1,6 +1,6 @@
 [package]
 name = "tinywallet"
-version = "0.21.0"
+version = "0.23.0"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-only"
@@ -251,6 +251,8 @@ workspace = true
 # checkout so the module and the storage client share one `Connection` type.
 [patch."https://github.com/tinyhumansai/tinybus"]
 tinybus = { path = "vendor/tinybus/crates/tinybus" }
+tinybus-module = { path = "vendor/tinybus/crates/tinybus-module" }
+tinybus-macros = { path = "vendor/tinybus/crates/tinybus-macros" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
