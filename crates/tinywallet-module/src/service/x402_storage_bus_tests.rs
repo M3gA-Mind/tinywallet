@@ -144,9 +144,8 @@ async fn a_host_side_ledger_and_the_module_ledger_share_one_atomic_budget() {
         "70 held over the bus plus 40 exceeds the day"
     );
     other.reserve(30).unwrap().unwrap();
-    assert_eq!(
+    assert!(
         ledger::with_ledger_mut(|ledger| ledger.reserve(1).unwrap().is_err()).unwrap(),
-        true,
         "the module sees the host-side hold on its next reservation"
     );
 

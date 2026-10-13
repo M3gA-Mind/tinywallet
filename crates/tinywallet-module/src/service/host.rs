@@ -82,8 +82,8 @@ impl HostCallbacks {
             Ok(scoped) => Ok(LedgerStorage::from_scoped(&scoped)),
             #[cfg(feature = "e2e-memory-storage")]
             Err(error) => {
-                log::warn!("[wallet::host] host storage unavailable ({error}); using memory");
                 static MEMORY: std::sync::OnceLock<LedgerStorage> = std::sync::OnceLock::new();
+                log::warn!("[wallet::host] host storage unavailable ({error}); using memory");
                 Ok(MEMORY.get_or_init(LedgerStorage::memory).clone())
             }
             #[cfg(not(feature = "e2e-memory-storage"))]
