@@ -8,7 +8,7 @@ $rootPrefix = $root.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::Dire
 if (-not $target.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'CARGO_TARGET_DIR must stay inside the repository' }
 $stage = Join-Path $target 'tinywallet-module-e2e'
 
-cargo build --locked --release --package tinywallet-module
+cargo build --locked --release --package tinywallet-module --features e2e-memory-storage
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build tinywallet-module' }
 Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $stage | Out-Null
