@@ -38,7 +38,8 @@
 //! Holds live in one `x402_budget/holds` document that every writer on the
 //! storage updates by compare-and-swap, so the check-and-hold is atomic across
 //! processes, not only across threads. A hold expires after 15 minutes so a
-//! crashed process cannot lock budget forever; once the signed authorization is
+//! crashed process cannot lock budget forever, and a live owner extends the lease
+//! with [`PaymentLedger::renew_holds`] every [`HOLD_RENEW_EVERY`]; once the signed authorization is
 //! durably recorded, that record protects the budget across restart.
 //!
 //! # The process-wide handle
@@ -61,7 +62,7 @@ pub use global::{
     clear_global, clear_provisioned_storage, init_global, provision_storage, provisioned_storage,
     with_ledger, with_ledger_mut,
 };
-pub use persist::LedgerStorage;
+pub use persist::{HOLD_RENEW_EVERY, LedgerStorage};
 pub use reservation::{Reservation, reserve};
 pub use store::PaymentLedger;
 pub use types::{
