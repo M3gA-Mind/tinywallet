@@ -592,3 +592,7 @@ mod tests;
 #[cfg(test)]
 #[path = "x402_lifecycle_tests.rs"]
 mod lifecycle_tests;
+
+#[cfg(test)]
+#[path = "x402_storage_bus_tests.rs"]
+mod storage_bus_tests;
