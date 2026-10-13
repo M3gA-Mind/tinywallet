@@ -131,7 +131,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
     wait_until_serving(&client).await;
 
     let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME).unwrap();
-    let mut x402_service: X402ServiceHandle = proxy
+    let x402_configured = proxy
         .call(
             "X402Configure",
             (X402ConfigureRequest {
@@ -145,7 +145,20 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
             },),
         )
         .await
-        .unwrap();
+        .map(|handle: X402ServiceHandle| handle);
+    // A released artifact has no ledger storage until the host provisions it,
+    // so x402 must fail closed; the artifact built with `e2e-memory-storage`
+    // runs the whole payment flow.
+    let x402_service = match x402_configured {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            assert!(
+                error.to_string().contains("X402OperationFailed"),
+                "an unprovisioned artifact must fail x402 closed: {error}"
+            );
+            None
+        }
+    };
     let mut web3_service: Web3ServiceHandle = proxy.call("Web3Configure", ((),)).await.unwrap();
 
     // The new native engine crosses the compiled module ABI, not a copied host
@@ -550,6 +563,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
                 "maxTimeoutSeconds": 60,
                 "extra": {"name": "USD Coin", "version": "2"}
             }],
+    if let Some(mut x402_service) = x402_service {
             "extensions": {}
         }))
         .unwrap(),
@@ -947,6 +961,7 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         ),
         "incompatible callback replies must fail closed without a local fallback"
     );
+    }
     host_bad_response.store(false, Ordering::SeqCst);
     proxy
         .call::<()>(
