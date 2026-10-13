@@ -29,7 +29,7 @@ async fn the_global_ledger_lifecycle_runs_on_a_multi_thread_runtime() {
     reset_global();
     assert!(with_ledger(|_| ()).is_err());
     assert!(with_ledger_mut(|_| ()).is_err());
-    init_global(LedgerStorage::memory(), "global-test", budget()).unwrap();
+    init_global(LedgerStorage::memory(), "global-test", budget()).expect("init");
     assert!(with_ledger(|_| ()).is_ok());
     assert!(with_ledger_mut(|_| ()).is_ok());
     clear_global();
