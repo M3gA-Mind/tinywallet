@@ -302,20 +302,24 @@ fn reserve_during_commit(durable: bool, committed_amount: u64) {
     let mut owner = PaymentLedger::open(storage, SESSION, budget()).unwrap();
     let id = owner.reserve_at(now(), committed_amount).unwrap().unwrap();
     let mut observer = PaymentLedger::open(base, "observer", budget()).unwrap();
+    let result = Arc::new(Mutex::new(None));
+    let observed = Arc::clone(&result);
     *documents.before_first_hold_read.lock().unwrap() =
         Some(Interleave(Box::new(move || {
             let verdict = observer.reserve_at(now(), 50).unwrap();
-            assert_eq!(
-                verdict.is_ok(),
-                committed_amount == 30,
-                "the committed record must count once while its hold is unchanged: {verdict:?}"
-            );
+            *observed.lock().unwrap() = Some(verdict);
         })));
     if durable {
         owner.try_commit_reservation(id, settled(committed_amount)).unwrap();
     } else {
         owner.commit_reservation(id, settled(committed_amount));
     }
+    let verdict = result.lock().unwrap().take().expect("release read ran");
+    assert_eq!(
+        verdict.is_ok(),
+        committed_amount == 30,
+        "the committed record must count once while its hold is unchanged: {verdict:?}"
+    );
 }
 
 #[test]
