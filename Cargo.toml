@@ -251,6 +251,8 @@ workspace = true
 # checkout so the module and the storage client share one `Connection` type.
 [patch."https://github.com/tinyhumansai/tinybus"]
 tinybus = { path = "vendor/tinybus/crates/tinybus" }
+tinybus-module = { path = "vendor/tinybus/crates/tinybus-module" }
+tinybus-macros = { path = "vendor/tinybus/crates/tinybus-macros" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
