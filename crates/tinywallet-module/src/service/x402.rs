@@ -93,7 +93,12 @@ impl X402Runtime {
         };
         let provisioned = ledger::provisioned_storage();
         #[cfg(feature = "e2e-memory-storage")]
-        let provisioned = provisioned.or_else(|| Some(ledger::LedgerStorage::memory()));
+        let provisioned = provisioned.or_else(|| {
+            // Provision once so a reconfigure reopens the same storage, as a
+            // durable host backend would.
+            ledger::provision_storage(ledger::LedgerStorage::memory());
+            ledger::provisioned_storage()
+        });
         let storage =
             provisioned.ok_or_else(|| "x402 ledger storage is not provisioned".to_string())?;
         ledger::init_global(storage, &config.session_id, budget)?;
