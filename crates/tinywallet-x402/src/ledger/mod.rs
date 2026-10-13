@@ -48,7 +48,7 @@
 //! this crate.
 
 #[cfg(test)]
-mod faulty;
+pub(crate) mod faulty;
 mod global;
 mod persist;
 mod reservation;
