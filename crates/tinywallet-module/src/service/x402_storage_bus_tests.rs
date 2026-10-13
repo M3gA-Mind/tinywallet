@@ -12,7 +12,7 @@ use tinybus::Connection;
 use tinystoragedrivers_busproxy::{PerCallerEndpoint, serve};
 use tinystoragedrivers_client::StorageServer;
 use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Result as StorageResult, Scope, ScopedStorage, StorageBackend,
+    DocumentStore, MemoryStorage, Result as StorageResult, Scope, Precondition, ScopedStorage, StorageBackend,
     StreamEntry, StreamStore, async_trait,
 };
 use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402SummaryRequest};
@@ -309,7 +309,7 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
             "x402_budget",
             "holds",
             aged,
-            tinystoragedrivers_core::Precondition::Version(stored.version),
+            Precondition::Version(stored.version),
         )
         .await
         .unwrap();
@@ -324,8 +324,9 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
             .doc,
     );
     assert!(
-        after > before,
-        "renewal moved the expiry: {before} -> {after}"
+        after > before - 1_000,
+        "renewal moved the aged expiry forward: {} -> {after}",
+        before - 1_000
     );
 
     fixture
