@@ -2,7 +2,7 @@
 name = "tinywallet-module"
 version = "0.20.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.85"
 license = "GPL-3.0-only"
 description = "Trusted TinyBus module adapter for TinyWallet."
 repository = "https://github.com/tinyhumansai/tinywallet"
