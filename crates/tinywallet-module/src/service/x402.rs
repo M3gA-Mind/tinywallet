@@ -33,6 +33,8 @@ pub(crate) struct X402Runtime {
     )>,
     config: X402ConfigResponse,
     handle: X402ServiceHandle,
+    /// Extends the lease on this runtime's budget holds while it lives.
+    lease: Option<tokio::task::JoinHandle<()>>,
 }
 
 struct PendingAdmission<'a> {
@@ -58,6 +60,42 @@ impl Drop for PendingAdmission<'_> {
         if let Ok(mut preparing) = self.preparing.lock() {
             *preparing = preparing.saturating_sub(1);
         }
+    }
+}
+
+impl Drop for X402Runtime {
+    fn drop(&mut self) {
+        self.stop_lease();
+    }
+}
+
+/// Renew the process-wide ledger's budget holds every
+/// [`ledger::HOLD_RENEW_EVERY`], so a payment still in flight when the hold
+/// TTL passes keeps its budget charged. `None` outside a tokio runtime.
+fn spawn_lease_renewal() -> Option<tokio::task::JoinHandle<()>> {
+    let runtime = tokio::runtime::Handle::try_current().ok()?;
+    Some(runtime.spawn(async {
+        let mut tick = tokio::time::interval(ledger::HOLD_RENEW_EVERY);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // The first tick is immediate; nothing is held yet.
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            renew_holds_once().await;
+        }
+    }))
+}
+
+/// One lease renewal, off the async workers because the ledger's storage calls
+/// block.
+async fn renew_holds_once() {
+    let outcome =
+        tokio::task::spawn_blocking(|| ledger::with_ledger_mut(ledger::PaymentLedger::renew_holds))
+            .await;
+    match outcome {
+        Ok(Ok(Ok(renewed))) => log::debug!("[x402::lease] renewed {renewed} holds"),
+        Ok(Ok(Err(error)) | Err(error)) => log::warn!("[x402::lease] renewal failed: {error}"),
+        Err(error) => log::warn!("[x402::lease] renewal task failed: {error}"),
     }
 }
 
@@ -92,7 +130,9 @@ impl X402Runtime {
             monthly_max_atomic: config.monthly_max_atomic,
         };
         ledger::init_global(storage, &config.session_id, budget)?;
+        let lease = spawn_lease_renewal();
         Ok(Self {
+            lease,
             callbacks,
             preparing: Mutex::new(0),
             #[cfg(test)]
@@ -102,6 +142,12 @@ impl X402Runtime {
                 handle: uuid::Uuid::new_v4().to_string(),
             },
         })
+    }
+
+    fn stop_lease(&mut self) {
+        if let Some(lease) = self.lease.take() {
+            lease.abort();
+        }
     }
 
     pub(crate) fn handle(&self) -> X402ServiceHandle {
@@ -117,6 +163,7 @@ impl X402Runtime {
 
     pub(crate) fn close(&mut self, handle: &X402ServiceHandle) -> Result<(), String> {
         self.require_handle(handle)?;
+        self.stop_lease();
         ledger::clear_global();
         Ok(())
     }
