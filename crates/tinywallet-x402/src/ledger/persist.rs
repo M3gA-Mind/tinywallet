@@ -7,6 +7,7 @@
 //! in the handles and picks sqlite, mongodb or memory.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::Arc;
 
 use log::debug;
@@ -97,18 +98,29 @@ pub(super) struct Persist {
 }
 
 impl Persist {
+    /// Run one port call on the bridge, folding both layers of failure into a
+    /// message that names the operation.
+    fn run<T, F>(&self, what: &str, future: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: Future<Output = tinystoragedrivers_core::Result<T>> + Send + 'static,
+    {
+        match self.bridge.run(future) {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) | Err(error) => Err(format!("{what}: {error}")),
+        }
+    }
+
     pub(super) fn open(storage: LedgerStorage) -> Result<Self, String> {
         let bridge = Blocking::new().map_err(|e| format!("start storage bridge: {e}"))?;
-        let documents = Arc::clone(&storage.documents);
-        bridge
-            .run(async move {
-                documents
-                    .ensure_collection(&CollectionSpec::new(BUDGET_COLLECTION))
-                    .await
-            })
-            .map_err(|e| format!("bridge: {e}"))?
-            .map_err(|e| format!("declare x402 budget collection: {e}"))?;
-        Ok(Self { storage, bridge })
+        let persist = Self { storage, bridge };
+        let documents = Arc::clone(&persist.storage.documents);
+        persist.run("declare x402 budget collection", async move {
+            documents
+                .ensure_collection(&CollectionSpec::new(BUDGET_COLLECTION))
+                .await
+        })?;
+        Ok(persist)
     }
 
     /// Records from stream offset `from` to the end, with the next offset.
@@ -118,11 +130,9 @@ impl Persist {
         let mut next = from;
         loop {
             let streams = Arc::clone(&self.storage.streams);
-            let window = self
-                .bridge
-                .run(async move { streams.read_window(PAYMENTS_STREAM, next, WINDOW).await })
-                .map_err(|e| format!("bridge: {e}"))?
-                .map_err(|e| format!("read payments stream: {e}"))?;
+            let window = self.run("read payments stream", async move {
+                streams.read_window(PAYMENTS_STREAM, next, WINDOW).await
+            })?;
             let Some(last) = window.last() else { break };
             next = last.offset.saturating_add(1);
             for entry in window {
@@ -140,23 +150,19 @@ impl Persist {
 
     /// Append one record and return its stream offset.
     pub(super) fn append(&self, record: &PaymentRecord) -> Result<u64, String> {
-        let value = serde_json::to_value(record)
-            .map_err(|error| format!("serialize ledger record: {error}"))?;
+        let value = serde_json::to_value(record).map_err(|error| error.to_string())?;
         let streams = Arc::clone(&self.storage.streams);
-        self.bridge
-            .run(async move { streams.append(PAYMENTS_STREAM, value).await })
-            .map_err(|e| format!("bridge: {e}"))?
-            .map_err(|e| format!("append ledger record: {e}"))
+        self.run("append ledger record", async move {
+            streams.append(PAYMENTS_STREAM, value).await
+        })
     }
 
     /// The hold document and the version it was read at (`None` when absent).
     pub(super) fn load_holds(&self) -> Result<(Option<Version>, HoldsDoc), String> {
         let documents = Arc::clone(&self.storage.documents);
-        let found = self
-            .bridge
-            .run(async move { documents.get(BUDGET_COLLECTION, HOLDS_ID).await })
-            .map_err(|e| format!("bridge: {e}"))?
-            .map_err(|e| format!("read budget holds: {e}"))?;
+        let found = self.run("read budget holds", async move {
+            documents.get(BUDGET_COLLECTION, HOLDS_ID).await
+        })?;
         match found {
             None => Ok((None, HoldsDoc::default())),
             Some(versioned) => {
@@ -174,18 +180,15 @@ impl Persist {
         version: Option<Version>,
         doc: &HoldsDoc,
     ) -> Result<bool, String> {
-        let body = serde_json::to_value(doc).map_err(|e| format!("serialize holds: {e}"))?;
+        let body = serde_json::to_value(doc).map_err(|error| error.to_string())?;
         let precondition = version.map_or(Precondition::Absent, Precondition::Version);
         let documents = Arc::clone(&self.storage.documents);
-        let result = self
-            .bridge
-            .run(async move {
-                documents
-                    .put(BUDGET_COLLECTION, HOLDS_ID, body, precondition)
-                    .await
-            })
-            .map_err(|e| format!("bridge: {e}"))?;
-        match result {
+        let result = self.bridge.run(async move {
+            documents
+                .put(BUDGET_COLLECTION, HOLDS_ID, body, precondition)
+                .await
+        });
+        match result.map_err(|error| format!("write budget holds: {error}"))? {
             Ok(_) => Ok(true),
             Err(error)
                 if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) =>

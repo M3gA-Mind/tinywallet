@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 use super::faulty::{append_raw, faulty_storage};
+use super::persist::{BUDGET_COLLECTION, HOLDS_ID, HoldsDoc, Persist};
 use super::*;
+use tinystoragedrivers_core::{Blocking, Version};
 
 const SESSION: &str = "session-a";
 static NEXT_TEST_RECORD: AtomicU64 = AtomicU64::new(1);
@@ -726,4 +728,86 @@ fn a_ledger_picks_up_a_hold_document_it_did_not_write() {
         1_000_000,
         "B's mirror includes A's hold"
     );
+}
+
+fn corrupt_the_hold_document(storage: &LedgerStorage) {
+    let documents = std::sync::Arc::clone(&storage.documents);
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            documents
+                .put(
+                    BUDGET_COLLECTION,
+                    HOLDS_ID,
+                    serde_json::json!({"holds": 5}),
+                    tinystoragedrivers_core::Precondition::None,
+                )
+                .await
+                .unwrap();
+        })
+        .unwrap();
+}
+
+#[test]
+fn an_unreadable_hold_document_refuses_reservations() {
+    let dir = LedgerStorage::memory();
+    let mut ledger = ledger_in(&dir);
+    corrupt_the_hold_document(&dir);
+    let error = ledger.reserve_at(now(), 1_000).unwrap_err();
+    assert!(error.contains("unreadable"), "{error}");
+    assert_eq!(ledger.reserved_atomic(), 0);
+}
+
+#[test]
+fn a_release_that_cannot_reach_storage_leaves_the_hold_to_expire() {
+    let dir = LedgerStorage::memory();
+    let mut ledger = ledger_in(&dir);
+    let id = ledger.reserve_at(now(), 1_000).unwrap().unwrap();
+    corrupt_the_hold_document(&dir);
+    ledger.release(id);
+    assert_eq!(
+        ledger.reserved_atomic(),
+        0,
+        "this ledger forgets it at once"
+    );
+}
+
+#[test]
+fn the_hold_document_is_a_compare_and_swap() {
+    let persist = Persist::open(LedgerStorage::memory()).unwrap();
+    let doc = HoldsDoc::default();
+    assert!(
+        persist.store_holds(None, &doc).unwrap(),
+        "first write inserts"
+    );
+    assert!(
+        !persist.store_holds(None, &doc).unwrap(),
+        "inserting over an existing document loses"
+    );
+    let (version, _) = persist.load_holds().unwrap();
+    assert!(version.is_some());
+    assert!(
+        !persist.store_holds(Some(Version(99)), &doc).unwrap(),
+        "a stale version loses"
+    );
+    assert!(persist.store_holds(version, &doc).unwrap());
+}
+
+#[test]
+fn the_fault_injecting_streams_pass_everything_else_through() {
+    let (storage, _faults) = faulty_storage();
+    let streams = std::sync::Arc::clone(&storage.streams);
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            streams
+                .append_batch("s", vec![serde_json::json!(1), serde_json::json!(2)])
+                .await
+                .unwrap();
+            assert_eq!(streams.len("s").await.unwrap(), 2);
+            assert_eq!(streams.streams("").await.unwrap(), vec!["s".to_string()]);
+            assert_eq!(streams.truncate_before("s", 1).await.unwrap(), 1);
+            assert!(streams.delete_stream("s").await.unwrap());
+        })
+        .unwrap();
 }
