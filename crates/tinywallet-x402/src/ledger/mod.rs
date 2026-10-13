@@ -47,6 +47,8 @@
 //! [`with_ledger`] / [`with_ledger_mut`]. The handle is the only shared state in
 //! this crate.
 
+#[cfg(test)]
+mod faulty;
 mod global;
 mod persist;
 mod reservation;

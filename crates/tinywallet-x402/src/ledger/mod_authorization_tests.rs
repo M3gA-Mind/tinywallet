@@ -55,22 +55,23 @@ fn record(
     }
 }
 
-fn ledger_in(dir: &tempfile::TempDir) -> PaymentLedger {
-    PaymentLedger::new(dir.path(), SESSION, budget())
+fn ledger_in(dir: &LedgerStorage) -> PaymentLedger {
+    PaymentLedger::open(dir.clone(), SESSION, budget()).unwrap()
 }
 
 #[test]
 fn expired_authorizations_remain_durable_but_stop_charging_future_windows() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut ledger = PaymentLedger::new(
-        dir.path(),
+    let dir = LedgerStorage::memory();
+    let mut ledger = PaymentLedger::open(
+        dir.clone(),
         SESSION,
         SpendingBudget {
             per_request_max_atomic: 500_000,
             daily_max_atomic: 2_000_000,
             monthly_max_atomic: 10_000_000,
         },
-    );
+    )
+    .unwrap();
     let authorized_at = now();
     let tomorrow = authorized_at + Duration::days(1);
     let next_month = authorized_at + Duration::days(20);
@@ -116,16 +117,17 @@ fn expired_authorizations_remain_durable_but_stop_charging_future_windows() {
 
 #[test]
 fn bounded_authorization_still_counts_in_its_issue_month() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut ledger = PaymentLedger::new(
-        dir.path(),
+    let dir = LedgerStorage::memory();
+    let mut ledger = PaymentLedger::open(
+        dir.clone(),
         SESSION,
         SpendingBudget {
             per_request_max_atomic: 500_000,
             daily_max_atomic: 3_000_000,
             monthly_max_atomic: 2_000_000,
         },
-    );
+    )
+    .unwrap();
     let mut authorization = record(1_800_000, PaymentStatus::Pending, now(), SESSION);
     authorization.id = "month-overlap".to_string();
     authorization.authorization_valid_until = Some(now() + Duration::hours(1));
@@ -143,7 +145,7 @@ fn bounded_authorization_still_counts_in_its_issue_month() {
 
 #[test]
 fn legacy_expiry_failed_rows_remain_conservatively_budgeted() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let mut legacy = record(1_800_000, PaymentStatus::Failed, now(), SESSION);
     legacy.id = "legacy-expiry-failed".to_string();
@@ -169,7 +171,7 @@ fn legacy_expiry_failed_rows_remain_conservatively_budgeted() {
 
 #[test]
 fn solana_expiry_requires_a_strictly_greater_finalized_height_and_keeps_value() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let mut authorization = record(1_800_000, PaymentStatus::Pending, now(), SESSION);
     authorization.id = "solana-blockheight-bound".to_string();
@@ -228,7 +230,7 @@ fn solana_expiry_requires_a_strictly_greater_finalized_height_and_keeps_value() 
 
 #[test]
 fn a_late_receipt_wins_over_a_stale_solana_expiry_observation() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let mut authorization = record(100_000, PaymentStatus::Pending, now(), SESSION);
     authorization.id = "solana-late-receipt".to_string();
@@ -261,7 +263,7 @@ fn a_late_receipt_wins_over_a_stale_solana_expiry_observation() {
 
 #[test]
 fn legacy_unknown_authorizations_remain_conservative_in_future_windows() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     ledger
         .try_record_payment(record(1_800_000, PaymentStatus::Pending, now(), SESSION))
@@ -279,7 +281,7 @@ fn legacy_unknown_authorizations_remain_conservative_in_future_windows() {
 
 #[test]
 fn pending_totals_saturate_instead_of_wrapping() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     ledger.record_payment(record(u64::MAX - 5, PaymentStatus::Pending, now(), SESSION));
     ledger.record_payment(record(10, PaymentStatus::Pending, now(), SESSION));
@@ -294,16 +296,17 @@ fn pending_totals_saturate_instead_of_wrapping() {
 
 #[test]
 fn adding_an_amount_past_the_maximum_cap_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut ledger = PaymentLedger::new(
-        dir.path(),
+    let dir = LedgerStorage::memory();
+    let mut ledger = PaymentLedger::open(
+        dir.clone(),
         SESSION,
         SpendingBudget {
             per_request_max_atomic: u64::MAX,
             daily_max_atomic: u64::MAX,
             monthly_max_atomic: u64::MAX,
         },
-    );
+    )
+    .unwrap();
     ledger.record_payment(record(
         u64::MAX - 10,
         PaymentStatus::Pending,
@@ -323,7 +326,7 @@ fn adding_an_amount_past_the_maximum_cap_is_refused() {
 
 #[test]
 fn durable_append_separates_a_trailing_partial_jsonl_line() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let mut first = record(100_000, PaymentStatus::Pending, now(), SESSION);
     first.id = "first".to_string();
@@ -355,7 +358,7 @@ fn durable_append_separates_a_trailing_partial_jsonl_line() {
 
 #[test]
 fn the_latest_status_for_an_authorization_controls_budget_and_summary() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let mut authorization = record(1_800_000, PaymentStatus::Pending, now(), SESSION);
     authorization.id = "same-authorization".to_string();
@@ -387,8 +390,8 @@ fn the_latest_status_for_an_authorization_controls_budget_and_summary() {
 #[test]
 fn a_durable_reservation_commit_survives_reopening_without_double_counting() {
     let _guard = TEST_LOCK.blocking_lock();
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
 
     reserve(5)
         .unwrap()
@@ -400,7 +403,7 @@ fn a_durable_reservation_commit_survives_reopening_without_double_counting() {
     assert_eq!(with_ledger(PaymentLedger::outstanding_atomic).unwrap(), 5);
 
     reset_global();
-    init_global(dir.path(), SESSION, budget());
+    init_global(dir.clone(), SESSION, budget()).unwrap();
     assert_eq!(with_ledger(PaymentLedger::pending_count).unwrap(), 1);
     assert_eq!(with_ledger(PaymentLedger::outstanding_atomic).unwrap(), 5);
     reset_global();

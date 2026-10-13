@@ -36,8 +36,8 @@ const WINDOW: usize = 512;
 /// The storage handles a ledger persists through.
 #[derive(Debug, Clone)]
 pub struct LedgerStorage {
-    documents: Arc<dyn DocumentStore>,
-    streams: Arc<dyn StreamStore>,
+    pub(super) documents: Arc<dyn DocumentStore>,
+    pub(super) streams: Arc<dyn StreamStore>,
 }
 
 impl LedgerStorage {
