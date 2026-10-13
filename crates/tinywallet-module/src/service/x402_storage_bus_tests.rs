@@ -239,6 +239,8 @@ async fn a_failed_reconfigure_keeps_the_previous_service_usable() {
     fixture.broker.abort();
 }
 
+// With `e2e-memory-storage` a missing host falls back to memory by design.
+#[cfg(not(feature = "e2e-memory-storage"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configure_fails_closed_when_storage_goes_away_for_the_replacement() {
     let _guard = LEDGER_TEST_LOCK.lock().await;

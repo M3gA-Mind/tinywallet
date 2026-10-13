@@ -300,7 +300,7 @@ impl PaymentLedger {
     }
 
     /// Extend the lease on every hold this ledger still owns to a fresh
-    /// [`HOLD_TTL_MS`] from `now`, re-placing one that lapsed (and was pruned
+    /// `HOLD_TTL_MS` from `now`, re-placing one that lapsed (and was pruned
     /// by another writer) so a payment in flight past the TTL keeps its budget
     /// charged. Returns how many holds were renewed.
     ///
