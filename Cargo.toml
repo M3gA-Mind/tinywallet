@@ -247,6 +247,11 @@ key = [
 [lints]
 workspace = true
 
+# tinystoragedrivers names tinybus by git rev; point that source at the vendored
+# checkout so the module and the storage client share one `Connection` type.
+[patch."https://github.com/tinyhumansai/tinybus"]
+tinybus = { path = "vendor/tinybus/crates/tinybus" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
