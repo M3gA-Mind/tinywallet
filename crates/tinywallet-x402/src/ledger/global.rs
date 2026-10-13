@@ -131,3 +131,7 @@ pub(crate) static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_
 pub(crate) fn reset_global() {
     *lock() = None;
 }
+
+#[cfg(test)]
+#[path = "global_tests.rs"]
+mod tests;
