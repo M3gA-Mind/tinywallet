@@ -244,7 +244,15 @@ impl PaymentLedger {
             doc.holds.retain(|_, hold| hold.expires_at_ms > now_ms);
             self.holds.clone_from(&doc.holds);
             if let Some(refusal) = self.check_budget_at(now, amount).refusal() {
-                return Ok(Err(refusal));
+                // The snapshot may straddle another writer's commit (its record
+                // appended, its hold still in our copy) and double count. Only
+                // refuse on a snapshot the hold document still matches;
+                // otherwise retry against the current one.
+                let (current, _) = self.persist.load_holds()?;
+                if current == version {
+                    return Ok(Err(refusal));
+                }
+                continue;
             }
             let id = ReservationId(NEXT_RESERVATION.fetch_add(1, Ordering::Relaxed));
             let key = format!("{}:{}", self.owner, id.0);

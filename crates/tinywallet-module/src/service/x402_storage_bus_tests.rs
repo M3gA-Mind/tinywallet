@@ -294,7 +294,25 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
             .doc,
     );
 
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    // Age the stored lease deterministically instead of sleeping on the clock.
+    let stored = documents
+        .get("x402_budget", "holds")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut aged = stored.doc.clone();
+    for hold in aged["holds"].as_object_mut().unwrap().values_mut() {
+        hold["expires_at_ms"] = serde_json::json!(before - 1_000);
+    }
+    documents
+        .put(
+            "x402_budget",
+            "holds",
+            aged,
+            tinystoragedrivers_core::Precondition::Version(stored.version),
+        )
+        .await
+        .unwrap();
     renew_holds_once().await;
 
     let after = expiry(
