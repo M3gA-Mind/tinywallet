@@ -73,34 +73,24 @@ impl std::fmt::Debug for X402Runtime {
 }
 
 impl X402Runtime {
-    /// Initialize the module's ledger from the host-provisioned storage and
-    /// spending policy. This is called only by the explicit host lifecycle
-    /// operation, never during artifact setup.
+    /// Initialize the module's ledger over `storage` and the spending policy.
+    /// This is called only by the explicit host lifecycle operation, never
+    /// during artifact setup.
     ///
     /// # Errors
     ///
-    /// No storage has been provisioned, or it cannot be read. The module fails
-    /// closed rather than keep a spending ledger that would not survive a
-    /// restart.
+    /// The storage cannot be opened or read. The previous process-wide ledger,
+    /// if any, is left in place.
     pub(crate) fn new(
         callbacks: HostCallbacks,
         config: X402ConfigResponse,
+        storage: ledger::LedgerStorage,
     ) -> Result<Self, String> {
         let budget = SpendingBudget {
             per_request_max_atomic: config.per_request_max_atomic,
             daily_max_atomic: config.daily_max_atomic,
             monthly_max_atomic: config.monthly_max_atomic,
         };
-        let provisioned = ledger::provisioned_storage();
-        #[cfg(feature = "e2e-memory-storage")]
-        let provisioned = provisioned.or_else(|| {
-            // Provision once so a reconfigure reopens the same storage, as a
-            // durable host backend would.
-            ledger::provision_storage(ledger::LedgerStorage::memory());
-            ledger::provisioned_storage()
-        });
-        let storage =
-            provisioned.ok_or_else(|| "x402 ledger storage is not provisioned".to_string())?;
         ledger::init_global(storage, &config.session_id, budget)?;
         Ok(Self {
             callbacks,

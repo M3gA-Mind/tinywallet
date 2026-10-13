@@ -1,5 +1,10 @@
 //! Typed callbacks from the wallet implementation to its composing host.
 
+use std::sync::Arc;
+
+use log::debug;
+use tinystoragedrivers_core::{ScopedStorage, StorageBackend};
+use tinywallet_x402::ledger::LedgerStorage;
 use tinybus::{Connection, Error as BusError, Proxy};
 use tinywallet_bus::wire::{
     AuthorizationResult, AuthorizeNativeWalletExecutionRequest, AuthorizeWeb3ExecutionRequest,
@@ -13,6 +18,12 @@ use super::{HOST_INTERFACE, HOST_OBJECT_PATH};
 #[derive(Clone)]
 pub(crate) struct HostCallbacks {
     proxy: Proxy,
+    connection: Connection,
+    /// The host's storage, connected on first use and shared by every clone.
+    storage: Arc<tokio::sync::Mutex<Option<ScopedStorage>>>,
+    /// Test seam: ledger storage used in place of the storage bus.
+    #[cfg(test)]
+    test_ledger_storage: Arc<std::sync::Mutex<Option<LedgerStorage>>>,
 }
 
 impl std::fmt::Debug for HostCallbacks {
@@ -26,7 +37,64 @@ impl HostCallbacks {
     pub(crate) fn new(connection: &Connection) -> Result<Self, BusError> {
         Ok(Self {
             proxy: connection.proxy(HOST_INTERFACE, HOST_OBJECT_PATH, HOST_INTERFACE)?,
+            connection: connection.clone(),
+            storage: Arc::new(tokio::sync::Mutex::new(None)),
+            #[cfg(test)]
+            test_ledger_storage: Arc::new(std::sync::Mutex::new(None)),
         })
+    }
+
+    /// The module's scoped handle on the host's storage, over the storage bus.
+    ///
+    /// The host binds the scope from the authenticated caller; nothing here
+    /// names one. A connect failure is not cached, so a host that starts
+    /// serving storage later is picked up by the next call.
+    async fn storage(&self) -> tinystoragedrivers_core::Result<ScopedStorage> {
+        let mut slot = self.storage.lock().await;
+        if let Some(scoped) = slot.as_ref() {
+            return Ok(scoped.clone());
+        }
+        debug!("[wallet::host] connecting to the host storage bus");
+        let bus = tinystoragedrivers_busproxy::connect_storage(self.connection.clone()).await?;
+        let scoped = bus.for_scope(&tinystoragedrivers_busproxy::module_scope_label())?;
+        *slot = Some(scoped.clone());
+        Ok(scoped)
+    }
+
+    /// The ports the x402 ledger persists through: the host's payments stream
+    /// and budget-hold documents.
+    ///
+    /// # Errors
+    ///
+    /// The host does not serve storage. The caller fails closed rather than
+    /// keep a spending ledger that would not survive a restart.
+    pub(crate) async fn ledger_storage(&self) -> Result<LedgerStorage, String> {
+        #[cfg(test)]
+        if let Some(storage) = self
+            .test_ledger_storage
+            .lock()
+            .map_err(|_| "test ledger storage lock poisoned".to_string())?
+            .clone()
+        {
+            return Ok(storage);
+        }
+        match self.storage().await {
+            Ok(scoped) => Ok(LedgerStorage::from_scoped(&scoped)),
+            #[cfg(feature = "e2e-memory-storage")]
+            Err(error) => {
+                log::warn!("[wallet::host] host storage unavailable ({error}); using memory");
+                static MEMORY: std::sync::OnceLock<LedgerStorage> = std::sync::OnceLock::new();
+                Ok(MEMORY.get_or_init(LedgerStorage::memory).clone())
+            }
+            #[cfg(not(feature = "e2e-memory-storage"))]
+            Err(error) => Err(format!("x402 ledger storage is unavailable: {error}")),
+        }
+    }
+
+    /// Serve `storage` to the ledger in place of the storage bus.
+    #[cfg(test)]
+    pub(crate) fn set_test_ledger_storage(&self, storage: LedgerStorage) {
+        *self.test_ledger_storage.lock().unwrap() = Some(storage);
     }
 
     /// Perform one authenticated wallet-backend transport operation.
