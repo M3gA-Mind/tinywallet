@@ -343,3 +343,15 @@ fn a_payment_still_counts_against_the_cap_before_its_hold_is_released() {
         }
     }
 }
+
+#[test]
+fn a_per_request_refusal_does_not_depend_on_storage_reads() {
+    let (storage, faults) = super::faulty::faulty_storage();
+    let mut ledger = PaymentLedger::open(storage, SESSION, budget()).unwrap();
+    faults.read.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        ledger.reserve_at(now(), 101).unwrap().unwrap_err(),
+        BudgetRefusal::PerRequest { requested: 101, cap: 100 }
+    );
+    assert_eq!(ledger.reserved_atomic(), 0);
+}
