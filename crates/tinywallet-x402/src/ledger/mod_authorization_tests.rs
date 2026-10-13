@@ -2,12 +2,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::fs;
-use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
+use super::faulty::append_raw;
 use super::*;
 
 const SESSION: &str = "session-a";
@@ -325,38 +324,6 @@ fn adding_an_amount_past_the_maximum_cap_is_refused() {
 }
 
 #[test]
-fn durable_append_separates_a_trailing_partial_jsonl_line() {
-    let dir = LedgerStorage::memory();
-    let mut ledger = ledger_in(&dir);
-    let mut first = record(100_000, PaymentStatus::Pending, now(), SESSION);
-    first.id = "first".to_string();
-    ledger.try_record_payment(first).unwrap();
-
-    let path = dir.path().join("x402/payments.jsonl");
-    fs::OpenOptions::new()
-        .append(true)
-        .open(&path)
-        .unwrap()
-        .write_all(b"{\"partial\"")
-        .unwrap();
-
-    let mut second = record(200_000, PaymentStatus::Pending, now(), SESSION);
-    second.id = "durable-after-partial".to_string();
-    ledger.try_record_payment(second).unwrap();
-
-    let reopened = ledger_in(&dir);
-    assert_eq!(
-        reopened
-            .payment("durable-after-partial")
-            .unwrap()
-            .amount_atomic,
-        200_000,
-        "a previous interrupted append cannot hide a later exported authorization"
-    );
-    assert_eq!(reopened.pending_count(), 2);
-}
-
-#[test]
 fn the_latest_status_for_an_authorization_controls_budget_and_summary() {
     let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
@@ -407,4 +374,30 @@ fn a_durable_reservation_commit_survives_reopening_without_double_counting() {
     assert_eq!(with_ledger(PaymentLedger::pending_count).unwrap(), 1);
     assert_eq!(with_ledger(PaymentLedger::outstanding_atomic).unwrap(), 5);
     reset_global();
+}
+
+#[test]
+fn durable_append_after_an_unparseable_stream_entry_still_loads() {
+    let dir = LedgerStorage::memory();
+    let mut ledger = ledger_in(&dir);
+    let mut first = record(100_000, PaymentStatus::Pending, now(), SESSION);
+    first.id = "first".to_string();
+    ledger.try_record_payment(first).unwrap();
+
+    append_raw(&dir, vec![serde_json::json!({"partial": true})]);
+
+    let mut second = record(200_000, PaymentStatus::Pending, now(), SESSION);
+    second.id = "durable-after-partial".to_string();
+    ledger.try_record_payment(second).unwrap();
+
+    let reopened = ledger_in(&dir);
+    assert_eq!(
+        reopened
+            .payment("durable-after-partial")
+            .unwrap()
+            .amount_atomic,
+        200_000,
+        "a junk entry cannot hide a later exported authorization"
+    );
+    assert_eq!(reopened.pending_count(), 2);
 }
