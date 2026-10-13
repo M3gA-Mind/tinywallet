@@ -288,3 +288,44 @@ fn a_reservation_that_fits_is_retried_when_a_commit_makes_the_snapshot_stale() {
         "a stale double-counted snapshot must be retried, not refused: {verdict:?}"
     );
 }
+
+/// Pause the committing writer on its first release read, after its append
+/// has completed but before the hold document changes.
+fn reserve_during_commit(durable: bool, committed_amount: u64) {
+    let base = LedgerStorage::memory();
+    let documents = Arc::new(InterleavingDocuments {
+        inner: Arc::clone(&base.documents),
+        before_first_hold_read: Mutex::new(None),
+        after_first_hold_read: Mutex::new(None),
+    });
+    let storage = LedgerStorage::new(documents.clone(), Arc::clone(&base.streams));
+    let mut owner = PaymentLedger::open(storage, SESSION, budget()).unwrap();
+    let id = owner.reserve_at(now(), committed_amount).unwrap().unwrap();
+    let mut observer = PaymentLedger::open(base, "observer", budget()).unwrap();
+    *documents.before_first_hold_read.lock().unwrap() =
+        Some(Interleave(Box::new(move || {
+            let verdict = observer.reserve_at(now(), 50).unwrap();
+            assert_eq!(
+                verdict.is_ok(),
+                committed_amount == 30,
+                "the committed record must count once while its hold is unchanged: {verdict:?}"
+            );
+        })));
+    if durable {
+        owner.try_commit_reservation(id, settled(committed_amount)).unwrap();
+    } else {
+        owner.commit_reservation(id, settled(committed_amount));
+    }
+}
+
+#[test]
+fn a_reservation_counts_an_appended_payment_once_before_its_hold_is_released() {
+    reserve_during_commit(false, 30);
+    reserve_during_commit(true, 30);
+}
+
+#[test]
+fn a_payment_still_counts_against_the_cap_before_its_hold_is_released() {
+    reserve_during_commit(false, 80);
+    reserve_during_commit(true, 80);
+}
