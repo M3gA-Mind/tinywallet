@@ -1,4 +1,6 @@
 //! Test support: a [`LedgerStorage`] whose streams and hold document can be made
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! to fail on demand, to pin down what the ledger does when storage refuses.
 
 use std::sync::Arc;
