@@ -303,10 +303,13 @@ fn reserve_during_commit(durable: bool, committed_amount: u64, reopen: bool) {
     let id = owner.reserve_at(now(), committed_amount).unwrap().unwrap();
     let mut observer = PaymentLedger::open(base.clone(), "observer", budget()).unwrap();
     let result = Arc::new(Mutex::new(None));
-    let observed = Arc::clone(&result);
+    let captured = Arc::clone(&result);
     *documents.before_first_hold_read.lock().unwrap() = Some(Interleave(Box::new(move || {
+        if reopen {
+            observer = PaymentLedger::open(base, "observer", budget()).unwrap();
+        }
         let verdict = observer.reserve_at(now(), 50).unwrap();
-        *observed.lock().unwrap() = Some(verdict);
+        *captured.lock().unwrap() = Some(verdict);
     })));
     if durable {
         owner
