@@ -12,8 +12,8 @@ use tinybus::Connection;
 use tinystoragedrivers_busproxy::{PerCallerEndpoint, serve};
 use tinystoragedrivers_client::StorageServer;
 use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Result as StorageResult, Scope, Precondition, ScopedStorage, StorageBackend,
-    StreamEntry, StreamStore, async_trait,
+    DocumentStore, MemoryStorage, Precondition, Result as StorageResult, Scope, ScopedStorage,
+    StorageBackend, StreamEntry, StreamStore, async_trait,
 };
 use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402SummaryRequest};
 use tinywallet_x402::ledger::{LedgerStorage, PaymentLedger, SpendingBudget};
