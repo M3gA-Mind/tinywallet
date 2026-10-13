@@ -250,6 +250,14 @@ impl PaymentLedger {
         now: DateTime<Utc>,
         amount: u64,
     ) -> Result<Result<ReservationId, BudgetRefusal>, String> {
+        // This cap depends only on configuration, so storage failures or
+        // concurrent hold changes cannot alter the definitive refusal.
+        if amount > self.budget.per_request_max_atomic {
+            return Ok(Err(BudgetRefusal::PerRequest {
+                requested: amount,
+                cap: self.budget.per_request_max_atomic,
+            }));
+        }
         let now_ms = now.timestamp_millis();
         for _ in 0..HOLD_CAS_ATTEMPTS {
             let (version, mut doc) = self.persist.load_holds()?;

@@ -351,7 +351,10 @@ fn a_per_request_refusal_does_not_depend_on_storage_reads() {
     faults.read.store(true, std::sync::atomic::Ordering::SeqCst);
     assert_eq!(
         ledger.reserve_at(now(), 101).unwrap().unwrap_err(),
-        BudgetRefusal::PerRequest { requested: 101, cap: 100 }
+        BudgetRefusal::PerRequest {
+            requested: 101,
+            cap: 100
+        }
     );
     assert_eq!(ledger.reserved_atomic(), 0);
 }

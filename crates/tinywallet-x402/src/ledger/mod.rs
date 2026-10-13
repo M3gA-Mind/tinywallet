@@ -19,7 +19,9 @@
 //!
 //! [`PaymentLedger::check_budget`] enforces a per-request cap and daily and
 //! monthly totals over settled payments, unresolved signed authorizations, and
-//! outstanding reservations. A bounded authorization is charged to each
+//! outstanding reservations. Requests above the per-request cap are refused
+//! before reading storage, since shared state cannot change that verdict.
+//! A bounded authorization is charged to each
 //! calendar window it could have settled in. Once the proof is no longer
 //! usable, future non-overlapping windows can admit new spending, while the
 //! unresolved amount remains in durable outstanding totals until a trusted
