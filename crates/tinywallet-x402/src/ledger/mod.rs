@@ -40,7 +40,11 @@
 //! processes, not only across threads. A hold expires after 15 minutes so a
 //! crashed process cannot lock budget forever, and a live owner extends the lease
 //! with [`PaymentLedger::renew_holds`] every [`HOLD_RENEW_EVERY`]; once the signed authorization is
-//! durably recorded, that record protects the budget across restart.
+//! durably recorded, that record protects the budget across restart. Commit
+//! entries include the owner-qualified hold key as internal stream metadata.
+//! Readers exclude that hold once they see the durable entry, even if the
+//! writer is paused before releasing it. Older entries without this metadata
+//! remain readable and keep conservative accounting until their holds release.
 //!
 //! # The process-wide handle
 //!

@@ -304,13 +304,14 @@ fn reserve_during_commit(durable: bool, committed_amount: u64) {
     let mut observer = PaymentLedger::open(base, "observer", budget()).unwrap();
     let result = Arc::new(Mutex::new(None));
     let observed = Arc::clone(&result);
-    *documents.before_first_hold_read.lock().unwrap() =
-        Some(Interleave(Box::new(move || {
-            let verdict = observer.reserve_at(now(), 50).unwrap();
-            *observed.lock().unwrap() = Some(verdict);
-        })));
+    *documents.before_first_hold_read.lock().unwrap() = Some(Interleave(Box::new(move || {
+        let verdict = observer.reserve_at(now(), 50).unwrap();
+        *observed.lock().unwrap() = Some(verdict);
+    })));
     if durable {
-        owner.try_commit_reservation(id, settled(committed_amount)).unwrap();
+        owner
+            .try_commit_reservation(id, settled(committed_amount))
+            .unwrap();
     } else {
         owner.commit_reservation(id, settled(committed_amount));
     }
