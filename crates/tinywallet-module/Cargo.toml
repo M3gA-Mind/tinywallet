@@ -84,6 +84,8 @@ tinystoragedrivers-core = { workspace = true }
 tinystoragedrivers-bus = { workspace = true }
 tinystoragedrivers-client = { workspace = true }
 tinystoragedrivers-busproxy = { workspace = true }
+# Diagnostics for the storage connection and hold-lease renewal.
+log = "0.4"
 # Generates opaque service, quote, and pending-payment identifiers.
 uuid = { version = "1", features = ["v4"] }
 
