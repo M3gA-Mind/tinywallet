@@ -666,7 +666,10 @@ impl Wallet {
         request: tinywallet_bus::wire::X402ConfigureRequest,
     ) -> BusResult<tinywallet_bus::wire::X402ServiceHandle> {
         let callbacks = self.callbacks.clone().ok_or_else(host_unavailable)?;
-        let storage = callbacks.ledger_storage().await.map_err(x402_operation_failed)?;
+        let storage = callbacks
+            .ledger_storage()
+            .await
+            .map_err(x402_operation_failed)?;
         let mut x402 = self.x402.write().await;
         // Build the replacement first. `init_global` swaps the process-wide
         // ledger only once the new one opened, so a failed reconfigure leaves
