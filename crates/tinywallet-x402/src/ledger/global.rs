@@ -39,6 +39,22 @@ pub fn clear_provisioned_storage() {
     *PROVISIONED.lock().unwrap_or_else(PoisonError::into_inner) = None;
 }
 
+/// Run `f`, which blocks on storage (and on the ledger mutex), without holding
+/// an async worker hostage.
+///
+/// On a multi-thread tokio runtime the worker hands its queue to another thread
+/// first, so a storage transport that needs this same runtime to make progress
+/// (the module's storage bus) cannot be starved by the callers waiting on it.
+/// Anywhere else (no runtime, a current-thread runtime) `f` simply runs.
+pub(crate) fn blocking<R>(f: impl FnOnce() -> R) -> R {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(f)
+        }
+        _ => f(),
+    }
+}
+
 fn lock() -> MutexGuard<'static, Option<PaymentLedger>> {
     // A panic while holding the guard cannot leave the ledger half-written in a
     // way a reader could not tolerate, so a poisoned lock is recovered rather
@@ -61,15 +77,15 @@ pub fn init_global(
     session_id: &str,
     budget: SpendingBudget,
 ) -> Result<(), String> {
-    let ledger = PaymentLedger::open(storage, session_id, budget)?;
-    *lock() = Some(ledger);
+    let ledger = blocking(|| PaymentLedger::open(storage, session_id, budget))?;
+    blocking(|| *lock() = Some(ledger));
     debug!("{LOG_PREFIX} global ledger initialized");
     Ok(())
 }
 
 /// Drop the process-wide ledger after its owner has released all reservations.
 pub fn clear_global() {
-    *lock() = None;
+    blocking(|| *lock() = None);
     debug!("{LOG_PREFIX} global ledger cleared");
 }
 
@@ -82,9 +98,11 @@ pub fn with_ledger<F, R>(f: F) -> Result<R, String>
 where
     F: FnOnce(&PaymentLedger) -> R,
 {
-    let guard = lock();
-    let ledger = guard.as_ref().ok_or_else(|| NOT_INITIALISED.to_string())?;
-    Ok(f(ledger))
+    blocking(|| {
+        let guard = lock();
+        let ledger = guard.as_ref().ok_or_else(|| NOT_INITIALISED.to_string())?;
+        Ok(f(ledger))
+    })
 }
 
 /// Run `f` over the process-wide ledger, mutably.
@@ -96,9 +114,11 @@ pub fn with_ledger_mut<F, R>(f: F) -> Result<R, String>
 where
     F: FnOnce(&mut PaymentLedger) -> R,
 {
-    let mut guard = lock();
-    let ledger = guard.as_mut().ok_or_else(|| NOT_INITIALISED.to_string())?;
-    Ok(f(ledger))
+    blocking(|| {
+        let mut guard = lock();
+        let ledger = guard.as_mut().ok_or_else(|| NOT_INITIALISED.to_string())?;
+        Ok(f(ledger))
+    })
 }
 
 /// Serialises the tests that touch the process-wide ledger. An async mutex, so
@@ -111,3 +131,7 @@ pub(crate) static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_
 pub(crate) fn reset_global() {
     *lock() = None;
 }
+
+#[cfg(test)]
+#[path = "global_tests.rs"]
+mod tests;

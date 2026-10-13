@@ -46,7 +46,10 @@ configuration of its own.
   signing, so concurrent payments cannot together overspend. The hold is a
   `Reservation` on `X402PaymentResult::reservation`: `commit(record)` records the
   outcome and ends the hold in one step; dropping it releases the hold. A hold
-  counts toward the caps like a settled payment and is not persisted.
+  counts toward the caps like a settled payment. Holds are stored in the shared
+  `x402_budget/holds` document (compare-and-swap across processes) and expire
+  after 15 minutes unless the owner renews them (`PaymentLedger::renew_holds`)
+  or releases/commits them.
 - **Allowlist.** Only USDC on the networks of `wire::SUPPORTED_USDC` (Solana
   mainnet and devnet, Base mainnet and Sepolia, Ethereum mainnet) is payable. An
   option outside it is skipped during selection; if nothing else is payable the

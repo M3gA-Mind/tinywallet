@@ -28,6 +28,14 @@ static NEXT_RESERVATION: AtomicU64 = AtomicU64::new(1);
 /// is opened from the same storage and contains the same persisted records.
 static NEXT_LEDGER_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// A hold this ledger placed: its key in the hold document and its amount, kept
+/// so the lease can be renewed (or re-placed after it lapsed).
+#[derive(Debug, Clone)]
+struct OwnHold {
+    key: String,
+    amount: u64,
+}
+
 /// Append-only payment history with budget enforcement.
 #[derive(Debug)]
 pub struct PaymentLedger {
@@ -42,7 +50,7 @@ pub struct PaymentLedger {
     /// Qualifies hold keys so processes sharing one storage never collide.
     owner: String,
     /// The holds this ledger placed and has not yet released.
-    reservations: HashMap<ReservationId, String>,
+    reservations: HashMap<ReservationId, OwnHold>,
     /// Every outstanding hold (this ledger's and other processes') as of the
     /// last read of the hold document.
     holds: BTreeMap<String, Hold>,
@@ -222,10 +230,17 @@ impl PaymentLedger {
         now: DateTime<Utc>,
         amount: u64,
     ) -> Result<Result<ReservationId, BudgetRefusal>, String> {
-        self.refresh_records()?;
         let now_ms = now.timestamp_millis();
         for _ in 0..HOLD_CAS_ATTEMPTS {
             let (version, mut doc) = self.persist.load_holds()?;
+            // Records are read AFTER the hold document, on every attempt. A
+            // writer commits by appending its record and only then dropping its
+            // hold, so a reader that sees the hold gone is guaranteed to see
+            // the record on this read; a reader that still sees the hold
+            // counts it, and the drop changes the version so the CAS below
+            // fails and retries. Reading records first would leave a window in
+            // which neither is counted.
+            self.refresh_records()?;
             doc.holds.retain(|_, hold| hold.expires_at_ms > now_ms);
             self.holds.clone_from(&doc.holds);
             if let Some(refusal) = self.check_budget_at(now, amount).refusal() {
@@ -242,7 +257,7 @@ impl PaymentLedger {
             );
             if self.persist.store_holds(version, &doc)? {
                 self.holds = doc.holds;
-                self.reservations.insert(id, key);
+                self.reservations.insert(id, OwnHold { key, amount });
                 debug!("{LOG_PREFIX} reserved {amount} atomic as {id:?}");
                 return Ok(Ok(id));
             }
@@ -254,7 +269,7 @@ impl PaymentLedger {
     /// already gone does nothing. A storage failure is logged and leaves the
     /// stored hold to expire; the budget stays conservatively charged.
     pub fn release(&mut self, id: ReservationId) {
-        let Some(key) = self.reservations.remove(&id) else {
+        let Some(OwnHold { key, .. }) = self.reservations.remove(&id) else {
             return;
         };
         self.holds.remove(&key);
@@ -282,6 +297,50 @@ impl PaymentLedger {
             }
         }
         warn!("{LOG_PREFIX} release of {id:?} left to expire: contention");
+    }
+
+    /// Extend the lease on every hold this ledger still owns to a fresh
+    /// `HOLD_TTL_MS` from `now`, re-placing one that lapsed (and was pruned
+    /// by another writer) so a payment in flight past the TTL keeps its budget
+    /// charged. Returns how many holds were renewed.
+    ///
+    /// Callers with long-lived reservations (a signed authorization awaiting
+    /// settlement) call this more often than the TTL; see `HOLD_RENEW_EVERY`.
+    ///
+    /// # Errors
+    ///
+    /// The hold document cannot be read or written, or stayed contended. The
+    /// holds are unchanged and keep expiring on their own clock.
+    pub fn renew_holds(&mut self) -> Result<usize, String> {
+        self.renew_holds_at(Utc::now())
+    }
+
+    /// [`renew_holds`](Self::renew_holds) as of `now`.
+    pub(crate) fn renew_holds_at(&mut self, now: DateTime<Utc>) -> Result<usize, String> {
+        if self.reservations.is_empty() {
+            return Ok(0);
+        }
+        let now_ms = now.timestamp_millis();
+        let expires_at_ms = now_ms.saturating_add(HOLD_TTL_MS);
+        for _ in 0..HOLD_CAS_ATTEMPTS {
+            let (version, mut doc) = self.persist.load_holds()?;
+            doc.holds.retain(|_, hold| hold.expires_at_ms > now_ms);
+            for own in self.reservations.values() {
+                doc.holds.insert(
+                    own.key.clone(),
+                    Hold {
+                        amount: own.amount,
+                        expires_at_ms,
+                    },
+                );
+            }
+            if self.persist.store_holds(version, &doc)? {
+                self.holds = doc.holds;
+                debug!("{LOG_PREFIX} renewed {} holds", self.reservations.len());
+                return Ok(self.reservations.len());
+            }
+        }
+        Err("x402 budget hold renewal: gave up after repeated conflicts".to_string())
     }
 
     /// Record `record` and drop the hold `id`, recorded first so the amount is

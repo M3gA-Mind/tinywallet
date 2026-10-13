@@ -31,6 +31,10 @@ pub(super) const HOLDS_ID: &str = "holds";
 /// How long a hold survives without being released or committed. A process that
 /// dies between signing and recording must not lock budget forever.
 pub(super) const HOLD_TTL_MS: i64 = 15 * 60 * 1000;
+/// How often an owner of long-lived holds should call
+/// [`PaymentLedger::renew_holds`](super::PaymentLedger::renew_holds): a third of
+/// the TTL, so two missed beats still leave the lease alive.
+pub const HOLD_RENEW_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// Records read per stream window while loading.
 const WINDOW: usize = 512;
 

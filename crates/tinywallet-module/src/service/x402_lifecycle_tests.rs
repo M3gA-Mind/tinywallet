@@ -63,7 +63,11 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         ..crate::service::Wallet::default()
     });
     let workspace = tempfile::tempdir().unwrap();
-    tinywallet_x402::ledger::provision_storage(tinywallet_x402::ledger::LedgerStorage::memory());
+    wallet
+        .callbacks
+        .as_ref()
+        .unwrap()
+        .set_test_ledger_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {
@@ -323,7 +327,11 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     );
 
     let blocked_workspace = tempfile::tempdir().unwrap();
-    tinywallet_x402::ledger::provision_storage(failing_append_storage());
+    wallet
+        .callbacks
+        .as_ref()
+        .unwrap()
+        .set_test_ledger_storage(failing_append_storage());
     let blocked_handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {
@@ -412,11 +420,10 @@ fn failing_append_storage() -> tinywallet_x402::ledger::LedgerStorage {
 
 #[cfg(not(feature = "e2e-memory-storage"))]
 #[tokio::test]
-async fn x402_configure_fails_closed_without_provisioned_storage() {
+async fn x402_configure_fails_closed_when_the_host_serves_no_storage() {
     use tinywallet_bus::wire::X402ConfigureRequest;
 
     let _ledger_guard = LEDGER_TEST_LOCK.lock().await;
-    tinywallet_x402::ledger::clear_provisioned_storage();
     let bus = tinybus::transport::memory::MemoryBus::new();
     let broker = tinybus::broker::Broker::new();
     let broker_task = broker.spawn(bus.clone());
