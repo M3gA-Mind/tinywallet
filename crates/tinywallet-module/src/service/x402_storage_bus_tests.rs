@@ -12,8 +12,8 @@ use tinybus::Connection;
 use tinystoragedrivers_busproxy::{PerCallerEndpoint, serve};
 use tinystoragedrivers_client::StorageServer;
 use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Result as StorageResult, Scope, ScopedStorage, StorageBackend,
-    StreamEntry, StreamStore, async_trait,
+    DocumentStore, MemoryStorage, Precondition, Result as StorageResult, Scope, ScopedStorage,
+    StorageBackend, StreamEntry, StreamStore, async_trait,
 };
 use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402SummaryRequest};
 use tinywallet_x402::ledger::{LedgerStorage, PaymentLedger, SpendingBudget};
@@ -294,7 +294,25 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
             .doc,
     );
 
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    // Age the stored lease deterministically instead of sleeping on the clock.
+    let stored = documents
+        .get("x402_budget", "holds")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut aged = stored.doc.clone();
+    for hold in aged["holds"].as_object_mut().unwrap().values_mut() {
+        hold["expires_at_ms"] = serde_json::json!(before - 1_000);
+    }
+    documents
+        .put(
+            "x402_budget",
+            "holds",
+            aged,
+            Precondition::Version(stored.version),
+        )
+        .await
+        .unwrap();
     renew_holds_once().await;
 
     let after = expiry(
@@ -306,8 +324,9 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
             .doc,
     );
     assert!(
-        after > before,
-        "renewal moved the expiry: {before} -> {after}"
+        after > before - 1_000,
+        "renewal moved the aged expiry forward: {} -> {after}",
+        before - 1_000
     );
 
     fixture

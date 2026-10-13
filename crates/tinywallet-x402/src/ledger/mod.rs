@@ -19,7 +19,9 @@
 //!
 //! [`PaymentLedger::check_budget`] enforces a per-request cap and daily and
 //! monthly totals over settled payments, unresolved signed authorizations, and
-//! outstanding reservations. A bounded authorization is charged to each
+//! outstanding reservations. Requests above the per-request cap are refused
+//! before reading storage, since shared state cannot change that verdict.
+//! A bounded authorization is charged to each
 //! calendar window it could have settled in. Once the proof is no longer
 //! usable, future non-overlapping windows can admit new spending, while the
 //! unresolved amount remains in durable outstanding totals until a trusted
@@ -40,7 +42,11 @@
 //! processes, not only across threads. A hold expires after 15 minutes so a
 //! crashed process cannot lock budget forever, and a live owner extends the lease
 //! with [`PaymentLedger::renew_holds`] every [`HOLD_RENEW_EVERY`]; once the signed authorization is
-//! durably recorded, that record protects the budget across restart.
+//! durably recorded, that record protects the budget across restart. Commit
+//! entries include the owner-qualified hold key as internal stream metadata.
+//! Readers exclude that hold once they see the durable entry, even if the
+//! writer is paused before releasing it. Older entries without this metadata
+//! remain readable and keep conservative accounting until their holds release.
 //!
 //! # The process-wide handle
 //!

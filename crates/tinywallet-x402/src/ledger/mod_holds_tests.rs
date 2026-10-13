@@ -66,6 +66,9 @@ impl std::fmt::Debug for Interleave {
 struct InterleavingDocuments {
     inner: Arc<dyn DocumentStore>,
     before_first_hold_read: Mutex<Option<Interleave>>,
+    /// Runs once just AFTER the first read of the hold document is answered
+    /// (the reader keeps the snapshot it was given).
+    after_first_hold_read: Mutex<Option<Interleave>>,
 }
 
 #[async_trait]
@@ -83,7 +86,12 @@ impl DocumentStore for InterleavingDocuments {
             // future runs on must not be blocked by it.
             std::thread::spawn(action.0).join().unwrap();
         }
-        self.inner.get(collection, id).await
+        let found = self.inner.get(collection, id).await;
+        let action = self.after_first_hold_read.lock().unwrap().take();
+        if let Some(action) = action {
+            std::thread::spawn(action.0).join().unwrap();
+        }
+        found
     }
     async fn put(&self, c: &str, id: &str, doc: Value, p: Precondition) -> Result<Version> {
         self.inner.put(c, id, doc, p).await
@@ -151,6 +159,7 @@ fn a_commit_between_the_hold_read_and_the_record_read_cannot_be_missed() {
         Arc::new(InterleavingDocuments {
             inner: Arc::clone(&base.documents),
             before_first_hold_read: Mutex::new(Some(Interleave(Box::new(commit)))),
+            after_first_hold_read: Mutex::new(None),
         }),
         Arc::clone(&base.streams),
     );
@@ -242,4 +251,110 @@ fn renewal_fails_loudly_when_the_hold_document_is_unreadable() {
         })
         .unwrap();
     assert!(owner.renew_holds_at(now()).is_err());
+}
+
+#[test]
+fn a_reservation_that_fits_is_retried_when_a_commit_makes_the_snapshot_stale() {
+    // B holds 30. A (50) reads that hold; then B commits (record 30, hold
+    // dropped) before A reads the records, so the snapshot counts B twice
+    // (110 > 100). The true total is 80, so A must retry and be admitted.
+    let base = LedgerStorage::memory();
+    let mut doc = HoldsDoc::default();
+    doc.holds.insert(
+        "other:1".into(),
+        hold(30, now().timestamp_millis() + HOLD_TTL_MS),
+    );
+    put_holds(&base, &doc);
+
+    let b_storage = base.clone();
+    let commit = move || {
+        let mut b = PaymentLedger::open(b_storage.clone(), "other", budget()).unwrap();
+        b.record_payment(settled(30));
+        put_holds(&b_storage, &HoldsDoc::default());
+    };
+    let storage = LedgerStorage::new(
+        Arc::new(InterleavingDocuments {
+            inner: Arc::clone(&base.documents),
+            before_first_hold_read: Mutex::new(None),
+            after_first_hold_read: Mutex::new(Some(Interleave(Box::new(commit)))),
+        }),
+        Arc::clone(&base.streams),
+    );
+    let mut a = PaymentLedger::open(storage, SESSION, budget()).unwrap();
+
+    let verdict = a.reserve_at(now(), 50).unwrap();
+    assert!(
+        verdict.is_ok(),
+        "a stale double-counted snapshot must be retried, not refused: {verdict:?}"
+    );
+}
+
+/// Pause the committing writer on its first release read, after its append
+/// has completed but before the hold document changes.
+fn reserve_during_commit(durable: bool, committed_amount: u64, reopen: bool) {
+    let base = LedgerStorage::memory();
+    let documents = Arc::new(InterleavingDocuments {
+        inner: Arc::clone(&base.documents),
+        before_first_hold_read: Mutex::new(None),
+        after_first_hold_read: Mutex::new(None),
+    });
+    let storage = LedgerStorage::new(documents.clone(), Arc::clone(&base.streams));
+    let mut owner = PaymentLedger::open(storage, SESSION, budget()).unwrap();
+    let id = owner.reserve_at(now(), committed_amount).unwrap().unwrap();
+    let mut observer = PaymentLedger::open(base.clone(), "observer", budget()).unwrap();
+    let result = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&result);
+    *documents.before_first_hold_read.lock().unwrap() = Some(Interleave(Box::new(move || {
+        if reopen {
+            observer = PaymentLedger::open(base, "observer", budget()).unwrap();
+        }
+        let verdict = observer.reserve_at(now(), 50).unwrap();
+        *captured.lock().unwrap() = Some(verdict);
+    })));
+    if durable {
+        owner
+            .try_commit_reservation(id, settled(committed_amount))
+            .unwrap();
+    } else {
+        owner.commit_reservation(id, settled(committed_amount));
+    }
+    let verdict = result.lock().unwrap().take().expect("release read ran");
+    assert_eq!(
+        verdict.is_ok(),
+        committed_amount == 30,
+        "the committed record must count once while its hold is unchanged: {verdict:?}"
+    );
+}
+
+#[test]
+fn a_reservation_counts_an_appended_payment_once_before_its_hold_is_released() {
+    for durable in [false, true] {
+        for reopen in [false, true] {
+            reserve_during_commit(durable, 30, reopen);
+        }
+    }
+}
+
+#[test]
+fn a_payment_still_counts_against_the_cap_before_its_hold_is_released() {
+    for durable in [false, true] {
+        for reopen in [false, true] {
+            reserve_during_commit(durable, 80, reopen);
+        }
+    }
+}
+
+#[test]
+fn a_per_request_refusal_does_not_depend_on_storage_reads() {
+    let (storage, faults) = super::faulty::faulty_storage();
+    let mut ledger = PaymentLedger::open(storage, SESSION, budget()).unwrap();
+    faults.read.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        ledger.reserve_at(now(), 101).unwrap().unwrap_err(),
+        BudgetRefusal::PerRequest {
+            requested: 101,
+            cap: 100
+        }
+    );
+    assert_eq!(ledger.reserved_atomic(), 0);
 }

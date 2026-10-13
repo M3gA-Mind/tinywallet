@@ -94,6 +94,16 @@ pub(super) struct HoldsDoc {
     pub holds: BTreeMap<String, Hold>,
 }
 
+/// Internal stream envelope. Flattening keeps old payment entries readable and
+/// leaves the public payment wire type unchanged.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct StoredPayment {
+    #[serde(flatten)]
+    pub record: PaymentRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_hold: Option<String>,
+}
+
 /// Storage plus the sync bridge.
 #[derive(Debug)]
 pub(super) struct Persist {
@@ -129,7 +139,7 @@ impl Persist {
 
     /// Records from stream offset `from` to the end, with the next offset.
     /// Entries that no longer parse are skipped with a warning.
-    pub(super) fn read_from(&self, from: u64) -> Result<(Vec<PaymentRecord>, u64), String> {
+    pub(super) fn read_from(&self, from: u64) -> Result<(Vec<StoredPayment>, u64), String> {
         let mut records = Vec::new();
         let mut next = from;
         loop {
@@ -140,7 +150,7 @@ impl Persist {
             let Some(last) = window.last() else { break };
             next = last.offset.saturating_add(1);
             for entry in window {
-                match serde_json::from_value::<PaymentRecord>(entry.value) {
+                match serde_json::from_value::<StoredPayment>(entry.value) {
                     Ok(record) => records.push(record),
                     Err(error) => log::warn!(
                         "{LOG_PREFIX} corrupt record at offset {}: {error}",
@@ -153,8 +163,16 @@ impl Persist {
     }
 
     /// Append one record and return its stream offset.
-    pub(super) fn append(&self, record: &PaymentRecord) -> Result<u64, String> {
-        let value = serde_json::to_value(record).map_err(|error| error.to_string())?;
+    pub(super) fn append(
+        &self,
+        record: &PaymentRecord,
+        committed_hold: Option<&str>,
+    ) -> Result<u64, String> {
+        let value = serde_json::to_value(StoredPayment {
+            record: record.clone(),
+            committed_hold: committed_hold.map(str::to_owned),
+        })
+        .map_err(|error| error.to_string())?;
         let streams = Arc::clone(&self.storage.streams);
         self.run("append ledger record", async move {
             streams.append(PAYMENTS_STREAM, value).await

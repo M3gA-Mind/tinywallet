@@ -1,7 +1,7 @@
 //! The ledger itself: an in-memory record list over a payments stream, with
 //! budget holds kept in one compare-and-swap document.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Datelike, Months, NaiveTime, TimeZone, Utc};
@@ -41,6 +41,8 @@ struct OwnHold {
 pub struct PaymentLedger {
     generation: u64,
     records: Vec<PaymentRecord>,
+    /// Holds already represented by a durably appended payment.
+    committed_holds: HashSet<String>,
     /// The next payments-stream offset to read; everything below it is in
     /// `records` (or was unparseable).
     next_offset: u64,
@@ -74,11 +76,17 @@ impl PaymentLedger {
             "{LOG_PREFIX} loaded {} existing payment records",
             records.len()
         );
+        let committed_holds = records
+            .iter()
+            .filter_map(|entry| entry.committed_hold.clone())
+            .collect();
+        let records = records.into_iter().map(|entry| entry.record).collect();
         let generation = NEXT_LEDGER_GENERATION.fetch_add(1, Ordering::Relaxed);
         let started = Utc::now().timestamp_nanos_opt().unwrap_or_default();
         Ok(Self {
             generation,
             records,
+            committed_holds,
             next_offset,
             persist,
             budget,
@@ -92,14 +100,26 @@ impl PaymentLedger {
     /// Pull records other writers appended since this ledger last looked.
     fn refresh_records(&mut self) -> Result<(), String> {
         let (fresh, next) = self.persist.read_from(self.next_offset)?;
-        self.records.extend(fresh);
+        for entry in fresh {
+            if let Some(key) = entry.committed_hold {
+                self.committed_holds.insert(key);
+            }
+            self.records.push(entry.record);
+        }
         self.next_offset = next;
         Ok(())
     }
 
     /// Append `record` to the stream and mirror it into memory.
-    fn append_record(&mut self, record: PaymentRecord) -> Result<(), String> {
-        let offset = self.persist.append(&record)?;
+    fn append_record(
+        &mut self,
+        record: PaymentRecord,
+        committed_hold: Option<String>,
+    ) -> Result<(), String> {
+        let offset = self.persist.append(&record, committed_hold.as_deref())?;
+        if let Some(key) = committed_hold {
+            self.committed_holds.insert(key);
+        }
         if offset == self.next_offset {
             self.records.push(record);
             self.next_offset = offset.saturating_add(1);
@@ -230,6 +250,14 @@ impl PaymentLedger {
         now: DateTime<Utc>,
         amount: u64,
     ) -> Result<Result<ReservationId, BudgetRefusal>, String> {
+        // This cap depends only on configuration, so storage failures or
+        // concurrent hold changes cannot alter the definitive refusal.
+        if amount > self.budget.per_request_max_atomic {
+            return Ok(Err(BudgetRefusal::PerRequest {
+                requested: amount,
+                cap: self.budget.per_request_max_atomic,
+            }));
+        }
         let now_ms = now.timestamp_millis();
         for _ in 0..HOLD_CAS_ATTEMPTS {
             let (version, mut doc) = self.persist.load_holds()?;
@@ -237,14 +265,27 @@ impl PaymentLedger {
             // writer commits by appending its record and only then dropping its
             // hold, so a reader that sees the hold gone is guaranteed to see
             // the record on this read; a reader that still sees the hold
-            // counts it, and the drop changes the version so the CAS below
-            // fails and retries. Reading records first would leave a window in
-            // which neither is counted.
+            // counts it unless its record carries the same committed hold key.
+            // That key also covers a writer paused between append and release.
+            // A concurrent hold change makes the CAS below fail and retry.
+            // Reading records first would leave a window in which neither is
+            // counted.
             self.refresh_records()?;
-            doc.holds.retain(|_, hold| hold.expires_at_ms > now_ms);
+            doc.holds.retain(|key, hold| {
+                hold.expires_at_ms > now_ms && !self.committed_holds.contains(key)
+            });
             self.holds.clone_from(&doc.holds);
             if let Some(refusal) = self.check_budget_at(now, amount).refusal() {
-                return Ok(Err(refusal));
+                // A legacy writer without commit metadata can still straddle
+                // this snapshot and double count its record and hold. Only
+                // refuse on a snapshot the hold document still matches after
+                // excluding holds identified by durable commit records;
+                // otherwise retry against the current one.
+                let (current, _) = self.persist.load_holds()?;
+                if current == version {
+                    return Ok(Err(refusal));
+                }
+                continue;
             }
             let id = ReservationId(NEXT_RESERVATION.fetch_add(1, Ordering::Relaxed));
             let key = format!("{}:{}", self.owner, id.0);
@@ -347,7 +388,11 @@ impl PaymentLedger {
     /// never missing from the totals: it is held, then held and recorded for
     /// an instant, then recorded.
     pub fn commit_reservation(&mut self, id: ReservationId, record: PaymentRecord) {
-        self.record_payment(record);
+        let key = self.reservations.get(&id).map(|hold| hold.key.clone());
+        if let Err(error) = self.append_record(record.clone(), key) {
+            warn!("{LOG_PREFIX} record append failed: {error}");
+            self.records.push(record);
+        }
         self.release(id);
     }
 
@@ -365,7 +410,7 @@ impl PaymentLedger {
     /// payment already happened, and losing the record from this session's
     /// budget would be worse than losing it from the file.
     pub fn record_payment(&mut self, record: PaymentRecord) {
-        if let Err(error) = self.append_record(record.clone()) {
+        if let Err(error) = self.append_record(record.clone(), None) {
             warn!("{LOG_PREFIX} record append failed: {error}");
             self.records.push(record);
         }
@@ -380,7 +425,7 @@ impl PaymentLedger {
     /// Returns an error if serialization, file creation, writing, or syncing
     /// fails. The in-memory history is left unchanged.
     pub fn try_record_payment(&mut self, record: PaymentRecord) -> Result<(), String> {
-        self.append_record(record)
+        self.append_record(record, None)
     }
 
     /// Persist finalized Solana block-height evidence that a pending
@@ -437,7 +482,8 @@ impl PaymentLedger {
         id: ReservationId,
         record: PaymentRecord,
     ) -> Result<(), String> {
-        self.append_record(record)?;
+        let key = self.reservations.get(&id).map(|hold| hold.key.clone());
+        self.append_record(record, key)?;
         self.release(id);
         Ok(())
     }
