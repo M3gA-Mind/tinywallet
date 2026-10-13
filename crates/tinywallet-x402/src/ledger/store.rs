@@ -1,15 +1,13 @@
-//! The ledger itself: an in-memory record list backed by a JSONL file.
+//! The ledger itself: an in-memory record list over a payments stream, with
+//! budget holds kept in one compare-and-swap document.
 
-use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
-use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Datelike, Months, NaiveTime, TimeZone, Utc};
 use log::{debug, warn};
 
+use super::persist::{HOLD_TTL_MS, Hold, LedgerStorage, Persist};
 use super::types::{
     BudgetCheck, BudgetRefusal, PaymentRecord, PaymentStatus, ReservationId, SpendingBudget,
     SpendingSummary,
@@ -17,13 +15,17 @@ use super::types::{
 
 const LOG_PREFIX: &str = "[x402::store]";
 
+/// Attempts at the hold compare-and-swap before giving up. Each loss means
+/// another writer made progress, so a handful is plenty.
+const HOLD_CAS_ATTEMPTS: usize = 16;
+
 /// Source of [`ReservationId`]s. Process-wide rather than per ledger, so a hold
 /// taken on a ledger that was later replaced can never release a hold on its
 /// successor.
 static NEXT_RESERVATION: AtomicU64 = AtomicU64::new(1);
 
 /// Identifies a particular in-memory ledger instance, even when a replacement
-/// is opened from the same workspace and contains the same persisted records.
+/// is opened from the same storage and contains the same persisted records.
 static NEXT_LEDGER_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// Append-only payment history with budget enforcement.
@@ -31,36 +33,73 @@ static NEXT_LEDGER_GENERATION: AtomicU64 = AtomicU64::new(1);
 pub struct PaymentLedger {
     generation: u64,
     records: Vec<PaymentRecord>,
-    file_path: PathBuf,
+    /// The next payments-stream offset to read; everything below it is in
+    /// `records` (or was unparseable).
+    next_offset: u64,
+    persist: Persist,
     budget: SpendingBudget,
     session_id: String,
-    /// Amounts held for payments that are signed but not yet recorded. Memory
-    /// only: a hold that outlives its process protects nothing.
-    reservations: HashMap<ReservationId, u64>,
+    /// Qualifies hold keys so processes sharing one storage never collide.
+    owner: String,
+    /// The holds this ledger placed and has not yet released.
+    reservations: HashMap<ReservationId, String>,
+    /// Every outstanding hold (this ledger's and other processes') as of the
+    /// last read of the hold document.
+    holds: BTreeMap<String, Hold>,
 }
 
 impl PaymentLedger {
-    /// Open the ledger under `workspace_dir`, loading any existing records.
+    /// Open the ledger over `storage`, loading the persisted records.
     ///
-    /// The file is `<workspace_dir>/x402/payments.jsonl`; a missing file is an
-    /// empty ledger.
-    #[must_use]
-    pub fn new(workspace_dir: &Path, session_id: &str, budget: SpendingBudget) -> Self {
-        let file_path = workspace_dir.join("x402").join("payments.jsonl");
-        let records = load_from_disk(&file_path);
+    /// # Errors
+    ///
+    /// The storage cannot be opened or its payments stream cannot be read. A
+    /// ledger that cannot see its history must not admit payments.
+    pub fn open(
+        storage: LedgerStorage,
+        session_id: &str,
+        budget: SpendingBudget,
+    ) -> Result<Self, String> {
+        let persist = Persist::open(storage)?;
+        let (records, next_offset) = persist.read_from(0)?;
         debug!(
-            "{LOG_PREFIX} loaded {} existing payment records from {}",
-            records.len(),
-            file_path.display()
+            "{LOG_PREFIX} loaded {} existing payment records",
+            records.len()
         );
-        Self {
-            generation: NEXT_LEDGER_GENERATION.fetch_add(1, Ordering::Relaxed),
+        let generation = NEXT_LEDGER_GENERATION.fetch_add(1, Ordering::Relaxed);
+        let started = Utc::now().timestamp_nanos_opt().unwrap_or_default();
+        Ok(Self {
+            generation,
             records,
-            file_path,
+            next_offset,
+            persist,
             budget,
             session_id: session_id.to_string(),
+            owner: format!("{}-{generation}-{started}", std::process::id()),
             reservations: HashMap::new(),
+            holds: BTreeMap::new(),
+        })
+    }
+
+    /// Pull records other writers appended since this ledger last looked.
+    fn refresh_records(&mut self) -> Result<(), String> {
+        let (fresh, next) = self.persist.read_from(self.next_offset)?;
+        self.records.extend(fresh);
+        self.next_offset = next;
+        Ok(())
+    }
+
+    /// Append `record` to the stream and mirror it into memory.
+    fn append_record(&mut self, record: PaymentRecord) -> Result<(), String> {
+        let offset = self.persist.append(&record)?;
+        if offset == self.next_offset {
+            self.records.push(record);
+            self.next_offset = offset.saturating_add(1);
+        } else if self.refresh_records().is_err() {
+            // Another writer interleaved and the re-read failed; keep ours.
+            self.records.push(record);
         }
+        Ok(())
     }
 
     /// The identity of this in-memory ledger instance.
@@ -158,19 +197,22 @@ impl PaymentLedger {
         BudgetCheck::Allowed
     }
 
-    /// Check `amount` against the limits and, if it fits, hold it, all under
-    /// the caller's exclusive borrow.
+    /// Check `amount` against the limits and, if it fits, hold it.
     ///
-    /// This is the atomic form of [`check_budget`](Self::check_budget) followed
-    /// by signing: two payments that each fit alone cannot both be admitted when
-    /// together they exceed a cap, because the second check sees the first hold.
-    /// The hold ends with [`release`](Self::release) or
-    /// [`commit_reservation`](Self::commit_reservation).
+    /// The hold is a compare-and-swap on one shared document: it re-reads every
+    /// writer's records and holds, checks, and writes the new hold only if
+    /// nobody else wrote the document meanwhile, retrying otherwise. Two
+    /// payments that each fit alone therefore cannot both be admitted when
+    /// together they exceed a cap, even across processes on one storage. The
+    /// hold ends with [`release`](Self::release) or
+    /// [`commit_reservation`](Self::commit_reservation), or expires on its own.
     ///
     /// # Errors
     ///
-    /// The [`BudgetRefusal`] that stopped `amount`; nothing is held then.
-    pub fn reserve(&mut self, amount: u64) -> Result<ReservationId, BudgetRefusal> {
+    /// The outer error is a storage failure (nothing is held, so the caller
+    /// must not pay); the inner one is the [`BudgetRefusal`] that stopped
+    /// `amount`.
+    pub fn reserve(&mut self, amount: u64) -> Result<Result<ReservationId, BudgetRefusal>, String> {
         self.reserve_at(Utc::now(), amount)
     }
 
@@ -179,26 +221,72 @@ impl PaymentLedger {
         &mut self,
         now: DateTime<Utc>,
         amount: u64,
-    ) -> Result<ReservationId, BudgetRefusal> {
-        if let Some(refusal) = self.check_budget_at(now, amount).refusal() {
-            return Err(refusal);
+    ) -> Result<Result<ReservationId, BudgetRefusal>, String> {
+        self.refresh_records()?;
+        let now_ms = now.timestamp_millis();
+        for _ in 0..HOLD_CAS_ATTEMPTS {
+            let (version, mut doc) = self.persist.load_holds()?;
+            doc.holds.retain(|_, hold| hold.expires_at_ms > now_ms);
+            self.holds.clone_from(&doc.holds);
+            if let Some(refusal) = self.check_budget_at(now, amount).refusal() {
+                return Ok(Err(refusal));
+            }
+            let id = ReservationId(NEXT_RESERVATION.fetch_add(1, Ordering::Relaxed));
+            let key = format!("{}:{}", self.owner, id.0);
+            doc.holds.insert(
+                key.clone(),
+                Hold {
+                    amount,
+                    expires_at_ms: now_ms.saturating_add(HOLD_TTL_MS),
+                },
+            );
+            if self.persist.store_holds(version, &doc)? {
+                self.holds = doc.holds;
+                self.reservations.insert(id, key);
+                debug!("{LOG_PREFIX} reserved {amount} atomic as {id:?}");
+                return Ok(Ok(id));
+            }
         }
-        let id = ReservationId(NEXT_RESERVATION.fetch_add(1, Ordering::Relaxed));
-        self.reservations.insert(id, amount);
-        debug!("{LOG_PREFIX} reserved {amount} atomic as {id:?}");
-        Ok(id)
+        Err("x402 budget hold contention: gave up after repeated conflicts".to_string())
     }
 
     /// Drop a hold without recording a payment. Releasing a hold that is
-    /// already gone does nothing.
+    /// already gone does nothing. A storage failure is logged and leaves the
+    /// stored hold to expire; the budget stays conservatively charged.
     pub fn release(&mut self, id: ReservationId) {
-        if self.reservations.remove(&id).is_some() {
-            debug!("{LOG_PREFIX} released {id:?}");
+        let Some(key) = self.reservations.remove(&id) else {
+            return;
+        };
+        self.holds.remove(&key);
+        for _ in 0..HOLD_CAS_ATTEMPTS {
+            let (version, mut doc) = match self.persist.load_holds() {
+                Ok(found) => found,
+                Err(error) => {
+                    warn!("{LOG_PREFIX} release of {id:?} left to expire: {error}");
+                    return;
+                }
+            };
+            if version.is_none() || doc.holds.remove(&key).is_none() {
+                return;
+            }
+            match self.persist.store_holds(version, &doc) {
+                Ok(true) => {
+                    debug!("{LOG_PREFIX} released {id:?}");
+                    return;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    warn!("{LOG_PREFIX} release of {id:?} left to expire: {error}");
+                    return;
+                }
+            }
         }
+        warn!("{LOG_PREFIX} release of {id:?} left to expire: contention");
     }
 
-    /// Record `record` and drop the hold `id` in one step, so the amount counts
-    /// exactly once: as held before, as `record` after.
+    /// Record `record` and drop the hold `id`, recorded first so the amount is
+    /// never missing from the totals: it is held, then held and recorded for
+    /// an instant, then recorded.
     pub fn commit_reservation(&mut self, id: ReservationId, record: PaymentRecord) {
         self.record_payment(record);
         self.release(id);
@@ -207,9 +295,9 @@ impl PaymentLedger {
     /// The total currently held by reservations, in atomic units.
     #[must_use]
     pub fn reserved_atomic(&self) -> u64 {
-        self.reservations
+        self.holds
             .values()
-            .fold(0, |total, amount| total.saturating_add(*amount))
+            .fold(0, |total, hold| total.saturating_add(hold.amount))
     }
 
     /// Attempt to append `record` to disk, then keep it in memory regardless.
@@ -218,10 +306,10 @@ impl PaymentLedger {
     /// payment already happened, and losing the record from this session's
     /// budget would be worse than losing it from the file.
     pub fn record_payment(&mut self, record: PaymentRecord) {
-        if let Err(error) = self.append_to_disk(&record) {
+        if let Err(error) = self.append_record(record.clone()) {
             warn!("{LOG_PREFIX} record append failed: {error}");
+            self.records.push(record);
         }
-        self.records.push(record);
     }
 
     /// Append a state transition and update memory only after the durable write
@@ -233,9 +321,7 @@ impl PaymentLedger {
     /// Returns an error if serialization, file creation, writing, or syncing
     /// fails. The in-memory history is left unchanged.
     pub fn try_record_payment(&mut self, record: PaymentRecord) -> Result<(), String> {
-        self.append_to_disk(&record)?;
-        self.records.push(record);
-        Ok(())
+        self.append_record(record)
     }
 
     /// Persist finalized Solana block-height evidence that a pending
@@ -261,6 +347,8 @@ impl PaymentLedger {
         if self.generation != expected_generation || observed_height <= expected_last_valid_height {
             return Ok(false);
         }
+        // Another writer may have recorded a receipt since this ledger looked.
+        self.refresh_records()?;
         let Some(mut latest) = self.payment(id).cloned() else {
             return Ok(false);
         };
@@ -290,8 +378,7 @@ impl PaymentLedger {
         id: ReservationId,
         record: PaymentRecord,
     ) -> Result<(), String> {
-        self.append_to_disk(&record)?;
-        self.records.push(record);
+        self.append_record(record)?;
         self.release(id);
         Ok(())
     }
@@ -417,49 +504,6 @@ impl PaymentLedger {
         );
         self.budget = budget;
     }
-
-    fn append_to_disk(&self, record: &PaymentRecord) -> Result<(), String> {
-        if let Some(parent) = self.file_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("create ledger directory: {error}"))?;
-        }
-        let mut file = match OpenOptions::new()
-            .create(true)
-            .read(true)
-            .append(true)
-            .open(&self.file_path)
-        {
-            Ok(f) => f,
-            Err(error) => return Err(format!("open ledger file: {error}")),
-        };
-        let json = serde_json::to_string(record)
-            .map_err(|error| format!("serialize ledger record: {error}"))?;
-        let length = file
-            .metadata()
-            .map_err(|error| format!("inspect ledger file: {error}"))?
-            .len();
-        if length > 0 {
-            file.seek(SeekFrom::End(-1))
-                .map_err(|error| format!("seek ledger file: {error}"))?;
-            let mut last = [0_u8; 1];
-            file.read_exact(&mut last)
-                .map_err(|error| format!("read ledger file boundary: {error}"))?;
-            if last[0] != b'\n' {
-                file.write_all(b"\n")
-                    .map_err(|error| format!("finish ledger line: {error}"))?;
-            }
-        }
-        writeln!(file, "{json}").map_err(|error| format!("write ledger record: {error}"))?;
-        file.sync_all()
-            .map_err(|error| format!("sync ledger record: {error}"))?;
-        #[cfg(unix)]
-        if let Some(parent) = self.file_path.parent() {
-            std::fs::File::open(parent)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|error| format!("sync ledger directory: {error}"))?;
-        }
-        Ok(())
-    }
 }
 
 fn is_unresolved(record: &PaymentRecord) -> bool {
@@ -491,35 +535,4 @@ fn authorization_window_end(record: &PaymentRecord) -> Option<DateTime<Utc>> {
         };
         (observed_height > last_valid && observed_at >= record.timestamp).then_some(observed_at)
     })
-}
-
-fn load_from_disk(path: &Path) -> Vec<PaymentRecord> {
-    let Ok(file) = fs::File::open(path) else {
-        return Vec::new();
-    };
-    let mut records = Vec::new();
-    for line in BufReader::new(file).lines() {
-        let line = match line {
-            Ok(l) => l,
-            // Invalid UTF-8 consumes the line, so the next read moves on.
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-                warn!("{LOG_PREFIX} skipping unreadable line: {e}");
-                continue;
-            }
-            // Any other error repeats forever on the same position (a directory
-            // where the file should be, a failing disk), so stop reading.
-            Err(e) => {
-                warn!("{LOG_PREFIX} read error, stopping load: {e}");
-                break;
-            }
-        };
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<PaymentRecord>(&line) {
-            Ok(r) => records.push(r),
-            Err(e) => warn!("{LOG_PREFIX} corrupt record: {e}"),
-        }
-    }
-    records
 }

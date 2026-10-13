@@ -7,11 +7,13 @@
 //!
 //! # Persistence
 //!
-//! Records are appended as JSON lines to `<workspace>/x402/payments.jsonl`. The
-//! file is append-only: a payment that changes status is written again with the
-//! same id, and readers see every line. Unreadable or corrupt lines are skipped
-//! with a warning rather than failing the load, since a ledger that refuses to
-//! open would block every future payment.
+//! The ledger persists through the `tinystoragedrivers-core` ports only; the
+//! host hands in a [`LedgerStorage`] and decides the backend. Records are
+//! appended to the `x402.payments` stream. It is append-only: a payment that
+//! changes status is appended again with the same id, and readers see every
+//! entry. Entries that no longer parse are skipped with a warning rather than
+//! failing the load. A storage that cannot be read refuses to open, since a
+//! ledger blind to its history would admit payments past the budget.
 //!
 //! # Budgets
 //!
@@ -31,9 +33,13 @@
 //! together overspend. [`reserve`] (or [`PaymentLedger::reserve`]) therefore
 //! checks and holds the amount in one critical section, before anything is
 //! signed. The hold is a [`Reservation`]: dropped, it releases; committed with
-//! [`Reservation::commit`], it turns into the recorded payment atomically.
-//! Holds live in memory only until their signed authorization is durably
-//! recorded; that record then protects the budget across restart.
+//! [`Reservation::commit`], it turns into the recorded payment.
+//!
+//! Holds live in one `x402_budget/holds` document that every writer on the
+//! storage updates by compare-and-swap, so the check-and-hold is atomic across
+//! processes, not only across threads. A hold expires after 15 minutes so a
+//! crashed process cannot lock budget forever; once the signed authorization is
+//! durably recorded, that record protects the budget across restart.
 //!
 //! # The process-wide handle
 //!
@@ -41,14 +47,21 @@
 //! [`with_ledger`] / [`with_ledger_mut`]. The handle is the only shared state in
 //! this crate.
 
+#[cfg(test)]
+pub(crate) mod faulty;
 mod global;
+mod persist;
 mod reservation;
 mod store;
 mod types;
 
 #[cfg(test)]
 pub(crate) use global::{TEST_LOCK, reset_global};
-pub use global::{clear_global, init_global, with_ledger, with_ledger_mut};
+pub use global::{
+    clear_global, clear_provisioned_storage, init_global, provision_storage, provisioned_storage,
+    with_ledger, with_ledger_mut,
+};
+pub use persist::LedgerStorage;
 pub use reservation::{Reservation, reserve};
 pub use store::PaymentLedger;
 pub use types::{

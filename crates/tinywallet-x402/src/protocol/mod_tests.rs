@@ -165,10 +165,10 @@ fn get(_client: &X402Client, url: &str) -> reqwest::Request {
     reqwest::Client::new().get(url).build().unwrap()
 }
 
-fn init_ledger(budget: SpendingBudget) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    ledger::init_global(dir.path(), "test-session", budget);
-    dir
+fn init_ledger(budget: SpendingBudget) -> ledger::LedgerStorage {
+    let storage = ledger::LedgerStorage::memory();
+    ledger::init_global(storage.clone(), "test-session", budget).unwrap();
+    storage
 }
 
 fn settled(amount: u64) -> PaymentRecord {
@@ -289,7 +289,7 @@ async fn a_receipt_arriving_during_height_refresh_cannot_be_overwritten() {
 }
 
 struct ReopenLedgerDuringHeightRefresh {
-    workspace: std::path::PathBuf,
+    storage: ledger::LedgerStorage,
 }
 
 #[async_trait]
@@ -304,10 +304,15 @@ impl PaymentBuilder for ReopenLedgerDuringHeightRefresh {
     }
 
     async fn finalized_solana_block_height(&self) -> Result<Option<u64>, X402Error> {
-        // Reopening the same path restores the exact same latest payment
+        // Reopening the same storage restores the exact same latest payment
         // record, but it is a distinct in-memory ledger instance. Evidence
         // requested for the old instance must not mutate the replacement.
-        ledger::init_global(&self.workspace, "test-session", SpendingBudget::default());
+        ledger::init_global(
+            self.storage.clone(),
+            "test-session",
+            SpendingBudget::default(),
+        )
+        .unwrap();
         Ok(Some(10))
     }
 }
@@ -325,11 +330,9 @@ async fn stale_height_evidence_cannot_mutate_a_reopened_ledger() {
         .unwrap()
         .unwrap();
 
-    refresh_solana_authorizations(&ReopenLedgerDuringHeightRefresh {
-        workspace: dir.path().to_path_buf(),
-    })
-    .await
-    .unwrap();
+    refresh_solana_authorizations(&ReopenLedgerDuringHeightRefresh { storage: dir })
+        .await
+        .unwrap();
 
     let latest = ledger::with_ledger(|ledger| {
         let current = ledger.payment("reopened-ledger-refresh").unwrap();

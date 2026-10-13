@@ -134,10 +134,10 @@ fn paid_config(requirement: PaymentRequirements) -> ServerConfig {
     }
 }
 
-fn init_ledger() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    ledger::init_global(dir.path(), "tool-test", SpendingBudget::default());
-    dir
+fn init_ledger() -> ledger::LedgerStorage {
+    let storage = ledger::LedgerStorage::memory();
+    ledger::init_global(storage.clone(), "tool-test", SpendingBudget::default()).unwrap();
+    storage
 }
 
 fn records() -> Vec<PaymentRecord> {
@@ -564,15 +564,15 @@ async fn a_missing_or_unreadable_receipt_keeps_the_authorization_pending() {
 #[tokio::test]
 async fn a_payment_the_budget_refuses_is_reported_and_not_sent() {
     let _guard = ledger::TEST_LOCK.lock().await;
-    let dir = tempfile::tempdir().unwrap();
     ledger::init_global(
-        dir.path(),
+        ledger::LedgerStorage::memory(),
         "tool-test",
         SpendingBudget {
             per_request_max_atomic: 100,
             ..SpendingBudget::default()
         },
-    );
+    )
+    .unwrap();
     let server = TestServer::start(paid_config(evm_requirement())).await;
     let result = run(&tool(), json!({"url": server.url})).await;
     assert!(result.is_error);
@@ -600,9 +600,11 @@ async fn paying_without_a_ledger_is_reported() {
 #[tokio::test]
 async fn a_signed_payment_is_not_retried_when_pending_state_cannot_be_saved() {
     let _guard = ledger::TEST_LOCK.lock().await;
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("x402"), b"blocks ledger directory").unwrap();
-    ledger::init_global(dir.path(), "tool-test", SpendingBudget::default());
+    let (storage, faults) = ledger::faulty::faulty_storage();
+    ledger::init_global(storage, "tool-test", SpendingBudget::default()).unwrap();
+    faults
+        .append
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let server = TestServer::start(paid_config(evm_requirement())).await;
 
     let result = run(&tool(), json!({"url": server.url})).await;

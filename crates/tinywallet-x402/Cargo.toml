@@ -66,6 +66,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 # Record ids in the `x402_request` tool.
 uuid = { version = "1", features = ["v4"], optional = true }
 
+# The storage ports the ledger persists through (payments stream, budget hold
+# document). Ports only; the host chooses the backend.
+tinystoragedrivers-core = { workspace = true, optional = true }
+
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -77,8 +81,6 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 # `Full<Bytes>` is a `Sync` HTTP body; wrapped with `reqwest::Body::wrap` it is a
 # streaming body that cannot be cloned, which the replay tests need.
 http-body-util = "0.1"
-# Scratch directories for the ledger's JSONL file.
-tempfile = "3"
 # The root crate's `key` gate derives a known account from a BIP-39 mnemonic, so
 # `FakePaymentSigner` signs as exactly the account a real wallet would. A
 # dev-dependency only: never linked into a host.
@@ -100,7 +102,7 @@ eip712 = ["dep:sha3", "dep:thiserror"]
 abi = ["eip712", "dep:tinywallet-crypto", "tinywallet-crypto/evm", "tinywallet-crypto/keccak"]
 # The rail-neutral spending ledger: records, budgets, the JSONL file, and the
 # process-wide handle.
-ledger = ["dep:serde", "dep:serde_json", "dep:chrono", "dep:log"]
+ledger = ["dep:serde", "dep:serde_json", "dep:chrono", "dep:log", "dep:tinystoragedrivers-core"]
 # Paying a 402 challenge: header codec, the client, and the EVM and Solana
 # payment builders behind the `PaymentSigner` seam. Solana reads the recent
 # blockhash through `tinywallet_crypto::rpc::Transport`.

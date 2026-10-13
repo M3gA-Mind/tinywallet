@@ -152,7 +152,8 @@ pub struct WalletAccountsResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct X402ConfigResponse {
-    /// Parent workspace for the module-owned `x402/payments.jsonl` ledger.
+    /// Retained for wire compatibility. The ledger persists through the storage
+    /// ports the host provisions, not a file under this directory.
     pub workspace_dir: String,
     /// Stable process session identifier used for ledger attribution.
     pub session_id: String,

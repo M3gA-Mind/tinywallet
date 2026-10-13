@@ -63,6 +63,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         ..crate::service::Wallet::default()
     });
     let workspace = tempfile::tempdir().unwrap();
+    tinywallet_x402::ledger::provision_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {
@@ -322,7 +323,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
     );
 
     let blocked_workspace = tempfile::tempdir().unwrap();
-    std::fs::write(blocked_workspace.path().join("x402"), "not a directory").unwrap();
+    tinywallet_x402::ledger::provision_storage(failing_append_storage());
     let blocked_handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {
@@ -361,5 +362,87 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         })
         .await
         .unwrap();
+    broker_task.abort();
+}
+
+/// In-memory storage whose payments stream refuses every append: the ledger
+/// opens, holds budget, and then cannot durably record the authorization.
+fn failing_append_storage() -> tinywallet_x402::ledger::LedgerStorage {
+    use tinystoragedrivers_core::{
+        MemoryStorage, Result as StorageResult, Scope, StorageBackend, StorageError, StreamEntry,
+        StreamStore, async_trait,
+    };
+
+    #[derive(Debug)]
+    struct NoAppend(Arc<dyn StreamStore>);
+
+    #[async_trait]
+    impl StreamStore for NoAppend {
+        async fn append(&self, _: &str, _: serde_json::Value) -> StorageResult<u64> {
+            Err(StorageError::backend("injected append failure"))
+        }
+        async fn append_batch(&self, s: &str, v: Vec<serde_json::Value>) -> StorageResult<u64> {
+            self.0.append_batch(s, v).await
+        }
+        async fn read_window(&self, s: &str, f: u64, l: usize) -> StorageResult<Vec<StreamEntry>> {
+            self.0.read_window(s, f, l).await
+        }
+        async fn len(&self, s: &str) -> StorageResult<u64> {
+            self.0.len(s).await
+        }
+        async fn truncate_before(&self, s: &str, o: u64) -> StorageResult<u64> {
+            self.0.truncate_before(s, o).await
+        }
+        async fn delete_stream(&self, s: &str) -> StorageResult<bool> {
+            self.0.delete_stream(s).await
+        }
+        async fn streams(&self, p: &str) -> StorageResult<Vec<String>> {
+            self.0.streams(p).await
+        }
+    }
+
+    let scoped = MemoryStorage::new()
+        .for_scope(&Scope::new("x402-fail").unwrap())
+        .unwrap();
+    tinywallet_x402::ledger::LedgerStorage::new(
+        Arc::clone(scoped.documents()),
+        Arc::new(NoAppend(Arc::clone(scoped.streams()))),
+    )
+}
+
+#[cfg(not(feature = "e2e-memory-storage"))]
+#[tokio::test]
+async fn x402_configure_fails_closed_without_provisioned_storage() {
+    use tinywallet_bus::wire::X402ConfigureRequest;
+
+    let _ledger_guard = LEDGER_TEST_LOCK.lock().await;
+    tinywallet_x402::ledger::clear_provisioned_storage();
+    let bus = tinybus::transport::memory::MemoryBus::new();
+    let broker = tinybus::broker::Broker::new();
+    let broker_task = broker.spawn(bus.clone());
+    let client = tinybus::Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let wallet = Arc::new(crate::service::Wallet {
+        callbacks: Some(HostCallbacks::new(&client).unwrap()),
+        ..crate::service::Wallet::default()
+    });
+
+    let result = wallet
+        .x402_configure(X402ConfigureRequest {
+            config: X402ConfigResponse {
+                workspace_dir: "/unused".to_string(),
+                session_id: "no-storage".to_string(),
+                per_request_max_atomic: 1,
+                daily_max_atomic: 1,
+                monthly_max_atomic: 1,
+            },
+        })
+        .await;
+
+    assert!(
+        result.is_err(),
+        "a ledger that cannot persist must not open"
+    );
     broker_task.abort();
 }

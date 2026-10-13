@@ -59,6 +59,12 @@ resolver = "3"
 # one package and `tinytools::Tool` stays one type. Keep the rev equal to the
 # tinytools gitlink tinyagents pins.
 tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "bd60b9b52f1998b4483b9cf107a72d3338e672f8" }
+# The storage ports (documents, streams) the x402 ledger persists through. The
+# ports crate only: no driver, no database client. A git tag rather than a path
+# so a host that already links tinystoragedrivers (OpenHuman patches this exact
+# URL to its vendored copy) unifies to one `DocumentStore` trait. `blocking`
+# is the sync bridge the ledger's synchronous API runs the async ports on.
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.7.0", default-features = false, features = ["blocking"] }
 
 [dependencies]
 # The wire contract. Split out so a host that has moved signing into the

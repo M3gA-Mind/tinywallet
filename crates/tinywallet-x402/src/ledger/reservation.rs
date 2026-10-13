@@ -74,11 +74,12 @@ impl Drop for Reservation {
 ///
 /// # Errors
 ///
-/// The outer error is `"x402 payment ledger not initialized"`; the inner one is
-/// the [`BudgetRefusal`] that stopped the amount.
+/// The outer error is `"x402 payment ledger not initialized"` or a storage
+/// failure (nothing is held); the inner one is the [`BudgetRefusal`] that
+/// stopped the amount.
 pub fn reserve(amount: u64) -> Result<Result<Reservation, BudgetRefusal>, String> {
-    with_ledger_mut(|l| {
-        l.reserve(amount).map(|id| Reservation {
+    with_ledger_mut(|l| l.reserve(amount))?.map(|held| {
+        held.map(|id| Reservation {
             id: Some(id),
             amount,
         })

@@ -87,6 +87,10 @@ default = []
 # are always built without it.
 static-link = []
 linked = ["static-link"]
+# Test-artifact only (the module E2E builds the cdylib with it): when the host
+# has not provisioned x402 ledger storage, fall back to in-memory storage
+# instead of failing closed. Released modules are never built with it.
+e2e-memory-storage = []
 
 [lints]
 workspace = true
@@ -96,6 +100,9 @@ workspace = true
 base64 = "0.23"
 # The native lifecycle fixture stages and hashes the actual cdylib to attest it.
 sha2 = "0.11"
+# Memory backend and stream port for the x402 ledger fixtures; the ports crate
+# only, same as the ledger itself.
+tinystoragedrivers-core = { workspace = true }
 # Isolates native artifact admission and ledger fixtures from user files.
 tempfile = "3"
 # The loader E2E admits the built module from its adjacent digest manifest and

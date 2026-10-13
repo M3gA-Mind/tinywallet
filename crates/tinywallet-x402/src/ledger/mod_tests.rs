@@ -3,12 +3,14 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
+use super::faulty::{append_raw, faulty_storage};
+use super::persist::{BUDGET_COLLECTION, HOLDS_ID, HoldsDoc, Persist};
 use super::*;
+use tinystoragedrivers_core::{Blocking, Version};
 
 const SESSION: &str = "session-a";
 static NEXT_TEST_RECORD: AtomicU64 = AtomicU64::new(1);
@@ -55,8 +57,8 @@ fn record(
     }
 }
 
-fn ledger_in(dir: &tempfile::TempDir) -> PaymentLedger {
-    PaymentLedger::new(dir.path(), SESSION, budget())
+fn ledger_in(dir: &LedgerStorage) -> PaymentLedger {
+    PaymentLedger::open(dir.clone(), SESSION, budget()).unwrap()
 }
 
 #[test]
@@ -69,7 +71,7 @@ fn the_default_budget_is_one_ten_and_a_hundred_usdc() {
 
 #[test]
 fn an_empty_ledger_allows_a_payment_within_the_limits() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let ledger = ledger_in(&dir);
     assert_eq!(ledger.check_budget(100_000), BudgetCheck::Allowed);
     assert_eq!(ledger.check_budget_at(now(), 500_000), BudgetCheck::Allowed);
@@ -77,7 +79,7 @@ fn an_empty_ledger_allows_a_payment_within_the_limits() {
 
 #[test]
 fn a_payment_over_the_per_request_cap_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     assert_eq!(
         ledger_in(&dir).check_budget(600_000),
         BudgetCheck::ExceedsPerRequest {
@@ -89,7 +91,7 @@ fn a_payment_over_the_per_request_cap_is_refused() {
 
 #[test]
 fn settled_payments_today_count_against_the_daily_budget() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     ledger.record_payment(record(1_800_000, PaymentStatus::Settled, now(), SESSION));
     assert_eq!(
@@ -105,7 +107,7 @@ fn settled_payments_today_count_against_the_daily_budget() {
 
 #[test]
 fn unsigned_failed_or_denied_payments_do_not_consume_the_budget() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     for status in [PaymentStatus::Failed, PaymentStatus::Denied] {
         ledger.record_payment(record(1_800_000, status, now(), SESSION));
@@ -116,7 +118,7 @@ fn unsigned_failed_or_denied_payments_do_not_consume_the_budget() {
 
 #[test]
 fn pending_authorizations_remain_budgeted_after_reopening_the_ledger() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let mut pending = record(1_800_000, PaymentStatus::Pending, now(), SESSION);
     pending.id = "signed-authorization".to_string();
@@ -146,7 +148,7 @@ fn pending_authorizations_remain_budgeted_after_reopening_the_ledger() {
 
 #[test]
 fn yesterdays_payments_count_against_the_month_but_not_the_day() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let yesterday = now() - Duration::days(1);
     for _ in 0..5 {
@@ -176,7 +178,7 @@ fn yesterdays_payments_count_against_the_month_but_not_the_day() {
 
 #[test]
 fn last_months_payments_do_not_count() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     let last_month = now() - Duration::days(40);
     ledger.record_payment(record(500_000, PaymentStatus::Settled, last_month, SESSION));
@@ -188,7 +190,7 @@ fn last_months_payments_do_not_count() {
 
 #[test]
 fn the_summary_splits_session_day_and_month() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     ledger.record_payment(record(100_000, PaymentStatus::Settled, now(), SESSION));
     ledger.record_payment(record(200_000, PaymentStatus::Settled, now(), SESSION));
@@ -214,7 +216,7 @@ fn the_summary_splits_session_day_and_month() {
 
 #[test]
 fn recent_payments_are_newest_first_and_limited() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     for amount in [1, 2, 3, 4] {
         ledger.record_payment(record(amount, PaymentStatus::Settled, now(), SESSION));
@@ -229,7 +231,7 @@ fn recent_payments_are_newest_first_and_limited() {
 
 #[test]
 fn updating_the_budget_takes_effect() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     assert_eq!(ledger.budget(), &budget());
     ledger.update_budget(SpendingBudget {
@@ -249,100 +251,17 @@ fn updating_the_budget_takes_effect() {
 
 #[test]
 fn records_survive_a_restart() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     {
         let mut ledger = ledger_in(&dir);
         ledger.record_payment(record(100_000, PaymentStatus::Settled, now(), SESSION));
         ledger.record_payment(record(200_000, PaymentStatus::Failed, now(), SESSION));
     }
-    let reopened = PaymentLedger::new(dir.path(), "session-b", budget());
+    let reopened = PaymentLedger::open(dir.clone(), "session-b", budget()).unwrap();
     let recent = reopened.recent_payments(10);
     assert_eq!(recent.len(), 2);
     assert_eq!(recent[0].status, PaymentStatus::Failed);
     assert_eq!(recent[1].amount_atomic, 100_000);
-    let path = dir.path().join("x402").join("payments.jsonl");
-    assert!(path.is_file(), "the JSONL file is under x402/");
-}
-
-#[test]
-fn corrupt_and_blank_lines_are_skipped_on_load() {
-    let dir = tempfile::tempdir().unwrap();
-    let good = serde_json::to_string(&record(1, PaymentStatus::Settled, now(), SESSION)).unwrap();
-    let path = dir.path().join("x402");
-    fs::create_dir_all(&path).unwrap();
-    fs::write(
-        path.join("payments.jsonl"),
-        format!("{good}\n\nnot json at all\n{{\"id\": 7}}\n{good}\n"),
-    )
-    .unwrap();
-    assert_eq!(ledger_in(&dir).recent_payments(10).len(), 2);
-}
-
-#[test]
-fn a_file_that_is_not_utf8_does_not_stop_the_load() {
-    let dir = tempfile::tempdir().unwrap();
-    let good = serde_json::to_string(&record(1, PaymentStatus::Settled, now(), SESSION)).unwrap();
-    let path = dir.path().join("x402");
-    fs::create_dir_all(&path).unwrap();
-    let mut bytes = vec![0xff, 0xfe, b'\n'];
-    bytes.extend(good.as_bytes());
-    bytes.push(b'\n');
-    fs::write(path.join("payments.jsonl"), bytes).unwrap();
-    assert_eq!(ledger_in(&dir).recent_payments(10).len(), 1);
-}
-
-#[test]
-fn a_payment_is_kept_in_memory_when_the_file_cannot_be_written() {
-    let dir = tempfile::tempdir().unwrap();
-    // `x402` exists as a *file*, so neither the directory nor the ledger file
-    // can be created beneath it.
-    fs::write(dir.path().join("x402"), b"in the way").unwrap();
-    let mut ledger = ledger_in(&dir);
-    ledger.record_payment(record(5, PaymentStatus::Settled, now(), SESSION));
-    assert_eq!(ledger.recent_payments(10).len(), 1);
-}
-
-#[test]
-fn a_fallible_record_is_not_visible_until_it_is_saved() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("x402"), b"blocks directory creation").unwrap();
-    let mut ledger = ledger_in(&dir);
-
-    assert!(
-        ledger
-            .try_record_payment(record(5, PaymentStatus::Pending, now(), SESSION))
-            .is_err()
-    );
-    assert_eq!(ledger.recent_payments(10), Vec::<PaymentRecord>::new());
-}
-
-#[test]
-fn a_failed_durable_commit_keeps_the_reservation_held() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("x402"), b"blocks directory creation").unwrap();
-    let mut ledger = ledger_in(&dir);
-    let reservation = ledger.reserve(5).unwrap();
-
-    assert!(
-        ledger
-            .try_commit_reservation(
-                reservation,
-                record(5, PaymentStatus::Pending, now(), SESSION)
-            )
-            .is_err()
-    );
-    assert_eq!(ledger.reserved_atomic(), 5);
-    assert_eq!(ledger.recent_payments(10), Vec::<PaymentRecord>::new());
-}
-
-#[test]
-fn a_payment_is_kept_in_memory_when_the_file_cannot_be_opened() {
-    let dir = tempfile::tempdir().unwrap();
-    // The ledger file's path is a directory: the parent exists, opening fails.
-    fs::create_dir_all(dir.path().join("x402").join("payments.jsonl")).unwrap();
-    let mut ledger = ledger_in(&dir);
-    ledger.record_payment(record(5, PaymentStatus::Settled, now(), SESSION));
-    assert_eq!(ledger.recent_payments(10).len(), 1);
 }
 
 #[test]
@@ -370,8 +289,8 @@ fn the_global_ledger_errors_until_initialised_then_works() {
         "x402 payment ledger not initialized"
     );
 
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
     with_ledger_mut(|l| l.record_payment(record(9, PaymentStatus::Settled, Utc::now(), SESSION)))
         .unwrap();
     assert_eq!(with_ledger(|l| l.recent_payments(5).len()).unwrap(), 1);
@@ -381,7 +300,7 @@ fn the_global_ledger_errors_until_initialised_then_works() {
     );
 
     // Initialising again replaces the ledger with the one on disk.
-    init_global(dir.path(), "session-b", SpendingBudget::default());
+    init_global(dir.clone(), "session-b", SpendingBudget::default()).unwrap();
     assert_eq!(
         with_ledger(|l| l.budget().daily_max_atomic).unwrap(),
         10_000_000
@@ -392,8 +311,8 @@ fn the_global_ledger_errors_until_initialised_then_works() {
 #[test]
 fn a_poisoned_global_lock_is_recovered() {
     let _guard = TEST_LOCK.blocking_lock();
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
     let _ = std::panic::catch_unwind(|| {
         let _ = with_ledger(|_| panic!("poison the ledger lock"));
     });
@@ -407,15 +326,15 @@ fn a_poisoned_global_lock_is_recovered() {
 
 #[test]
 fn a_reservation_counts_against_the_daily_budget_until_released() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     // The day allows 2_000_000: four holds of 500_000 fit, a fifth does not.
     let ids: Vec<_> = (0..4)
-        .map(|_| ledger.reserve_at(now(), 500_000).unwrap())
+        .map(|_| ledger.reserve_at(now(), 500_000).unwrap().unwrap())
         .collect();
     assert_eq!(ledger.reserved_atomic(), 2_000_000);
     assert_eq!(
-        ledger.reserve_at(now(), 1).unwrap_err(),
+        ledger.reserve_at(now(), 1).unwrap().unwrap_err(),
         BudgetRefusal::Daily {
             current: 2_000_000,
             cap: 2_000_000
@@ -424,24 +343,25 @@ fn a_reservation_counts_against_the_daily_budget_until_released() {
 
     ledger.release(ids[0]);
     assert_eq!(ledger.reserved_atomic(), 1_500_000);
-    assert!(ledger.reserve_at(now(), 500_000).is_ok());
+    assert!(ledger.reserve_at(now(), 500_000).unwrap().is_ok());
 }
 
 #[test]
 fn a_reservation_counts_against_the_monthly_budget() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut ledger = PaymentLedger::new(
-        dir.path(),
+    let dir = LedgerStorage::memory();
+    let mut ledger = PaymentLedger::open(
+        dir.clone(),
         SESSION,
         SpendingBudget {
             per_request_max_atomic: 500_000,
             daily_max_atomic: 10_000_000,
             monthly_max_atomic: 600_000,
         },
-    );
-    ledger.reserve_at(now(), 500_000).unwrap();
+    )
+    .unwrap();
+    ledger.reserve_at(now(), 500_000).unwrap().unwrap();
     assert_eq!(
-        ledger.reserve_at(now(), 500_000).unwrap_err(),
+        ledger.reserve_at(now(), 500_000).unwrap().unwrap_err(),
         BudgetRefusal::Monthly {
             current: 500_000,
             cap: 600_000
@@ -451,10 +371,10 @@ fn a_reservation_counts_against_the_monthly_budget() {
 
 #[test]
 fn a_refused_reservation_holds_nothing() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
     assert_eq!(
-        ledger.reserve_at(now(), 600_000).unwrap_err(),
+        ledger.reserve_at(now(), 600_000).unwrap().unwrap_err(),
         BudgetRefusal::PerRequest {
             requested: 600_000,
             cap: 500_000
@@ -465,9 +385,9 @@ fn a_refused_reservation_holds_nothing() {
 
 #[test]
 fn releasing_an_unknown_reservation_is_harmless() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
-    let id = ledger.reserve_at(now(), 1_000).unwrap();
+    let id = ledger.reserve_at(now(), 1_000).unwrap().unwrap();
     ledger.release(id);
     ledger.release(id);
     assert_eq!(ledger.reserved_atomic(), 0);
@@ -475,9 +395,9 @@ fn releasing_an_unknown_reservation_is_harmless() {
 
 #[test]
 fn committing_a_reservation_records_the_payment_and_frees_the_hold() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     let mut ledger = ledger_in(&dir);
-    let id = ledger.reserve(400_000).unwrap();
+    let id = ledger.reserve(400_000).unwrap().unwrap();
 
     ledger.commit_reservation(
         id,
@@ -495,15 +415,15 @@ fn committing_a_reservation_records_the_payment_and_frees_the_hold() {
 
 #[test]
 fn the_ledger_reports_its_own_session_id() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LedgerStorage::memory();
     assert_eq!(ledger_in(&dir).session_id(), SESSION);
 }
 
 #[test]
 fn a_global_reservation_is_released_when_dropped() {
     let _guard = TEST_LOCK.blocking_lock();
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
 
     let held = reserve(500_000).unwrap().unwrap();
     assert_eq!(held.amount(), 500_000);
@@ -519,8 +439,8 @@ fn a_global_reservation_is_released_when_dropped() {
 #[test]
 fn a_global_reservation_can_be_released_explicitly() {
     let _guard = TEST_LOCK.blocking_lock();
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
 
     let held = reserve(500_000).unwrap().unwrap();
     held.release();
@@ -531,8 +451,8 @@ fn a_global_reservation_can_be_released_explicitly() {
 #[test]
 fn a_global_reservation_committed_is_recorded_once() {
     let _guard = TEST_LOCK.blocking_lock();
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
 
     let held = reserve(500_000).unwrap().unwrap();
     held.commit(record(500_000, PaymentStatus::Settled, Utc::now(), SESSION));
@@ -554,8 +474,8 @@ fn a_global_reservation_is_refused_over_budget_and_needs_a_ledger() {
         "x402 payment ledger not initialized"
     );
 
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
     assert_eq!(
         reserve(600_000).unwrap().unwrap_err(),
         BudgetRefusal::PerRequest {
@@ -569,14 +489,14 @@ fn a_global_reservation_is_refused_over_budget_and_needs_a_ledger() {
 #[test]
 fn dropping_a_reservation_after_the_ledger_is_gone_is_harmless() {
     let _guard = TEST_LOCK.blocking_lock();
-    let dir = tempfile::tempdir().unwrap();
-    init_global(dir.path(), SESSION, budget());
+    let dir = LedgerStorage::memory();
+    init_global(dir.clone(), SESSION, budget()).unwrap();
     let held = reserve(500_000).unwrap().unwrap();
     reset_global();
     drop(held);
 
     // A new ledger never inherits an old hold, even if ids were reused.
-    init_global(dir.path(), SESSION, budget());
+    init_global(dir.clone(), SESSION, budget()).unwrap();
     assert_eq!(with_ledger(PaymentLedger::reserved_atomic).unwrap(), 0);
     reset_global();
 }
@@ -598,22 +518,6 @@ fn a_verdict_converts_to_its_refusal() {
 }
 
 #[test]
-fn a_line_written_before_threads_existed_still_loads() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("x402");
-    fs::create_dir_all(&path).unwrap();
-    let old = r#"{"id":"old","url":"https://x","asset":"USDC","amountAtomic":5,"amountDisplay":"5","recipient":"r","network":"n","txSignature":null,"status":"settled","timestamp":"2026-03-15T12:00:00Z","sessionId":"session-a"}"#;
-    fs::write(path.join("payments.jsonl"), format!("{old}\n")).unwrap();
-
-    let ledger = ledger_in(&dir);
-
-    let records = ledger.recent_payments(5);
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].thread_id, None);
-    assert_eq!(records[0].session_id, "session-a");
-}
-
-#[test]
 fn a_thread_is_written_only_when_there_is_one() {
     let mut with = record(1, PaymentStatus::Settled, now(), SESSION);
     assert!(!serde_json::to_string(&with).unwrap().contains("threadId"));
@@ -622,4 +526,288 @@ fn a_thread_is_written_only_when_there_is_one() {
     assert_eq!(json["threadId"], "thread-1");
     let back: PaymentRecord = serde_json::from_value(json).unwrap();
     assert_eq!(back.thread_id.as_deref(), Some("thread-1"));
+}
+
+#[test]
+fn unparseable_and_foreign_stream_entries_are_skipped_on_load() {
+    let dir = LedgerStorage::memory();
+    let good = serde_json::to_value(record(1, PaymentStatus::Settled, now(), SESSION)).unwrap();
+    append_raw(
+        &dir,
+        vec![
+            good.clone(),
+            serde_json::json!("not a record"),
+            serde_json::json!({"id": 7}),
+            good,
+        ],
+    );
+    assert_eq!(ledger_in(&dir).recent_payments(10).len(), 2);
+}
+
+#[test]
+fn a_record_written_before_threads_existed_still_loads() {
+    let dir = LedgerStorage::memory();
+    let old = serde_json::json!({"id":"old","url":"https://x","asset":"USDC","amountAtomic":5,"amountDisplay":"5","recipient":"r","network":"n","txSignature":null,"status":"settled","timestamp":"2026-03-15T12:00:00Z","sessionId":"session-a"});
+    append_raw(&dir, vec![old]);
+
+    let records = ledger_in(&dir).recent_payments(5);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].thread_id, None);
+    assert_eq!(records[0].session_id, "session-a");
+}
+
+#[test]
+fn a_payment_is_kept_in_memory_when_the_append_fails() {
+    let (storage, faults) = faulty_storage();
+    let mut ledger = ledger_in(&storage);
+    faults.append.store(true, Ordering::SeqCst);
+    ledger.record_payment(record(5, PaymentStatus::Settled, now(), SESSION));
+    assert_eq!(ledger.recent_payments(10).len(), 1);
+    faults.append.store(false, Ordering::SeqCst);
+    assert!(
+        ledger_in(&storage).recent_payments(10).is_empty(),
+        "nothing reached the stream"
+    );
+}
+
+#[test]
+fn a_fallible_record_is_not_visible_until_it_is_saved() {
+    let (storage, faults) = faulty_storage();
+    let mut ledger = ledger_in(&storage);
+    faults.append.store(true, Ordering::SeqCst);
+
+    assert!(
+        ledger
+            .try_record_payment(record(5, PaymentStatus::Pending, now(), SESSION))
+            .is_err()
+    );
+    assert_eq!(ledger.recent_payments(10), Vec::<PaymentRecord>::new());
+}
+
+#[test]
+fn a_failed_durable_commit_keeps_the_reservation_held() {
+    let (storage, faults) = faulty_storage();
+    let mut ledger = ledger_in(&storage);
+    let reservation = ledger.reserve(5).unwrap().unwrap();
+    faults.append.store(true, Ordering::SeqCst);
+
+    assert!(
+        ledger
+            .try_commit_reservation(
+                reservation,
+                record(5, PaymentStatus::Pending, now(), SESSION)
+            )
+            .is_err()
+    );
+    assert_eq!(ledger.reserved_atomic(), 5);
+    assert_eq!(ledger.recent_payments(10), Vec::<PaymentRecord>::new());
+}
+
+#[test]
+fn a_ledger_that_cannot_read_its_history_refuses_to_open() {
+    let (storage, faults) = faulty_storage();
+    faults.read.store(true, Ordering::SeqCst);
+    let error = PaymentLedger::open(storage, SESSION, budget()).unwrap_err();
+    assert!(error.contains("read payments stream"), "{error}");
+}
+
+#[test]
+fn a_reservation_fails_closed_when_the_stream_cannot_be_read() {
+    let (storage, faults) = faulty_storage();
+    let mut ledger = ledger_in(&storage);
+    faults.read.store(true, Ordering::SeqCst);
+    assert!(ledger.reserve_at(now(), 1_000).is_err());
+    assert_eq!(ledger.reserved_atomic(), 0, "nothing was held");
+}
+
+// ---------------------------------------------------------------------------
+// Holds are a compare-and-swap on shared storage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn two_ledgers_on_one_storage_cannot_overspend_the_daily_budget() {
+    let dir = LedgerStorage::memory();
+    let mut a = ledger_in(&dir);
+    let mut b = ledger_in(&dir);
+    // The day allows 2_000_000. A takes three quarters, so B's two must not both fit.
+    a.reserve_at(now(), 500_000).unwrap().unwrap();
+    a.reserve_at(now(), 500_000).unwrap().unwrap();
+    a.reserve_at(now(), 500_000).unwrap().unwrap();
+    b.reserve_at(now(), 500_000).unwrap().unwrap();
+    assert_eq!(
+        b.reserve_at(now(), 500_000).unwrap().unwrap_err(),
+        BudgetRefusal::Daily {
+            current: 2_000_000,
+            cap: 2_000_000
+        },
+        "B sees A's holds"
+    );
+}
+
+#[test]
+fn a_release_on_one_ledger_frees_budget_for_another() {
+    let dir = LedgerStorage::memory();
+    let mut a = ledger_in(&dir);
+    let mut b = ledger_in(&dir);
+    let held: Vec<_> = (0..4)
+        .map(|_| a.reserve_at(now(), 500_000).unwrap().unwrap())
+        .collect();
+    assert!(b.reserve_at(now(), 500_000).unwrap().is_err());
+    a.release(held[0]);
+    assert!(b.reserve_at(now(), 500_000).unwrap().is_ok());
+}
+
+#[test]
+fn another_writers_records_count_against_the_next_reservation() {
+    let dir = LedgerStorage::memory();
+    let mut a = ledger_in(&dir);
+    let mut b = ledger_in(&dir);
+    for _ in 0..4 {
+        b.record_payment(record(500_000, PaymentStatus::Settled, now(), SESSION));
+    }
+    assert!(
+        a.reserve_at(now(), 500_000).unwrap().is_err(),
+        "A re-reads the stream before checking"
+    );
+    assert_eq!(a.recent_payments(10).len(), 4);
+}
+
+#[test]
+fn an_expired_hold_from_a_dead_process_stops_counting() {
+    let dir = LedgerStorage::memory();
+    let mut dead = ledger_in(&dir);
+    for _ in 0..4 {
+        dead.reserve_at(now(), 500_000).unwrap().unwrap();
+    }
+    let mut live = ledger_in(&dir);
+    assert!(live.reserve_at(now(), 500_000).unwrap().is_err());
+    let later = now() + Duration::milliseconds(super::persist::HOLD_TTL_MS + 1);
+    // The holds are day-old news only by the clock; the daily window is the
+    // same day, so only the hold expiry can be what frees the budget.
+    assert!(live.reserve_at(later, 500_000).unwrap().is_ok());
+}
+
+#[test]
+fn concurrent_reservations_admit_exactly_what_fits() {
+    let dir = LedgerStorage::memory();
+    let admitted = std::sync::Arc::new(AtomicU64::new(0));
+    let threads: Vec<_> = (0..8)
+        .map(|_| {
+            let dir = dir.clone();
+            let admitted = std::sync::Arc::clone(&admitted);
+            std::thread::spawn(move || {
+                let mut ledger = ledger_in(&dir);
+                for _ in 0..2 {
+                    if ledger.reserve_at(now(), 500_000).unwrap().is_ok() {
+                        admitted.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+                // Keep the holds: dropping the ledger leaves them in storage.
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(
+        admitted.load(Ordering::SeqCst),
+        4,
+        "2_000_000 / 500_000, no more, no fewer"
+    );
+}
+
+#[test]
+fn a_ledger_picks_up_a_hold_document_it_did_not_write() {
+    let dir = LedgerStorage::memory();
+    let mut a = ledger_in(&dir);
+    a.reserve_at(now(), 500_000).unwrap().unwrap();
+    let mut b = ledger_in(&dir);
+    b.reserve_at(now(), 500_000).unwrap().unwrap();
+    assert_eq!(
+        b.reserved_atomic(),
+        1_000_000,
+        "B's mirror includes A's hold"
+    );
+}
+
+fn corrupt_the_hold_document(storage: &LedgerStorage) {
+    let documents = std::sync::Arc::clone(&storage.documents);
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            documents
+                .put(
+                    BUDGET_COLLECTION,
+                    HOLDS_ID,
+                    serde_json::json!({"holds": 5}),
+                    tinystoragedrivers_core::Precondition::None,
+                )
+                .await
+                .unwrap();
+        })
+        .unwrap();
+}
+
+#[test]
+fn an_unreadable_hold_document_refuses_reservations() {
+    let dir = LedgerStorage::memory();
+    let mut ledger = ledger_in(&dir);
+    corrupt_the_hold_document(&dir);
+    let error = ledger.reserve_at(now(), 1_000).unwrap_err();
+    assert!(error.contains("unreadable"), "{error}");
+    assert_eq!(ledger.reserved_atomic(), 0);
+}
+
+#[test]
+fn a_release_that_cannot_reach_storage_leaves_the_hold_to_expire() {
+    let dir = LedgerStorage::memory();
+    let mut ledger = ledger_in(&dir);
+    let id = ledger.reserve_at(now(), 1_000).unwrap().unwrap();
+    corrupt_the_hold_document(&dir);
+    ledger.release(id);
+    assert_eq!(
+        ledger.reserved_atomic(),
+        0,
+        "this ledger forgets it at once"
+    );
+}
+
+#[test]
+fn the_hold_document_is_a_compare_and_swap() {
+    let persist = Persist::open(LedgerStorage::memory()).unwrap();
+    let doc = HoldsDoc::default();
+    assert!(
+        persist.store_holds(None, &doc).unwrap(),
+        "first write inserts"
+    );
+    assert!(
+        !persist.store_holds(None, &doc).unwrap(),
+        "inserting over an existing document loses"
+    );
+    let (version, _) = persist.load_holds().unwrap();
+    assert!(version.is_some());
+    assert!(
+        !persist.store_holds(Some(Version(99)), &doc).unwrap(),
+        "a stale version loses"
+    );
+    assert!(persist.store_holds(version, &doc).unwrap());
+}
+
+#[test]
+fn the_fault_injecting_streams_pass_everything_else_through() {
+    let (storage, _faults) = faulty_storage();
+    let streams = std::sync::Arc::clone(&storage.streams);
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            streams
+                .append_batch("s", vec![serde_json::json!(1), serde_json::json!(2)])
+                .await
+                .unwrap();
+            assert_eq!(streams.len("s").await.unwrap(), 2);
+            assert_eq!(streams.streams("").await.unwrap(), vec!["s".to_string()]);
+            assert_eq!(streams.truncate_before("s", 1).await.unwrap(), 1);
+            assert!(streams.delete_stream("s").await.unwrap());
+        })
+        .unwrap();
 }

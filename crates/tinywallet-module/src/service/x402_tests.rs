@@ -129,6 +129,7 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
         .unwrap();
     let callbacks = HostCallbacks::new(&connection).unwrap();
     let workspace = tempfile::tempdir().unwrap();
+    tinywallet_x402::ledger::provision_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let mut runtime = X402Runtime::new(
         callbacks,
         X402ConfigResponse {
@@ -138,7 +139,8 @@ async fn ledger_lifecycle_rejects_stale_handles_and_malformed_challenges() {
             daily_max_atomic: 100,
             monthly_max_atomic: 100,
         },
-    );
+    )
+    .unwrap();
     assert!(format!("{runtime:?}").contains("X402Runtime"));
     let handle = runtime.handle();
     let duplicate_chain_secrets = runtime
@@ -315,6 +317,7 @@ async fn history_and_live_budget_operations_keep_the_configured_ledger() {
         .unwrap();
     let callbacks = HostCallbacks::new(&connection).unwrap();
     let workspace = tempfile::tempdir().unwrap();
+    tinywallet_x402::ledger::provision_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let mut runtime = X402Runtime::new(
         callbacks,
         X402ConfigResponse {
@@ -324,7 +327,8 @@ async fn history_and_live_budget_operations_keep_the_configured_ledger() {
             daily_max_atomic: 200,
             monthly_max_atomic: 300,
         },
-    );
+    )
+    .unwrap();
     let handle = runtime.handle();
 
     for id in ["older", "newer"] {
@@ -382,6 +386,7 @@ async fn x402_bus_methods_serve_history_budget_and_detailed_summary() {
         ..Default::default()
     };
     let workspace = tempfile::tempdir().unwrap();
+    tinywallet_x402::ledger::provision_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let service = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {
@@ -608,6 +613,7 @@ async fn x402_pending_capacity_is_reserved_before_authorization_and_released_on_
         ..crate::service::Wallet::default()
     });
     let workspace = tempfile::tempdir().unwrap();
+    tinywallet_x402::ledger::provision_storage(tinywallet_x402::ledger::LedgerStorage::memory());
     let handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {

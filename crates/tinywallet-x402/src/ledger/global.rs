@@ -1,10 +1,10 @@
 //! The process-wide ledger handle.
 
-use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use log::debug;
 
+use super::persist::LedgerStorage;
 use super::store::PaymentLedger;
 use super::types::SpendingBudget;
 
@@ -13,6 +13,32 @@ const NOT_INITIALISED: &str = "x402 payment ledger not initialized";
 
 static GLOBAL_LEDGER: Mutex<Option<PaymentLedger>> = Mutex::new(None);
 
+/// Storage a module-style host provisioned for later [`init_global`] calls that
+/// do not carry their own handles (the `TinyBus` module configures the ledger
+/// over a wire request that can only name a session and a budget).
+static PROVISIONED: Mutex<Option<LedgerStorage>> = Mutex::new(None);
+
+/// Provision the storage the next module-driven ledger will persist through,
+/// replacing any earlier one.
+pub fn provision_storage(storage: LedgerStorage) {
+    *PROVISIONED.lock().unwrap_or_else(PoisonError::into_inner) = Some(storage);
+    debug!("{LOG_PREFIX} ledger storage provisioned");
+}
+
+/// The provisioned storage, if the host has provided one.
+#[must_use]
+pub fn provisioned_storage() -> Option<LedgerStorage> {
+    PROVISIONED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+/// Forget the provisioned storage.
+pub fn clear_provisioned_storage() {
+    *PROVISIONED.lock().unwrap_or_else(PoisonError::into_inner) = None;
+}
+
 fn lock() -> MutexGuard<'static, Option<PaymentLedger>> {
     // A panic while holding the guard cannot leave the ledger half-written in a
     // way a reader could not tolerate, so a poisoned lock is recovered rather
@@ -20,15 +46,25 @@ fn lock() -> MutexGuard<'static, Option<PaymentLedger>> {
     GLOBAL_LEDGER.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Open the ledger under `workspace_dir` and make it the process-wide one,
-/// replacing any earlier one.
+/// Open the ledger over `storage` and make it the process-wide one, replacing
+/// any earlier one.
 ///
 /// The budget is the caller's to choose: where limits come from (defaults,
-/// environment, settings) is host policy.
-pub fn init_global(workspace_dir: &Path, session_id: &str, budget: SpendingBudget) {
-    let ledger = PaymentLedger::new(workspace_dir, session_id, budget);
+/// environment, settings) is host policy, and so is the storage backend.
+///
+/// # Errors
+///
+/// The storage cannot be opened or read. The previous process-wide ledger, if
+/// any, is left in place.
+pub fn init_global(
+    storage: LedgerStorage,
+    session_id: &str,
+    budget: SpendingBudget,
+) -> Result<(), String> {
+    let ledger = PaymentLedger::open(storage, session_id, budget)?;
     *lock() = Some(ledger);
     debug!("{LOG_PREFIX} global ledger initialized");
+    Ok(())
 }
 
 /// Drop the process-wide ledger after its owner has released all reservations.
