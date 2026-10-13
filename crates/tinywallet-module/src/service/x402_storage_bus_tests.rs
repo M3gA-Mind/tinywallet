@@ -80,7 +80,7 @@ fn host_ledger(fixture: &Fixture) -> PaymentLedger {
     .unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configure_persists_payments_and_budget_holds_on_the_host_storage() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
     let fixture = fixture().await;
@@ -120,7 +120,7 @@ async fn configure_persists_payments_and_budget_holds_on_the_host_storage() {
     fixture.broker.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_host_side_ledger_and_the_module_ledger_share_one_atomic_budget() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
     let fixture = fixture().await;
@@ -155,7 +155,7 @@ async fn a_host_side_ledger_and_the_module_ledger_share_one_atomic_budget() {
     fixture.broker.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_new_module_ledger_resumes_the_records_a_previous_one_wrote() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
     let fixture = fixture().await;
@@ -192,7 +192,7 @@ async fn a_new_module_ledger_resumes_the_records_a_previous_one_wrote() {
     fixture.broker.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_reconfigure_keeps_the_previous_service_usable() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
     let fixture = fixture().await;
@@ -237,7 +237,7 @@ async fn a_failed_reconfigure_keeps_the_previous_service_usable() {
     fixture.broker.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configure_fails_closed_when_storage_goes_away_for_the_replacement() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
     // No storage host at all on this broker.
@@ -259,7 +259,7 @@ async fn configure_fails_closed_when_storage_goes_away_for_the_replacement() {
     broker.abort();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
     let fixture = fixture().await;
@@ -288,6 +288,45 @@ async fn the_lease_task_extends_the_hold_expiry_in_host_storage() {
 
     let after = expiry(&documents.get("x402_budget", "holds").await.unwrap().unwrap().doc);
     assert!(after > before, "renewal moved the expiry: {before} -> {after}");
+
+    fixture
+        .wallet
+        .x402_close(X402CloseRequest { service })
+        .await
+        .unwrap();
+    fixture.broker.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_reservations_over_the_bus_do_not_starve_the_runtime() {
+    let _guard = LEDGER_TEST_LOCK.lock().await;
+    let fixture = fixture().await;
+    let service = fixture
+        .wallet
+        .x402_configure(X402ConfigureRequest {
+            config: config("bus-concurrent"),
+        })
+        .await
+        .unwrap();
+
+    // Eight tasks on a two-worker runtime each block on bus-backed storage.
+    // The day allows 100, each asks for 25: exactly four fit.
+    let tasks: Vec<_> = (0..8)
+        .map(|_| {
+            tokio::spawn(async { ledger::reserve(25).expect("storage answers").ok() })
+        })
+        .collect();
+    // Keep the winners alive: a dropped reservation releases its hold.
+    let mut held = Vec::new();
+    for task in tasks {
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), task)
+            .await
+            .expect("no deadlock")
+            .unwrap();
+        held.extend(outcome);
+    }
+    assert_eq!(held.len(), 4);
+    drop(held);
 
     fixture
         .wallet

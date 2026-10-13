@@ -78,14 +78,14 @@ pub fn init_global(
     budget: SpendingBudget,
 ) -> Result<(), String> {
     let ledger = blocking(|| PaymentLedger::open(storage, session_id, budget))?;
-    *lock() = Some(ledger);
+    blocking(|| *lock() = Some(ledger));
     debug!("{LOG_PREFIX} global ledger initialized");
     Ok(())
 }
 
 /// Drop the process-wide ledger after its owner has released all reservations.
 pub fn clear_global() {
-    *lock() = None;
+    blocking(|| *lock() = None);
     debug!("{LOG_PREFIX} global ledger cleared");
 }
 
