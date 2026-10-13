@@ -61,8 +61,8 @@ pub use global::{
     clear_global, clear_provisioned_storage, init_global, provision_storage, provisioned_storage,
     with_ledger, with_ledger_mut,
 };
-pub use reservation::{Reservation, reserve};
 pub use persist::LedgerStorage;
+pub use reservation::{Reservation, reserve};
 pub use store::PaymentLedger;
 pub use types::{
     BudgetCheck, BudgetRefusal, PaymentRecord, PaymentStatus, ReservationId, SpendingBudget,

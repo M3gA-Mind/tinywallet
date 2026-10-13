@@ -61,7 +61,10 @@ impl LedgerStorage {
     /// Never in practice: the fixed scope name is valid and the memory backend
     /// opens any valid scope.
     #[must_use]
-    #[allow(clippy::expect_used, reason = "fixed valid scope on the memory backend")]
+    #[allow(
+        clippy::expect_used,
+        reason = "fixed valid scope on the memory backend"
+    )]
     pub fn memory() -> Self {
         let scope = Scope::new("x402").expect("valid scope");
         let scoped = MemoryStorage::new()
@@ -184,7 +187,9 @@ impl Persist {
             .map_err(|e| format!("bridge: {e}"))?;
         match result {
             Ok(_) => Ok(true),
-            Err(error) if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) => {
+            Err(error)
+                if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) =>
+            {
                 debug!("{LOG_PREFIX} budget hold CAS lost the race");
                 Ok(false)
             }

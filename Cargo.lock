@@ -2036,6 +2036,7 @@ dependencies = [
  "tempfile",
  "tinybus",
  "tinybus-module",
+ "tinystoragedrivers-core",
  "tinywallet",
  "tinywallet-bus",
  "tinywallet-crypto",

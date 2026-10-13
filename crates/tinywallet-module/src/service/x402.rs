@@ -82,7 +82,10 @@ impl X402Runtime {
     /// No storage has been provisioned, or it cannot be read. The module fails
     /// closed rather than keep a spending ledger that would not survive a
     /// restart.
-    pub(crate) fn new(callbacks: HostCallbacks, config: X402ConfigResponse) -> Result<Self, String> {
+    pub(crate) fn new(
+        callbacks: HostCallbacks,
+        config: X402ConfigResponse,
+    ) -> Result<Self, String> {
         let budget = SpendingBudget {
             per_request_max_atomic: config.per_request_max_atomic,
             daily_max_atomic: config.daily_max_atomic,

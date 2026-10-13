@@ -307,8 +307,12 @@ impl PaymentBuilder for ReopenLedgerDuringHeightRefresh {
         // Reopening the same storage restores the exact same latest payment
         // record, but it is a distinct in-memory ledger instance. Evidence
         // requested for the old instance must not mutate the replacement.
-        ledger::init_global(self.storage.clone(), "test-session", SpendingBudget::default())
-            .unwrap();
+        ledger::init_global(
+            self.storage.clone(),
+            "test-session",
+            SpendingBudget::default(),
+        )
+        .unwrap();
         Ok(Some(10))
     }
 }
@@ -326,11 +330,9 @@ async fn stale_height_evidence_cannot_mutate_a_reopened_ledger() {
         .unwrap()
         .unwrap();
 
-    refresh_solana_authorizations(&ReopenLedgerDuringHeightRefresh {
-        storage: dir,
-    })
-    .await
-    .unwrap();
+    refresh_solana_authorizations(&ReopenLedgerDuringHeightRefresh { storage: dir })
+        .await
+        .unwrap();
 
     let latest = ledger::with_ledger(|ledger| {
         let current = ledger.payment("reopened-ledger-refresh").unwrap();
