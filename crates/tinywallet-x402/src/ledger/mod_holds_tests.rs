@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::Value;
 use tinystoragedrivers_core::{
     Blocking, Capabilities, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
-    Result, Sort, StreamStore, Version, Versioned, async_trait,
+    Result, Sort, Version, Versioned, async_trait,
 };
 
 use super::persist::{BUDGET_COLLECTION, HOLD_TTL_MS, HOLDS_ID, HoldsDoc, Persist};
@@ -52,7 +52,13 @@ fn settled(amount: u64) -> PaymentRecord {
 
 /// One action another writer performs the moment a ledger first reads the hold
 /// document, before the read is answered.
-type Interleave = Box<dyn FnOnce() + Send>;
+struct Interleave(Box<dyn FnOnce() + Send>);
+
+impl std::fmt::Debug for Interleave {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Interleave")
+    }
+}
 
 /// A document store that runs [`Interleave`] once, just before the first read
 /// of the hold document.
@@ -60,12 +66,6 @@ type Interleave = Box<dyn FnOnce() + Send>;
 struct InterleavingDocuments {
     inner: Arc<dyn DocumentStore>,
     before_first_hold_read: Mutex<Option<Interleave>>,
-}
-
-impl std::fmt::Debug for dyn FnOnce() + Send {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Interleave")
-    }
 }
 
 #[async_trait]
@@ -81,7 +81,7 @@ impl DocumentStore for InterleavingDocuments {
         if let Some(action) = action {
             // The other writer runs on its own thread: the bridge thread this
             // future runs on must not be blocked by it.
-            std::thread::spawn(action).join().unwrap();
+            std::thread::spawn(action.0).join().unwrap();
         }
         self.inner.get(collection, id).await
     }
@@ -149,7 +149,7 @@ fn a_commit_between_the_hold_read_and_the_record_read_cannot_be_missed() {
     let storage = LedgerStorage::new(
         Arc::new(InterleavingDocuments {
             inner: Arc::clone(&base.documents),
-            before_first_hold_read: Mutex::new(Some(Box::new(commit))),
+            before_first_hold_read: Mutex::new(Some(Interleave(Box::new(commit)))),
         }),
         Arc::clone(&base.streams),
     );
@@ -234,7 +234,7 @@ fn renewal_fails_loudly_when_the_hold_document_is_unreadable() {
                     BUDGET_COLLECTION,
                     HOLDS_ID,
                     serde_json::json!({"holds": "garbage"}),
-                    Precondition::Any,
+                    Precondition::None,
                 )
                 .await
                 .unwrap();
@@ -242,6 +242,3 @@ fn renewal_fails_loudly_when_the_hold_document_is_unreadable() {
         .unwrap();
     assert!(owner.renew_holds_at(now()).is_err());
 }
-
-#[allow(dead_code)]
-fn _streams_are_unused(_: &dyn StreamStore) {}
