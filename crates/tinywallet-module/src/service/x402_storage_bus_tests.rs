@@ -23,7 +23,7 @@ struct Fixture {
     /// The host's own handle on the scope the module is bound to.
     host: ScopedStorage,
     _served: tinystoragedrivers_busproxy::ServedStorage,
-    broker: tokio::task::JoinHandle<()>,
+    broker: tokio::task::JoinHandle<tinybus::Result<()>>,
 }
 
 /// A broker with a storage host (memory backend, every caller bound to the

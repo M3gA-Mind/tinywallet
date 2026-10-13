@@ -12,7 +12,7 @@ use tinywallet_bus::wire::{
     X402SummaryRequest, X402UpdateBudgetRequest,
 };
 
-fn pending_record(
+pub(crate) fn pending_record(
     id: &str,
     authorization_valid_until: Option<chrono::DateTime<chrono::Utc>>,
 ) -> PaymentRecord {
