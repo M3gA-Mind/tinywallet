@@ -2,7 +2,7 @@
 name = "tinywallet-x402"
 version = "0.20.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "GPL-3.0-only"
 description = "The x402 machine-payment protocol for TinyWallet: wire types, EIP-712 and ERC-20 encoding, the payment ledger, the 402 client, and the x402_request agent tool."
 repository = "https://github.com/tinyhumansai/tinywallet"

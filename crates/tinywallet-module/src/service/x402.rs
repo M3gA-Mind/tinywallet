@@ -91,8 +91,11 @@ impl X402Runtime {
             daily_max_atomic: config.daily_max_atomic,
             monthly_max_atomic: config.monthly_max_atomic,
         };
-        let storage = ledger::provisioned_storage()
-            .ok_or_else(|| "x402 ledger storage is not provisioned".to_string())?;
+        let provisioned = ledger::provisioned_storage();
+        #[cfg(feature = "e2e-memory-storage")]
+        let provisioned = provisioned.or_else(|| Some(ledger::LedgerStorage::memory()));
+        let storage =
+            provisioned.ok_or_else(|| "x402 ledger storage is not provisioned".to_string())?;
         ledger::init_global(storage, &config.session_id, budget)?;
         Ok(Self {
             callbacks,
