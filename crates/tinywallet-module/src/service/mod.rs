@@ -672,7 +672,7 @@ impl Wallet {
                 .close(&current.handle())
                 .map_err(x402_operation_failed)?;
         }
-        let next = x402::X402Runtime::new(callbacks, request.config);
+        let next = x402::X402Runtime::new(callbacks, request.config).map_err(x402_operation_failed)?;
         let handle = next.handle();
         *x402 = Some(next);
         Ok(handle)

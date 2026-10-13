@@ -73,21 +73,25 @@ impl std::fmt::Debug for X402Runtime {
 }
 
 impl X402Runtime {
-    /// Initialize the module's JSONL ledger from host-owned workspace and
+    /// Initialize the module's ledger from the host-provisioned storage and
     /// spending policy. This is called only by the explicit host lifecycle
     /// operation, never during artifact setup.
-    pub(crate) fn new(callbacks: HostCallbacks, config: X402ConfigResponse) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// No storage has been provisioned, or it cannot be read. The module fails
+    /// closed rather than keep a spending ledger that would not survive a
+    /// restart.
+    pub(crate) fn new(callbacks: HostCallbacks, config: X402ConfigResponse) -> Result<Self, String> {
         let budget = SpendingBudget {
             per_request_max_atomic: config.per_request_max_atomic,
             daily_max_atomic: config.daily_max_atomic,
             monthly_max_atomic: config.monthly_max_atomic,
         };
-        ledger::init_global(
-            std::path::Path::new(&config.workspace_dir),
-            &config.session_id,
-            budget,
-        );
-        Self {
+        let storage = ledger::provisioned_storage()
+            .ok_or_else(|| "x402 ledger storage is not provisioned".to_string())?;
+        ledger::init_global(storage, &config.session_id, budget)?;
+        Ok(Self {
             callbacks,
             preparing: Mutex::new(0),
             #[cfg(test)]
@@ -96,7 +100,7 @@ impl X402Runtime {
             handle: X402ServiceHandle {
                 handle: uuid::Uuid::new_v4().to_string(),
             },
-        }
+        })
     }
 
     pub(crate) fn handle(&self) -> X402ServiceHandle {
