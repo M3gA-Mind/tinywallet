@@ -410,6 +410,7 @@ fn failing_append_storage() -> tinywallet_x402::ledger::LedgerStorage {
     )
 }
 
+#[cfg(not(feature = "e2e-memory-storage"))]
 #[tokio::test]
 async fn x402_configure_fails_closed_without_provisioned_storage() {
     use tinywallet_bus::wire::X402ConfigureRequest;
