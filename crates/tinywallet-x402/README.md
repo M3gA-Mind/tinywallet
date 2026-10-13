@@ -11,7 +11,7 @@ This crate is everything about that flow that is not specific to one host.
 | --- | --- | --- | --- |
 | `wire` | `wire` (default) | neutral | Header payload types, CAIP-2 and asset constants, challenge selection. |
 | `eip712`, `abi` | `eip712`, `abi` | crypto | EIP-712 / EIP-3009 hashing and ERC-20 `transfer` calldata. Pure hashing, no signer. |
-| `ledger` | `ledger` | neutral | `PaymentRecord`, `SpendingBudget`, the append-only JSONL `PaymentLedger`, budget `Reservation`s (`reserve`), and the process-wide handle (`init_global`, `with_ledger`, `with_ledger_mut`). Imports no chain type. |
+| `ledger` | `ledger` | neutral | `PaymentRecord`, `SpendingBudget`, the `PaymentLedger` over the storage ports (payments stream, compare-and-swap budget holds), budget `Reservation`s (`reserve`), and the process-wide handle (`init_global`, `with_ledger`, `with_ledger_mut`). Imports no chain type. |
 | `thread` | `ledger` | neutral | The `ThreadScope` seam (which conversation thread is running this call) and its `NoThread` default. |
 | `protocol` | `pay` | neutral | Header codec, `X402Error`, `X402Client`, `handle_402`, `handle_402_and_pay`, and the `PaymentBuilder` and `ProxyPolicy` seams. |
 | `crypto` | `pay` | crypto | `CryptoPayments` (the `PaymentBuilder` for the crypto rail), EVM EIP-3009 and Solana SPL payment construction, and the `PaymentSigner` seam. |
