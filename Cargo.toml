@@ -1,6 +1,6 @@
 [package]
 name = "tinywallet"
-version = "0.23.1"
+version = "0.23.2"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-only"
@@ -64,12 +64,12 @@ tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "bd60b9b5
 # so a host that already links tinystoragedrivers (OpenHuman patches this exact
 # URL to its vendored copy) unifies to one `DocumentStore` trait. `blocking`
 # is the sync bridge the ledger's synchronous API runs the async ports on.
-tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.8.0", default-features = false, features = ["blocking"] }
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.10.0", default-features = false, features = ["blocking"] }
 # The storage bus, for the loadable module only: it reaches the host's storage
 # through the same ports over TinyBus rather than a process-local registry.
-tinystoragedrivers-bus = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.8.0" }
-tinystoragedrivers-client = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.8.0" }
-tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.8.0" }
+tinystoragedrivers-bus = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.10.0" }
+tinystoragedrivers-client = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.10.0" }
+tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v0.10.0" }
 
 [dependencies]
 # The wire contract. Split out so a host that has moved signing into the
