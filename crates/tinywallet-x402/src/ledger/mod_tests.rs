@@ -816,3 +816,19 @@ fn the_fault_injecting_streams_pass_everything_else_through() {
         })
         .unwrap();
 }
+
+#[test]
+fn a_recorded_payment_is_held_at_the_millisecond_precision_storage_keeps() {
+    let dir = LedgerStorage::memory();
+    let mut ledger = ledger_in(&dir);
+    let mut payment = record(5, PaymentStatus::Pending, now(), SESSION);
+    payment.timestamp = now() + Duration::nanoseconds(123_456_789);
+    payment.authorization_valid_until = Some(now() + Duration::nanoseconds(987_654_321));
+    let id = payment.id.clone();
+    ledger.record_payment(payment);
+
+    let in_memory = ledger.payment(&id).unwrap().clone();
+    let reopened = ledger_in(&dir);
+    assert_eq!(reopened.payment(&id), Some(&in_memory));
+    assert_eq!(in_memory.timestamp.timestamp_subsec_nanos(), 123_000_000);
+}

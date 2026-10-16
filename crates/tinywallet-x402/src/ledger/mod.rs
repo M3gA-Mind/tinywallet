@@ -15,6 +15,11 @@
 //! failing the load. A storage that cannot be read refuses to open, since a
 //! ledger blind to its history would admit payments past the budget.
 //!
+//! Entries are `snake_case` objects with every instant an epoch-millisecond
+//! `*_ms` field, and the ledger holds records at that precision. The names and
+//! the steps that migrate the v1 `x402_budget` collection and `x402.payments`
+//! stream are declared by [`storage_schema`].
+//!
 //! # Budgets
 //!
 //! [`PaymentLedger::check_budget`] enforces a per-request cap and daily and
