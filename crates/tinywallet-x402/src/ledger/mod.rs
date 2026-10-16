@@ -59,6 +59,7 @@ pub(crate) mod faulty;
 mod global;
 mod persist;
 mod reservation;
+mod schema;
 mod store;
 mod types;
 
@@ -70,6 +71,7 @@ pub use global::{
 };
 pub use persist::{HOLD_RENEW_EVERY, LedgerStorage};
 pub use reservation::{Reservation, reserve};
+pub use schema::storage_schema;
 pub use store::PaymentLedger;
 pub use types::{
     BudgetCheck, BudgetRefusal, PaymentRecord, PaymentStatus, ReservationId, SpendingBudget,
