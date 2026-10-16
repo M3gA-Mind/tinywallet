@@ -1,4 +1,4 @@
-//! The ledger's storage: a payments stream and one budget-hold document, both
+//! The ledger's storage: the `wallet.payments` stream and one `wallet.budgets` hold document, both
 //! through the `tinystoragedrivers-core` ports.
 //!
 //! The ports are async and the ledger's API is synchronous (it runs under a
@@ -181,6 +181,13 @@ impl StoredPayment {
     }
 }
 
+/// A payment read back from the stream, with the hold its entry committed.
+#[derive(Debug)]
+pub(super) struct LoadedPayment {
+    pub record: PaymentRecord,
+    pub committed_hold: Option<String>,
+}
+
 /// Storage plus the sync bridge.
 #[derive(Debug)]
 pub(super) struct Persist {
@@ -204,19 +211,12 @@ impl Persist {
 
     pub(super) fn open(storage: LedgerStorage) -> Result<Self, String> {
         let bridge = Blocking::new().map_err(|e| format!("start storage bridge: {e}"))?;
-        let persist = Self { storage, bridge };
-        let documents = Arc::clone(&persist.storage.documents);
-        persist.run("declare x402 budget collection", async move {
-            documents
-                .ensure_collection(&CollectionSpec::new(BUDGET_COLLECTION))
-                .await
-        })?;
-        Ok(persist)
+        Ok(Self { storage, bridge })
     }
 
     /// Records from stream offset `from` to the end, with the next offset.
     /// Entries that no longer parse are skipped with a warning.
-    pub(super) fn read_from(&self, from: u64) -> Result<(Vec<StoredPayment>, u64), String> {
+    pub(super) fn read_from(&self, from: u64) -> Result<(Vec<LoadedPayment>, u64), String> {
         let mut records = Vec::new();
         let mut next = from;
         loop {
@@ -227,8 +227,14 @@ impl Persist {
             let Some(last) = window.last() else { break };
             next = last.offset.saturating_add(1);
             for entry in window {
-                match serde_json::from_value::<StoredPayment>(entry.value) {
-                    Ok(record) => records.push(record),
+                let parsed = serde_json::from_value::<StoredPayment>(entry.value)
+                    .map_err(|error| error.to_string())
+                    .and_then(StoredPayment::into_record);
+                match parsed {
+                    Ok((record, committed_hold)) => records.push(LoadedPayment {
+                        record,
+                        committed_hold,
+                    }),
                     Err(error) => log::warn!(
                         "{LOG_PREFIX} corrupt record at offset {}: {error}",
                         entry.offset
@@ -245,11 +251,8 @@ impl Persist {
         record: &PaymentRecord,
         committed_hold: Option<&str>,
     ) -> Result<u64, String> {
-        let value = serde_json::to_value(StoredPayment {
-            record: record.clone(),
-            committed_hold: committed_hold.map(str::to_owned),
-        })
-        .map_err(|error| error.to_string())?;
+        let value = serde_json::to_value(StoredPayment::new(record, committed_hold))
+            .map_err(|error| error.to_string())?;
         let streams = Arc::clone(&self.storage.streams);
         self.run("append ledger record", async move {
             streams.append(PAYMENTS_STREAM, value).await
@@ -260,7 +263,7 @@ impl Persist {
     pub(super) fn load_holds(&self) -> Result<(Option<Version>, HoldsDoc), String> {
         let documents = Arc::clone(&self.storage.documents);
         let found = self.run("read budget holds", async move {
-            documents.get(BUDGET_COLLECTION, HOLDS_ID).await
+            documents.get(BUDGETS_COLLECTION, HOLDS_ID).await
         })?;
         match found {
             None => Ok((None, HoldsDoc::default())),
@@ -284,7 +287,13 @@ impl Persist {
         let documents = Arc::clone(&self.storage.documents);
         let result = self.bridge.run(async move {
             documents
-                .put(BUDGET_COLLECTION, HOLDS_ID, body, precondition)
+                .put_with(
+                    BUDGETS_COLLECTION,
+                    HOLDS_ID,
+                    body,
+                    precondition,
+                    WriteOptions::new().schema(BUDGETS_VERSION),
+                )
                 .await
         });
         match result.map_err(|error| format!("write budget holds: {error}"))? {

@@ -128,10 +128,10 @@ fn put_holds(storage: &LedgerStorage, doc: &HoldsDoc) {
     assert!(persist.store_holds(version, doc).unwrap());
 }
 
-fn hold(amount: u64, expires_at_ms: i64) -> super::persist::Hold {
+fn hold(amount: u64, expires_ms: i64) -> super::persist::Hold {
     super::persist::Hold {
         amount,
-        expires_at_ms,
+        expires_ms,
     }
 }
 
