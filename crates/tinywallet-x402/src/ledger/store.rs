@@ -116,6 +116,7 @@ impl PaymentLedger {
         record: PaymentRecord,
         committed_hold: Option<String>,
     ) -> Result<(), String> {
+        let record = record.at_millisecond_precision();
         let offset = self.persist.append(&record, committed_hold.as_deref())?;
         if let Some(key) = committed_hold {
             self.committed_holds.insert(key);
