@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use log::debug;
 use chrono::{DateTime, Utc};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use tinystoragedrivers_core::{
     Blocking, DocumentStore, ErrorKind, MemoryStorage, Precondition, Scope, ScopedStorage,

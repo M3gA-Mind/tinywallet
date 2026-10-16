@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::Value;
 use tinystoragedrivers_core::{
     Blocking, Capabilities, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
-    Result, Sort, Version, Versioned, async_trait,
+    Result, Sort, Version, Versioned, WriteOptions, async_trait,
 };
 
 use super::persist::{HOLD_TTL_MS, HoldsDoc, Persist};
@@ -97,6 +97,16 @@ impl DocumentStore for InterleavingDocuments {
     async fn put(&self, c: &str, id: &str, doc: Value, p: Precondition) -> Result<Version> {
         self.inner.put(c, id, doc, p).await
     }
+    async fn put_with(
+        &self,
+        c: &str,
+        id: &str,
+        doc: Value,
+        p: Precondition,
+        options: WriteOptions,
+    ) -> Result<Version> {
+        self.inner.put_with(c, id, doc, p, options).await
+    }
     async fn delete(&self, c: &str, id: &str, p: Precondition) -> Result<bool> {
         self.inner.delete(c, id, p).await
     }
@@ -130,10 +140,7 @@ fn put_holds(storage: &LedgerStorage, doc: &HoldsDoc) {
 }
 
 fn hold(amount: u64, expires_ms: i64) -> super::persist::Hold {
-    super::persist::Hold {
-        amount,
-        expires_ms,
-    }
+    super::persist::Hold { amount, expires_ms }
 }
 
 #[test]
