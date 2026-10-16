@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use tinystoragedrivers_core::{
-    Blocking, DocumentStore, Item, MemoryStorage, MigrateOptions, Precondition, Registry, Scope,
-    ScopedStorage, StorageBackend, StreamStore,
+    Blocking, Item, MemoryStorage, MigrateOptions, Precondition, Registry, Scope, ScopedStorage,
+    StorageBackend,
 };
 
 use super::super::{LedgerStorage, PaymentLedger, PaymentStatus, SpendingBudget};
