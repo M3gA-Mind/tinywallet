@@ -4,7 +4,7 @@
 //! | v1 | v2 |
 //! |---|---|
 //! | collection `x402_budget` | collection `wallet.budgets` (hold `expires_at_ms` becomes `expires_ms`) |
-//! | stream `x402.payments` | stream `wallet.payments` (snake_case entries, every instant `*_ms`) |
+//! | stream `x402.payments` | stream `wallet.payments` (`snake_case` entries, every instant `*_ms`) |
 //!
 //! The host composes [`storage_schema`] into its registry, and a loadable
 //! module's storage grant is generated from the same declaration. The steps are
@@ -61,18 +61,14 @@ pub fn storage_schema() -> Schema {
                 BUDGETS_COLLECTION,
                 1,
                 BUDGETS_VERSION,
-                migrate_budgets,
+                |batch| Ok(migrate_budgets(batch)),
             )
             .source(LEGACY_BUDGET_COLLECTION),
         )
         .step(
-            Step::stream(
-                "payments_v2",
-                PAYMENTS_STREAM,
-                1,
-                2,
-                migrate_payments_stream,
-            )
+            Step::stream("payments_v2", PAYMENTS_STREAM, 1, 2, |source, entries| {
+                migrate_payments_stream(&source, entries)
+            })
             .source_prefix(LEGACY_PAYMENTS_STREAM),
         )
 }
@@ -91,7 +87,7 @@ struct LegacyPayment {
 /// longer parses is dropped: the v1 reader skipped it with a warning too, so it
 /// never counted toward a budget.
 fn migrate_payments_stream(
-    source: String,
+    source: &str,
     entries: Vec<Value>,
 ) -> tinystoragedrivers_core::Result<Option<(String, Vec<Value>)>> {
     if source != LEGACY_PAYMENTS_STREAM {
@@ -119,8 +115,8 @@ fn migrate_payments_stream(
 /// in minutes, so a document that is not a hold map migrates to an empty one
 /// rather than wedging the host's migration; the budget the holds guarded is
 /// recomputed from the payments stream.
-fn migrate_budgets(batch: Vec<SourceRecord>) -> tinystoragedrivers_core::Result<Vec<TargetRecord>> {
-    Ok(batch
+fn migrate_budgets(batch: Vec<SourceRecord>) -> Vec<TargetRecord> {
+    batch
         .into_iter()
         .map(|record| {
             let holds = renamed_holds(&record.body).unwrap_or_else(|| {
@@ -134,7 +130,7 @@ fn migrate_budgets(batch: Vec<SourceRecord>) -> tinystoragedrivers_core::Result<
                 .created_ms(record.meta.created_ms)
                 .expires_ms(record.meta.expires_ms)
         })
-        .collect())
+        .collect()
 }
 
 /// `{holds: {key: {amount, expires_at_ms}}}` as `{key: {amount, expires_ms}}`.

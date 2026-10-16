@@ -50,7 +50,7 @@ fn migrate(backend: &MemoryStorage, scoped: &ScopedStorage) -> Registry {
     let bridge = Blocking::new().unwrap();
     let backend = backend.clone();
     let scoped = scoped.clone();
-    let registry = bridge
+    bridge
         .run(async move {
             registry.prepare(&backend).await.unwrap();
             registry
@@ -59,8 +59,7 @@ fn migrate(backend: &MemoryStorage, scoped: &ScopedStorage) -> Registry {
                 .unwrap();
             registry
         })
-        .unwrap();
-    registry
+        .unwrap()
 }
 
 fn put_v1(scoped: &ScopedStorage, collection: &'static str, id: &'static str, body: Value) {

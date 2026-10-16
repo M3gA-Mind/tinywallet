@@ -89,7 +89,7 @@ pub(super) struct HoldsDoc {
     pub holds: BTreeMap<String, Hold>,
 }
 
-/// One payment as stored in `wallet.payments`: snake_case, every instant an
+/// One payment as stored in `wallet.payments`: `snake_case`, every instant an
 /// epoch-millisecond `*_ms` field, no wrapper. This is a storage DTO; the
 /// public [`PaymentRecord`] wire type is unchanged.
 #[derive(Debug, Serialize, Deserialize)]
