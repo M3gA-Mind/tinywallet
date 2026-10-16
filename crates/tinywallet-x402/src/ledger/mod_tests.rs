@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 use super::faulty::{append_raw, faulty_storage};
-use super::persist::{BUDGET_COLLECTION, HOLDS_ID, HoldsDoc, Persist};
+use super::persist::{HoldsDoc, Persist, StoredPayment};
+use super::schema::{BUDGETS_COLLECTION, HOLDS_ID};
 use super::*;
 use tinystoragedrivers_core::{Blocking, Version};
 
@@ -531,7 +532,11 @@ fn a_thread_is_written_only_when_there_is_one() {
 #[test]
 fn unparseable_and_foreign_stream_entries_are_skipped_on_load() {
     let dir = LedgerStorage::memory();
-    let good = serde_json::to_value(record(1, PaymentStatus::Settled, now(), SESSION)).unwrap();
+    let good = serde_json::to_value(StoredPayment::new(
+        &record(1, PaymentStatus::Settled, now(), SESSION),
+        None,
+    ))
+    .unwrap();
     append_raw(
         &dir,
         vec![
@@ -545,9 +550,9 @@ fn unparseable_and_foreign_stream_entries_are_skipped_on_load() {
 }
 
 #[test]
-fn a_record_written_before_threads_existed_still_loads() {
+fn a_record_written_without_a_thread_still_loads() {
     let dir = LedgerStorage::memory();
-    let old = serde_json::json!({"id":"old","url":"https://x","asset":"USDC","amountAtomic":5,"amountDisplay":"5","recipient":"r","network":"n","txSignature":null,"status":"settled","timestamp":"2026-03-15T12:00:00Z","sessionId":"session-a"});
+    let old = serde_json::json!({"id":"old","url":"https://x","asset":"USDC","amount_atomic":5,"amount_display":"5","recipient":"r","network":"n","status":"settled","timestamp_ms":1_773_576_000_000_i64,"session_id":"session-a"});
     append_raw(&dir, vec![old]);
 
     let records = ledger_in(&dir).recent_payments(5);
@@ -737,7 +742,7 @@ fn corrupt_the_hold_document(storage: &LedgerStorage) {
         .run(async move {
             documents
                 .put(
-                    BUDGET_COLLECTION,
+                    BUDGETS_COLLECTION,
                     HOLDS_ID,
                     serde_json::json!({"holds": 5}),
                     tinystoragedrivers_core::Precondition::None,

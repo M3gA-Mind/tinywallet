@@ -12,7 +12,8 @@ use tinystoragedrivers_core::{
     Result, Sort, Version, Versioned, async_trait,
 };
 
-use super::persist::{BUDGET_COLLECTION, HOLD_TTL_MS, HOLDS_ID, HoldsDoc, Persist};
+use super::persist::{HOLD_TTL_MS, HoldsDoc, Persist};
+use super::schema::{BUDGETS_COLLECTION, HOLDS_ID};
 use super::*;
 
 const SESSION: &str = "session-holds";
@@ -241,7 +242,7 @@ fn renewal_fails_loudly_when_the_hold_document_is_unreadable() {
         .run(async move {
             documents
                 .put(
-                    BUDGET_COLLECTION,
+                    BUDGETS_COLLECTION,
                     HOLDS_ID,
                     serde_json::json!({"holds": "garbage"}),
                     Precondition::None,
