@@ -392,7 +392,7 @@ impl PaymentLedger {
         let key = self.reservations.get(&id).map(|hold| hold.key.clone());
         if let Err(error) = self.append_record(record.clone(), key) {
             warn!("{LOG_PREFIX} record append failed: {error}");
-            self.records.push(record);
+            self.records.push(record.at_millisecond_precision());
         }
         self.release(id);
     }
@@ -413,7 +413,7 @@ impl PaymentLedger {
     pub fn record_payment(&mut self, record: PaymentRecord) {
         if let Err(error) = self.append_record(record.clone(), None) {
             warn!("{LOG_PREFIX} record append failed: {error}");
-            self.records.push(record);
+            self.records.push(record.at_millisecond_precision());
         }
     }
 
