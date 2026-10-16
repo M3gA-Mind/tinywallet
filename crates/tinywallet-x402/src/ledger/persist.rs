@@ -11,23 +11,18 @@ use std::future::Future;
 use std::sync::Arc;
 
 use log::debug;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tinystoragedrivers_core::{
-    Blocking, CollectionSpec, DocumentStore, ErrorKind, MemoryStorage, Precondition, Scope,
-    ScopedStorage, StorageBackend, StreamStore, Version,
+    Blocking, DocumentStore, ErrorKind, MemoryStorage, Precondition, Scope, ScopedStorage,
+    StorageBackend, StreamStore, Version, WriteOptions,
 };
 
-use super::types::PaymentRecord;
+use super::schema::{BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, PAYMENTS_STREAM};
+use super::types::{PaymentRecord, PaymentStatus};
 
 const LOG_PREFIX: &str = "[x402::persist]";
 
-/// Append-only stream of payment records. A payment that changes status is
-/// appended again with the same id; readers fold to the latest per id.
-pub(super) const PAYMENTS_STREAM: &str = "x402.payments";
-/// Collection holding the single budget-hold document.
-pub(super) const BUDGET_COLLECTION: &str = "x402_budget";
-/// Id of the budget-hold document.
-pub(super) const HOLDS_ID: &str = "holds";
 /// How long a hold survives without being released or committed. A process that
 /// dies between signing and recording must not lock budget forever.
 pub(super) const HOLD_TTL_MS: i64 = 15 * 60 * 1000;
@@ -83,7 +78,7 @@ impl LedgerStorage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Hold {
     pub amount: u64,
-    pub expires_at_ms: i64,
+    pub expires_ms: i64,
 }
 
 /// The budget-hold document: every outstanding hold, across all processes
@@ -94,14 +89,96 @@ pub(super) struct HoldsDoc {
     pub holds: BTreeMap<String, Hold>,
 }
 
-/// Internal stream envelope. Flattening keeps old payment entries readable and
-/// leaves the public payment wire type unchanged.
+/// One payment as stored in `wallet.payments`: snake_case, every instant an
+/// epoch-millisecond `*_ms` field, no wrapper. This is a storage DTO; the
+/// public [`PaymentRecord`] wire type is unchanged.
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct StoredPayment {
-    #[serde(flatten)]
-    pub record: PaymentRecord,
+    pub id: String,
+    pub url: String,
+    pub asset: String,
+    pub amount_atomic: u64,
+    pub amount_display: String,
+    pub recipient: String,
+    pub network: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx_signature: Option<String>,
+    pub status: PaymentStatus,
+    pub timestamp_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_valid_until_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solana_last_valid_block_height: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expired_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_expiry_observed_height: Option<u64>,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub committed_hold: Option<String>,
+}
+
+fn from_ms(field: &str, ms: i64) -> Result<DateTime<Utc>, String> {
+    DateTime::from_timestamp_millis(ms).ok_or_else(|| format!("{field} {ms} is out of range"))
+}
+
+impl StoredPayment {
+    pub(super) fn new(record: &PaymentRecord, committed_hold: Option<&str>) -> Self {
+        Self {
+            id: record.id.clone(),
+            url: record.url.clone(),
+            asset: record.asset.clone(),
+            amount_atomic: record.amount_atomic,
+            amount_display: record.amount_display.clone(),
+            recipient: record.recipient.clone(),
+            network: record.network.clone(),
+            tx_signature: record.tx_signature.clone(),
+            status: record.status,
+            timestamp_ms: record.timestamp.timestamp_millis(),
+            authorization_valid_until_ms: record
+                .authorization_valid_until
+                .map(|at| at.timestamp_millis()),
+            solana_last_valid_block_height: record.solana_last_valid_block_height,
+            authorization_expired_at_ms: record
+                .authorization_expired_at
+                .map(|at| at.timestamp_millis()),
+            authorization_expiry_observed_height: record.authorization_expiry_observed_height,
+            session_id: record.session_id.clone(),
+            thread_id: record.thread_id.clone(),
+            committed_hold: committed_hold.map(str::to_owned),
+        }
+    }
+
+    /// The public record and the hold this entry committed, if any.
+    pub(super) fn into_record(self) -> Result<(PaymentRecord, Option<String>), String> {
+        let record = PaymentRecord {
+            id: self.id,
+            url: self.url,
+            asset: self.asset,
+            amount_atomic: self.amount_atomic,
+            amount_display: self.amount_display,
+            recipient: self.recipient,
+            network: self.network,
+            tx_signature: self.tx_signature,
+            status: self.status,
+            timestamp: from_ms("timestamp_ms", self.timestamp_ms)?,
+            authorization_valid_until: self
+                .authorization_valid_until_ms
+                .map(|ms| from_ms("authorization_valid_until_ms", ms))
+                .transpose()?,
+            solana_last_valid_block_height: self.solana_last_valid_block_height,
+            authorization_expired_at: self
+                .authorization_expired_at_ms
+                .map(|ms| from_ms("authorization_expired_at_ms", ms))
+                .transpose()?,
+            authorization_expiry_observed_height: self.authorization_expiry_observed_height,
+            session_id: self.session_id,
+            thread_id: self.thread_id,
+        };
+        Ok((record, self.committed_hold))
+    }
 }
 
 /// Storage plus the sync bridge.
