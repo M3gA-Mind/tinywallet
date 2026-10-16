@@ -18,7 +18,7 @@ use tinystoragedrivers_core::{
     StorageBackend, StreamStore, Version, WriteOptions,
 };
 
-use super::schema::{BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, PAYMENTS_STREAM};
+use super::schema::{BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, OWNER, PAYMENTS_STREAM};
 use super::types::{PaymentRecord, PaymentStatus};
 
 const LOG_PREFIX: &str = "[x402::persist]";
@@ -66,7 +66,7 @@ impl LedgerStorage {
         reason = "fixed valid scope on the memory backend"
     )]
     pub fn memory() -> Self {
-        let scope = Scope::new("x402").expect("valid scope");
+        let scope = Scope::local().module(OWNER).expect("valid scope");
         let scoped = MemoryStorage::new()
             .for_scope(&scope)
             .expect("memory backend opens any scope");
