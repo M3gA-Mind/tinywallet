@@ -211,6 +211,20 @@ fn v1_holds_migrate_with_expires_ms_and_keep_their_creation_time() {
         }}),
     );
 
+    let documents = Arc::clone(scoped.documents());
+    let created_ms = Blocking::new()
+        .unwrap()
+        .run(async move {
+            documents
+                .get("x402_budget", "holds")
+                .await
+                .unwrap()
+                .unwrap()
+                .meta
+                .created_ms
+        })
+        .unwrap();
+
     migrate(&backend, &scoped);
 
     let documents = Arc::clone(scoped.documents());
@@ -233,6 +247,7 @@ fn v1_holds_migrate_with_expires_ms_and_keep_their_creation_time() {
         }})
     );
     assert_eq!(found.meta.schema, 2);
+    assert_eq!(found.meta.created_ms, created_ms);
 }
 
 #[test]
