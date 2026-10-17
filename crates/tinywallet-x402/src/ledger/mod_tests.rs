@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 use super::faulty::{append_raw, faulty_storage};
-use super::persist::{HoldsDoc, Persist, StoredPayment};
+use super::persist::{HoldsDoc, Persist, stored_payment};
 use super::schema::{BUDGETS_COLLECTION, HOLDS_ID};
 use super::*;
 use tinystoragedrivers_core::{Blocking, Version};
@@ -532,7 +532,7 @@ fn a_thread_is_written_only_when_there_is_one() {
 #[test]
 fn unparseable_and_foreign_stream_entries_are_skipped_on_load() {
     let dir = LedgerStorage::memory();
-    let good = serde_json::to_value(StoredPayment::new(
+    let good = serde_json::to_value(stored_payment(
         &record(1, PaymentStatus::Settled, now(), SESSION),
         None,
     ))
