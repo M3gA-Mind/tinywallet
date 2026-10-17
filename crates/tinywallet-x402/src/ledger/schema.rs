@@ -9,7 +9,7 @@ pub(super) use tinywallet_bus::storage::{
     StoredPaymentStatus,
 };
 
-use super::types::{PaymentRecord, PaymentStatus};
+use super::types::PaymentStatus;
 
 impl From<PaymentStatus> for StoredPaymentStatus {
     fn from(status: PaymentStatus) -> Self {
