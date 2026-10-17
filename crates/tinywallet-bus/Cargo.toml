@@ -20,13 +20,27 @@ serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 # Error vocabulary derives; no crypto execution crosses this dependency.
 thiserror = "2"
+# The storage schema's declarations (`Schema`, `Step`, `CollectionSpec`). This
+# is the ports crate only: no backend, no driver, and with default features off
+# its only tokio features are io-util and time, so the contract stays free of
+# I/O and a runtime. Optional, behind `storage`.
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0", default-features = false, optional = true }
+# The v1 payment records carry RFC 3339 instants; the migration reads them to
+# epoch milliseconds. Pure date arithmetic, no clock.
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"], optional = true }
+# Warnings when a migration step drops or empties an unreadable v1 record.
+log = { version = "0.4", optional = true }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Migration tests run the steps over `MemoryStorage` through the sync bridge.
+tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", tag = "v1.0.0", default-features = false, features = ["blocking"] }
 
 [features]
-default = ["wire"]
+default = ["wire", "storage"]
+# `storage::storage_schema()` and the pure v1 to v2 steps behind it.
+storage = ["serde", "dep:serde_json", "dep:chrono", "dep:log", "dep:tinystoragedrivers-core"]
 serde = ["dep:serde", "serde/derive"]
 wire = ["serde", "dep:serde_json"]
 # Legacy feature names accepted for a transition release; none links behavior.
