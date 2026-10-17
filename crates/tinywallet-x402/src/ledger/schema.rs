@@ -32,3 +32,7 @@ impl From<StoredPaymentStatus> for PaymentStatus {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "schema_tests.rs"]
+mod tests;
