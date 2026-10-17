@@ -86,16 +86,13 @@ fn migrate_payments_stream(
     }
     let mut migrated = Vec::with_capacity(entries.len());
     for entry in entries {
-        match serde_json::from_value::<LegacyPayment>(entry) {
-            Ok(legacy) => {
-                migrated.push(
-                    serde_json::to_value(StoredPayment::from(legacy))
-                        .map_err(|error| StorageError::invalid_input(error.to_string()))?,
-                );
-            }
-            Err(error) => log::warn!(
-                "[x402::schema] dropping unreadable v1 payment entry from {source}: {error}"
-            ),
+        // An unreadable entry is dropped: the v1 reader skipped it too.
+        // Steps are pure, so nothing is logged.
+        if let Ok(legacy) = serde_json::from_value::<LegacyPayment>(entry) {
+            migrated.push(
+                serde_json::to_value(StoredPayment::from(legacy))
+                    .map_err(|error| StorageError::invalid_input(error.to_string()))?,
+            );
         }
     }
     Ok(Some((PAYMENTS_STREAM.to_owned(), migrated)))
@@ -109,13 +106,7 @@ fn migrate_budgets(batch: Vec<SourceRecord>) -> Vec<TargetRecord> {
     batch
         .into_iter()
         .map(|record| {
-            let holds = renamed_holds(&record.body).unwrap_or_else(|| {
-                log::warn!(
-                    "[x402::schema] v1 budget document `{}` is unreadable; migrating it empty",
-                    record.id
-                );
-                Map::new()
-            });
+            let holds = renamed_holds(&record.body).unwrap_or_default();
             TargetRecord::new(BUDGETS_COLLECTION, record.id, json!({ "holds": holds }))
                 .created_ms(record.meta.created_ms)
                 .expires_ms(record.meta.expires_ms)

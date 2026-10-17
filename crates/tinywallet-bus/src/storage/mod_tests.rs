@@ -262,3 +262,30 @@ fn migrating_twice_changes_nothing() {
         .unwrap();
     assert_eq!(len, 1);
 }
+
+#[test]
+fn rfc3339_instants_parse_to_epoch_milliseconds() {
+    use super::payment::parse_rfc3339_ms as parse;
+    assert_eq!(parse("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(parse("2026-03-15T12:00:00Z"), Some(V1_PAYMENT_MS));
+    assert_eq!(
+        parse("2026-03-15T12:05:00.250Z"),
+        Some(V1_PAYMENT_MS + 300_250)
+    );
+    assert_eq!(
+        parse("2026-03-15T14:00:00.1239+02:00"),
+        Some(V1_PAYMENT_MS + 123)
+    );
+    assert_eq!(parse("2024-02-29T00:00:00Z"), Some(1_709_164_800_000));
+    assert_eq!(parse("1969-12-31T23:59:59Z"), Some(-1_000));
+    for bad in [
+        "",
+        "2026-03-15",
+        "2026-13-15T12:00:00Z",
+        "2026-03-15T12:00:00",
+        "2026-03-15T12:00:00.Z",
+        "2026-03-15T12:00:00+0200",
+    ] {
+        assert_eq!(parse(bad), None, "{bad}");
+    }
+}
