@@ -27,5 +27,31 @@ class ContractBoundaryTests(unittest.TestCase):
         self.assertTrue(boundary.audit(metadata("serde", source=None)))
 
 
+class StorageExemptionTests(unittest.TestCase):
+    REGISTRY_CRATE = ("zstd", "")
+    PORTS = ("tinystoragedrivers-core", "https://github.com/tinyhumansai/tinystoragedrivers?tag=v1.0.0#141fd9ed")
+
+    def test_default_closure_rejects_the_storage_crates(self):
+        self.assertEqual(len(boundary.audit_tree([self.PORTS, self.REGISTRY_CRATE])), 2)
+
+    def test_default_closure_accepts_the_allow_list(self):
+        self.assertEqual(boundary.audit_tree([("serde", ""), ("thiserror", "")]), [])
+
+    def test_storage_feature_accepts_the_ports_crate_and_registry_crates(self):
+        self.assertEqual(boundary.audit_tree([self.PORTS, self.REGISTRY_CRATE], storage=True), [])
+
+    def test_storage_feature_still_rejects_implementations(self):
+        path = ("tinywallet-crypto", "/work/crates/tinywallet-crypto")
+        self.assertEqual(len(boundary.audit_tree([path], storage=True)), 1)
+
+    def test_storage_feature_rejects_forbidden_registry_crates(self):
+        for name in ("coins-bip32", "coins_bip32", "coins-core", "k256", "bitcoin"):
+            self.assertEqual(len(boundary.audit_tree([(name, "")], storage=True)), 1, name)
+
+    def test_storage_feature_rejects_a_foreign_git_source(self):
+        fake = ("tinystoragedrivers-core", "https://example.com/evil")
+        self.assertEqual(len(boundary.audit_tree([fake], storage=True)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
