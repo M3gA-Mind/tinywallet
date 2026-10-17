@@ -18,8 +18,10 @@ use tinystoragedrivers_core::{
     StorageBackend, StreamStore, Version, WriteOptions,
 };
 
-use super::schema::{BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, OWNER, PAYMENTS_STREAM};
-use super::types::{PaymentRecord, PaymentStatus};
+use super::schema::{
+    BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, OWNER, PAYMENTS_STREAM, StoredPayment,
+};
+use super::types::PaymentRecord;
 
 const LOG_PREFIX: &str = "[x402::persist]";
 
@@ -89,96 +91,69 @@ pub(super) struct HoldsDoc {
     pub holds: BTreeMap<String, Hold>,
 }
 
-/// One payment as stored in `wallet.payments`: `snake_case`, every instant an
-/// epoch-millisecond `*_ms` field, no wrapper. This is a storage DTO; the
-/// public [`PaymentRecord`] wire type is unchanged.
-#[derive(Debug, Serialize, Deserialize)]
-pub(super) struct StoredPayment {
-    pub id: String,
-    pub url: String,
-    pub asset: String,
-    pub amount_atomic: u64,
-    pub amount_display: String,
-    pub recipient: String,
-    pub network: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tx_signature: Option<String>,
-    pub status: PaymentStatus,
-    pub timestamp_ms: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorization_valid_until_ms: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub solana_last_valid_block_height: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorization_expired_at_ms: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorization_expiry_observed_height: Option<u64>,
-    pub session_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub committed_hold: Option<String>,
-}
-
 fn from_ms(field: &str, ms: i64) -> Result<DateTime<Utc>, String> {
     DateTime::from_timestamp_millis(ms).ok_or_else(|| format!("{field} {ms} is out of range"))
 }
 
-impl StoredPayment {
-    pub(super) fn new(record: &PaymentRecord, committed_hold: Option<&str>) -> Self {
-        Self {
-            id: record.id.clone(),
-            url: record.url.clone(),
-            asset: record.asset.clone(),
-            amount_atomic: record.amount_atomic,
-            amount_display: record.amount_display.clone(),
-            recipient: record.recipient.clone(),
-            network: record.network.clone(),
-            tx_signature: record.tx_signature.clone(),
-            status: record.status,
-            timestamp_ms: record.timestamp.timestamp_millis(),
-            authorization_valid_until_ms: record
-                .authorization_valid_until
-                .map(|at| at.timestamp_millis()),
-            solana_last_valid_block_height: record.solana_last_valid_block_height,
-            authorization_expired_at_ms: record
-                .authorization_expired_at
-                .map(|at| at.timestamp_millis()),
-            authorization_expiry_observed_height: record.authorization_expiry_observed_height,
-            session_id: record.session_id.clone(),
-            thread_id: record.thread_id.clone(),
-            committed_hold: committed_hold.map(str::to_owned),
-        }
+/// The storage shape of `record`, with the hold its entry committed, if any.
+pub(super) fn stored_payment(
+    record: &PaymentRecord,
+    committed_hold: Option<&str>,
+) -> StoredPayment {
+    StoredPayment {
+        id: record.id.clone(),
+        url: record.url.clone(),
+        asset: record.asset.clone(),
+        amount_atomic: record.amount_atomic,
+        amount_display: record.amount_display.clone(),
+        recipient: record.recipient.clone(),
+        network: record.network.clone(),
+        tx_signature: record.tx_signature.clone(),
+        status: record.status.into(),
+        timestamp_ms: record.timestamp.timestamp_millis(),
+        authorization_valid_until_ms: record
+            .authorization_valid_until
+            .map(|at| at.timestamp_millis()),
+        solana_last_valid_block_height: record.solana_last_valid_block_height,
+        authorization_expired_at_ms: record
+            .authorization_expired_at
+            .map(|at| at.timestamp_millis()),
+        authorization_expiry_observed_height: record.authorization_expiry_observed_height,
+        session_id: record.session_id.clone(),
+        thread_id: record.thread_id.clone(),
+        committed_hold: committed_hold.map(str::to_owned),
     }
+}
 
-    /// The public record and the hold this entry committed, if any.
-    pub(super) fn into_record(self) -> Result<(PaymentRecord, Option<String>), String> {
-        let record = PaymentRecord {
-            id: self.id,
-            url: self.url,
-            asset: self.asset,
-            amount_atomic: self.amount_atomic,
-            amount_display: self.amount_display,
-            recipient: self.recipient,
-            network: self.network,
-            tx_signature: self.tx_signature,
-            status: self.status,
-            timestamp: from_ms("timestamp_ms", self.timestamp_ms)?,
-            authorization_valid_until: self
-                .authorization_valid_until_ms
-                .map(|ms| from_ms("authorization_valid_until_ms", ms))
-                .transpose()?,
-            solana_last_valid_block_height: self.solana_last_valid_block_height,
-            authorization_expired_at: self
-                .authorization_expired_at_ms
-                .map(|ms| from_ms("authorization_expired_at_ms", ms))
-                .transpose()?,
-            authorization_expiry_observed_height: self.authorization_expiry_observed_height,
-            session_id: self.session_id,
-            thread_id: self.thread_id,
-        };
-        Ok((record, self.committed_hold))
-    }
+/// The public record and the hold this entry committed, if any.
+pub(super) fn into_record(
+    stored: StoredPayment,
+) -> Result<(PaymentRecord, Option<String>), String> {
+    let record = PaymentRecord {
+        id: stored.id,
+        url: stored.url,
+        asset: stored.asset,
+        amount_atomic: stored.amount_atomic,
+        amount_display: stored.amount_display,
+        recipient: stored.recipient,
+        network: stored.network,
+        tx_signature: stored.tx_signature,
+        status: stored.status.into(),
+        timestamp: from_ms("timestamp_ms", stored.timestamp_ms)?,
+        authorization_valid_until: stored
+            .authorization_valid_until_ms
+            .map(|ms| from_ms("authorization_valid_until_ms", ms))
+            .transpose()?,
+        solana_last_valid_block_height: stored.solana_last_valid_block_height,
+        authorization_expired_at: stored
+            .authorization_expired_at_ms
+            .map(|ms| from_ms("authorization_expired_at_ms", ms))
+            .transpose()?,
+        authorization_expiry_observed_height: stored.authorization_expiry_observed_height,
+        session_id: stored.session_id,
+        thread_id: stored.thread_id,
+    };
+    Ok((record, stored.committed_hold))
 }
 
 /// A payment read back from the stream, with the hold its entry committed.
@@ -229,7 +204,7 @@ impl Persist {
             for entry in window {
                 let parsed = serde_json::from_value::<StoredPayment>(entry.value)
                     .map_err(|error| error.to_string())
-                    .and_then(StoredPayment::into_record);
+                    .and_then(into_record);
                 match parsed {
                     Ok((record, committed_hold)) => records.push(LoadedPayment {
                         record,
@@ -251,7 +226,7 @@ impl Persist {
         record: &PaymentRecord,
         committed_hold: Option<&str>,
     ) -> Result<u64, String> {
-        let value = serde_json::to_value(StoredPayment::new(record, committed_hold))
+        let value = serde_json::to_value(stored_payment(record, committed_hold))
             .map_err(|error| error.to_string())?;
         let streams = Arc::clone(&self.storage.streams);
         self.run("append ledger record", async move {

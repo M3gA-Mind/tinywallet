@@ -2222,9 +2222,12 @@ dependencies = [
 name = "tinywallet-bus"
 version = "0.23.3"
 dependencies = [
+ "chrono",
+ "log",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tinystoragedrivers-core",
 ]
 
 [[package]]
