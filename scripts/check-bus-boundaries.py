@@ -31,7 +31,8 @@ FORBIDDEN_PREFIXES = ("coins-",)
 
 def forbidden(name):
     """Whether `name` is a chain/key implementation the bus must never link."""
-    return name in FORBIDDEN_NAMES or name.startswith(FORBIDDEN_PREFIXES)
+    normalized = name.replace("_", "-")
+    return normalized in FORBIDDEN_NAMES or normalized.startswith(FORBIDDEN_PREFIXES)
 
 
 def audit(metadata):
