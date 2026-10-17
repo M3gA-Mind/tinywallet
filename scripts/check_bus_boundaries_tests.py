@@ -44,6 +44,10 @@ class StorageExemptionTests(unittest.TestCase):
         path = ("tinywallet-crypto", "/work/crates/tinywallet-crypto")
         self.assertEqual(len(boundary.audit_tree([path], storage=True)), 1)
 
+    def test_storage_feature_rejects_forbidden_registry_crates(self):
+        for name in ("coins-bip32", "coins-core", "k256", "bitcoin"):
+            self.assertEqual(len(boundary.audit_tree([(name, "")], storage=True)), 1, name)
+
     def test_storage_feature_rejects_a_foreign_git_source(self):
         fake = ("tinystoragedrivers-core", "https://example.com/evil")
         self.assertEqual(len(boundary.audit_tree([fake], storage=True)), 1)

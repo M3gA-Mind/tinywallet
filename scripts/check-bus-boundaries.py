@@ -23,6 +23,16 @@ REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 STORAGE_FEATURE = "storage"
 STORAGE_EXEMPT_GIT = {"tinystoragedrivers-core": "https://github.com/tinyhumansai/tinystoragedrivers"}
 
+# Chain, key and crypto implementations never enter the bus closure, not even
+# through the `storage` feature's registry-crate exemption.
+FORBIDDEN_NAMES = {"bitcoin", "k256"}
+FORBIDDEN_PREFIXES = ("coins-",)
+
+
+def forbidden(name):
+    """Whether `name` is a chain/key implementation the bus must never link."""
+    return name in FORBIDDEN_NAMES or name.startswith(FORBIDDEN_PREFIXES)
+
 
 def audit(metadata):
     packages = {package["id"]: package for package in metadata["packages"]}
@@ -75,6 +85,9 @@ def audit_tree(packages, storage=False):
     """Violations for a `cargo tree` listing; `storage` applies the exemption."""
     violations = []
     for name, source in packages:
+        if forbidden(name):
+            violations.append(f"tinywallet-bus -> {name} (forbidden)")
+            continue
         if name in ALLOWED and not source:
             continue
         if storage and not source:
