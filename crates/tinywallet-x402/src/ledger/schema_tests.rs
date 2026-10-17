@@ -103,7 +103,9 @@ fn a_ledger_refuses_to_open_while_unmigrated_payments_remain() {
         "session-a",
         SpendingBudget::default(),
     );
-    let error = opened.err().expect("legacy payments must block opening");
+    let Err(error) = opened else {
+        panic!("legacy payments must block opening");
+    };
     assert!(error.contains("unmigrated x402.payments"), "{error}");
 }
 
@@ -131,6 +133,8 @@ fn a_ledger_refuses_to_open_while_legacy_budget_holds_remain() {
         "session-a",
         SpendingBudget::default(),
     );
-    let error = opened.err().expect("legacy holds must block opening");
+    let Err(error) = opened else {
+        panic!("legacy holds must block opening");
+    };
     assert!(error.contains("legacy x402 budget holds"), "{error}");
 }
