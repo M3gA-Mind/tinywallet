@@ -92,3 +92,45 @@ fn migrated_payments_count_against_the_budget_of_a_reopened_ledger() {
     assert_eq!(records[0].timestamp.timestamp_millis(), V1_PAYMENT_MS);
     assert_eq!(records[0].thread_id.as_deref(), Some("thread-1"));
 }
+
+#[test]
+fn a_ledger_refuses_to_open_while_unmigrated_payments_remain() {
+    let (_backend, scoped) = scoped();
+    append_v1(&scoped, vec![v1_payment()]);
+
+    let opened = PaymentLedger::open(
+        LedgerStorage::from_scoped(&scoped),
+        "session-a",
+        SpendingBudget::default(),
+    );
+    let error = opened.err().expect("legacy payments must block opening");
+    assert!(error.contains("unmigrated x402.payments"), "{error}");
+}
+
+#[test]
+fn a_ledger_refuses_to_open_while_legacy_budget_holds_remain() {
+    let (_backend, scoped) = scoped();
+    let documents = Arc::clone(scoped.documents());
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            documents
+                .put(
+                    "x402_budget",
+                    "holds",
+                    json!({ "holds": {} }),
+                    tinystoragedrivers_core::Precondition::None,
+                )
+                .await
+                .unwrap();
+        })
+        .unwrap();
+
+    let opened = PaymentLedger::open(
+        LedgerStorage::from_scoped(&scoped),
+        "session-a",
+        SpendingBudget::default(),
+    );
+    let error = opened.err().expect("legacy holds must block opening");
+    assert!(error.contains("legacy x402 budget holds"), "{error}");
+}

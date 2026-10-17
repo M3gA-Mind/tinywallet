@@ -5,8 +5,8 @@
 
 pub use tinywallet_bus::storage::storage_schema;
 pub(super) use tinywallet_bus::storage::{
-    BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, OWNER, PAYMENTS_STREAM, StoredPayment,
-    StoredPaymentStatus,
+    BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, LEGACY_BUDGET_COLLECTION,
+    LEGACY_PAYMENTS_STREAM, OWNER, PAYMENTS_STREAM, StoredPayment, StoredPaymentStatus,
 };
 
 use super::types::PaymentStatus;

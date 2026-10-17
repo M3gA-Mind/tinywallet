@@ -19,7 +19,8 @@ use tinystoragedrivers_core::{
 };
 
 use super::schema::{
-    BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, OWNER, PAYMENTS_STREAM, StoredPayment,
+    BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, LEGACY_BUDGET_COLLECTION,
+    LEGACY_PAYMENTS_STREAM, OWNER, PAYMENTS_STREAM, StoredPayment,
 };
 use super::types::PaymentRecord;
 
@@ -186,7 +187,35 @@ impl Persist {
 
     pub(super) fn open(storage: LedgerStorage) -> Result<Self, String> {
         let bridge = Blocking::new().map_err(|e| format!("start storage bridge: {e}"))?;
-        Ok(Self { storage, bridge })
+        let persist = Self { storage, bridge };
+        persist.refuse_unmigrated()?;
+        Ok(persist)
+    }
+
+    /// Fail when v1 data is still in place: opening would read only the v2
+    /// names and admit spend without counting that history. Migration is the
+    /// host's job (`storage_schema()`), so the ledger refuses rather than guess.
+    fn refuse_unmigrated(&self) -> Result<(), String> {
+        let streams = Arc::clone(&self.storage.streams);
+        let legacy = self.run("read legacy payments stream", async move {
+            streams.len(LEGACY_PAYMENTS_STREAM).await
+        })?;
+        if legacy > 0 {
+            return Err(format!(
+                "{legacy} unmigrated x402.payments entries: compose storage_schema() and migrate before opening the ledger"
+            ));
+        }
+        let documents = Arc::clone(&self.storage.documents);
+        let holds = self.run("check legacy budget holds", async move {
+            documents.get(LEGACY_BUDGET_COLLECTION, HOLDS_ID).await
+        })?;
+        if holds.is_some() {
+            return Err(
+                "legacy x402 budget holds remain: complete storage migration before opening the ledger"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 
     /// Records from stream offset `from` to the end, with the next offset.
