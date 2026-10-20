@@ -20,7 +20,7 @@ case "$host" in
   *) echo "unsupported E2E host target: $host" >&2; exit 2 ;;
 esac
 
-cargo build --locked --release --package tinywallet-module --features e2e-memory-storage
+cargo build --locked --release --package tinywallet-module
 stage="$target/tinywallet-module-e2e"
 rm -rf "$stage"
 mkdir -p "$stage"

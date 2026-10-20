@@ -8,6 +8,7 @@ use tinystoragedrivers_types::{
     CollectionSpec, ErrorKind, Precondition, StorageError, WriteOptions,
 };
 
+#[path = "schema_payment.rs"]
 mod payment;
 pub use payment::{LegacyPayment, StoredPayment, StoredPaymentStatus};
 
