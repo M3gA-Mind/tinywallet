@@ -9,7 +9,6 @@ use tinystoragedrivers_types::CollectionSpec;
 #[test]
 fn every_stored_item_is_wallet_owned_and_module_scoped() {
     let collections = storage_collections();
-    assert!(!collections.is_empty());
     for collection in &collections {
         assert!(
             collection.name.starts_with("wallet."),

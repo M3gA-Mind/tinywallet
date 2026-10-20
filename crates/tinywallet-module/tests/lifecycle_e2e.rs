@@ -20,7 +20,10 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -991,6 +994,12 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
 }
 
 /// Load the built artifact and check its manifest against the interface.
+fn module_manifest(artifact: &Path, digest: &str) -> String {
+    let key = serde_json::to_string(&artifact.file_name().unwrap().to_string_lossy()).unwrap();
+    let value = serde_json::to_string(digest).unwrap();
+    format!("{key} = {value}\n")
+}
+
 async fn admit_module() -> (
     Connection,
     Connection,
@@ -1023,7 +1032,7 @@ async fn admit_module() -> (
     let digest = hex(&Sha256::digest(fs::read(&staged_artifact).unwrap()));
     fs::write(
         staged.path().join("modules.toml"),
-        format!("{:?} = {:?}\n", artifact.file_name().unwrap(), digest),
+        module_manifest(&artifact, &digest),
     )
     .unwrap();
 
