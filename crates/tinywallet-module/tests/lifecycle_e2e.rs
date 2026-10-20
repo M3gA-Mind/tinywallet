@@ -146,9 +146,8 @@ async fn the_built_module_signs_every_chain_over_a_real_broker() {
         )
         .await
         .map(|handle: X402ServiceHandle| handle);
-    // A released artifact has no ledger storage until the host provisions it,
-    // so x402 must fail closed; the artifact built with `e2e-memory-storage`
-    // runs the whole payment flow.
+    // This fixture has no storage host, so x402 must fail closed instead of
+    // silently switching to process-local state.
     let x402_service = match x402_configured {
         Ok(handle) => Some(handle),
         Err(error) => {

@@ -87,7 +87,8 @@ configuration of its own.
 - The ledger owns one process-wide handle; hosts choose the budget when they
   call `ledger::init_global`.
 - `tools` needs a compiler new enough for `tinytools` (1.88), and `ledger` for
-  `tinystoragedrivers-core` (1.88). The other features
+  the stable `tinystoragedrivers-api` / `tinystoragedrivers-types` contracts
+  (1.88). The other features
   build on the crate's MSRV, except that `pay` pulls `reqwest`, whose `icu`
   dependencies need a newer compiler than 1.85 with a current lockfile.
 - Error strings are user-visible and pinned by tests.
