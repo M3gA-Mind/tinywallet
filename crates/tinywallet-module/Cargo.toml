@@ -100,6 +100,7 @@ linked = ["static-link"]
 workspace = true
 
 [dev-dependencies]
+tinystoragedrivers-client = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.0" }
 tinystoragedrivers-testkit = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.0" }
 # Encodes and decodes the Solana transaction fixtures in native tests.
 base64 = "0.23"

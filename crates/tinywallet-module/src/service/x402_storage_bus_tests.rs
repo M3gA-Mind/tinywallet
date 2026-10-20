@@ -11,17 +11,15 @@ use std::sync::Arc;
 use tinybus::Connection;
 use tinystoragedrivers_busproxy::{PerCallerEndpoint, serve};
 use tinystoragedrivers_client::StorageServer;
-use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Precondition, Result as StorageResult, Scope, ScopedStorage,
-    StorageBackend, StreamEntry, StreamStore, async_trait,
-};
+use tinystoragedrivers_api::StorageBackend;
+use tinystoragedrivers_types::{Precondition, Result as StorageResult, Scope, StreamEntry};
 use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402SummaryRequest};
 use tinywallet_x402::ledger::{LedgerStorage, PaymentLedger, SpendingBudget};
 
 struct Fixture {
     wallet: crate::service::Wallet,
     /// The host's own handle on the scope the module is bound to.
-    host: ScopedStorage,
+    host: tinystoragedrivers_api::Storage,
     _served: tinystoragedrivers_busproxy::ServedStorage,
     broker: tokio::task::JoinHandle<tinybus::Result<()>>,
 }
@@ -34,8 +32,8 @@ async fn fixture() -> Fixture {
     let host_connection = Connection::connect(bus.connect().await.unwrap())
         .await
         .unwrap();
-    let backend = MemoryStorage::new();
-    let host = backend.for_scope(&Scope::local()).unwrap();
+    let backend = tinystoragedrivers_testkit::MemoryBackend::new();
+    let host = backend.for_scope(&Scope::new("wallet.module-bus-test").unwrap()).unwrap();
     let served_scope = host.clone();
     let endpoint =
         PerCallerEndpoint::new(move |_sender| Some(StorageServer::new(served_scope.clone())));
@@ -68,7 +66,7 @@ fn config(session: &str) -> X402ConfigResponse {
 
 fn host_ledger(fixture: &Fixture) -> PaymentLedger {
     PaymentLedger::open(
-        LedgerStorage::from_scoped(&fixture.host),
+        LedgerStorage::from_storage(&fixture.host),
         "host-side",
         SpendingBudget {
             per_request_max_atomic: 100,
@@ -388,7 +386,7 @@ fn unreadable_stream_storage() -> LedgerStorage {
             self.0.append_batch(s, v).await
         }
         async fn read_window(&self, _: &str, _: u64, _: usize) -> StorageResult<Vec<StreamEntry>> {
-            Err(tinystoragedrivers_core::StorageError::backend(
+            Err(tinystoragedrivers_types::StorageError::backend(
                 "injected read failure",
             ))
         }
