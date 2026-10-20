@@ -1,5 +1,5 @@
 //! The ledger's storage: the `wallet.payments` stream and one `wallet.budgets` hold document, both
-//! through the `tinystoragedrivers-core` ports.
+//! through the runtime-neutral `tinystoragedrivers-api` ports.
 //!
 //! The ports are async and the ledger's API is synchronous (it runs under a
 //! std mutex), so every call goes through [`Blocking`], which drives the future
@@ -13,15 +13,11 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use tinystoragedrivers_core::{
-    Blocking, DocumentStore, ErrorKind, MemoryStorage, Precondition, Scope, ScopedStorage,
-    StorageBackend, StreamStore, Version, WriteOptions,
-};
+use tinystoragedrivers_api::{DocumentStore, StreamStore, Storage};
+use tinystoragedrivers_types::{ErrorKind, Precondition, StorageError, Version, WriteOptions};
 
-use super::schema::{
-    BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, LEGACY_BUDGET_COLLECTION,
-    LEGACY_PAYMENTS_STREAM, OWNER, PAYMENTS_STREAM, StoredPayment,
-};
+use super::schema::{self, BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, PAYMENTS_STREAM, StoredPayment};
+use super::blocking::Blocking;
 use super::types::PaymentRecord;
 
 const LOG_PREFIX: &str = "[x402::persist]";
@@ -52,28 +48,8 @@ impl LedgerStorage {
 
     /// Persist through a host-provisioned scoped handle.
     #[must_use]
-    pub fn from_scoped(storage: &ScopedStorage) -> Self {
+    pub fn from_storage(storage: &Storage) -> Self {
         Self::new(storage.documents().clone(), storage.streams().clone())
-    }
-
-    /// A private in-memory store. Nothing survives the process: for tests and
-    /// hosts that deliberately want an ephemeral ledger.
-    ///
-    /// # Panics
-    ///
-    /// Never in practice: the fixed scope name is valid and the memory backend
-    /// opens any valid scope.
-    #[must_use]
-    #[allow(
-        clippy::expect_used,
-        reason = "fixed valid scope on the memory backend"
-    )]
-    pub fn memory() -> Self {
-        let scope = Scope::local().module(OWNER).expect("valid scope");
-        let scoped = MemoryStorage::new()
-            .for_scope(&scope)
-            .expect("memory backend opens any scope");
-        Self::from_scoped(&scoped)
     }
 }
 
@@ -177,7 +153,7 @@ impl Persist {
     fn run<T, F>(&self, what: &str, future: F) -> Result<T, String>
     where
         T: Send + 'static,
-        F: Future<Output = tinystoragedrivers_core::Result<T>> + Send + 'static,
+        F: Future<Output = tinystoragedrivers_types::Result<T>> + Send + 'static,
     {
         match self.bridge.run(future) {
             Ok(Ok(value)) => Ok(value),
@@ -188,34 +164,13 @@ impl Persist {
     pub(super) fn open(storage: LedgerStorage) -> Result<Self, String> {
         let bridge = Blocking::new().map_err(|e| format!("start storage bridge: {e}"))?;
         let persist = Self { storage, bridge };
-        persist.refuse_unmigrated()?;
+        let documents = Arc::clone(&persist.storage.documents);
+        let streams = Arc::clone(&persist.storage.streams);
+        persist
+            .run("migrate x402 storage", async move {
+                schema::migrate(documents.as_ref(), streams.as_ref()).await
+            })?;
         Ok(persist)
-    }
-
-    /// Fail when v1 data is still in place: opening would read only the v2
-    /// names and admit spend without counting that history. Migration is the
-    /// host's job (`storage_schema()`), so the ledger refuses rather than guess.
-    fn refuse_unmigrated(&self) -> Result<(), String> {
-        let streams = Arc::clone(&self.storage.streams);
-        let legacy = self.run("read legacy payments stream", async move {
-            streams.len(LEGACY_PAYMENTS_STREAM).await
-        })?;
-        if legacy > 0 {
-            return Err(format!(
-                "{legacy} unmigrated x402.payments entries: compose storage_schema() and migrate before opening the ledger"
-            ));
-        }
-        let documents = Arc::clone(&self.storage.documents);
-        let holds = self.run("check legacy budget holds", async move {
-            documents.get(LEGACY_BUDGET_COLLECTION, HOLDS_ID).await
-        })?;
-        if holds.is_some() {
-            return Err(
-                "legacy x402 budget holds remain: complete storage migration before opening the ledger"
-                    .to_string(),
-            );
-        }
-        Ok(())
     }
 
     /// Records from stream offset `from` to the end, with the next offset.

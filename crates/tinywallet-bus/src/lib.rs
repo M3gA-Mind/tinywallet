@@ -23,8 +23,6 @@
 
 pub mod mnemonic;
 pub mod names;
-#[cfg(feature = "storage")]
-pub mod storage;
 #[cfg(feature = "wire")]
 pub mod tools;
 pub mod version;
