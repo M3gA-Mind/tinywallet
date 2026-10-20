@@ -157,6 +157,10 @@ impl From<StoredPaymentStatus> for super::types::PaymentStatus {
     }
 }
 
+#[cfg(test)]
+#[path = "schema_tests.rs"]
+mod tests;
+
 async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types::Result<()> {
     let source_len = streams.len(LEGACY_PAYMENTS_STREAM).await?;
     let mut source = Vec::new();

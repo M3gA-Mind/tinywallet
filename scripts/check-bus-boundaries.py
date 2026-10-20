@@ -11,22 +11,24 @@ ALLOWED = {
 }
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 
-# The `storage` feature (OFF by default) is the one sanctioned way anything
-# beyond ALLOWED enters the closure. It brings `tinystoragedrivers-core`, the
-# storage ports crate, and with it that crate's own registry dependencies
-# (tokio, zstd, ...). The exemption is deliberately narrow:
-#   * only when `storage` is enabled; the default closure is audited strictly
-#     and must not contain any of it,
-#   * only that git crate, pinned to the tinystoragedrivers repository, plus
-#     registry crates; a path or other git crate (any implementation) is
-#     still a violation.
-STORAGE_FEATURE = "storage"
-STORAGE_EXEMPT_GIT = {"tinystoragedrivers-core": "https://github.com/tinyhumansai/tinystoragedrivers"}
-
 # Chain, key and crypto implementations never enter the bus closure, not even
-# through the `storage` feature's registry-crate exemption.
+# through transitive dependencies.
 FORBIDDEN_NAMES = {"bitcoin", "k256"}
 FORBIDDEN_PREFIXES = ("coins-",)
+
+# Storage implementation crates must remain behind the host boundary. The
+# names are checked against each library's full normal/build closure.
+ENGINE_FORBIDDEN = {
+    "rusqlite", "libsqlite3-sys", "mongodb", "bson", "aws-sdk-s3", "lapin",
+    "amq-protocol", "sqlx", "redb", "sled", "rocksdb",
+    "tinystoragedrivers-document", "tinystoragedrivers-kv", "tinystoragedrivers-blob",
+    "tinystoragedrivers-queue", "tinystoragedrivers-secrets", "tinystoragedrivers-connect",
+    "tinystoragedrivers",
+}
+LIBRARY_CRATES = (
+    "tinywallet", "tinywallet-crypto", "tinywallet-x402", "tinywallet-bus",
+    "tinywallet-web3", "tinywallet-module",
+)
 
 
 def forbidden(name):
@@ -82,8 +84,8 @@ def tree_packages(feature=None):
     return packages
 
 
-def audit_tree(packages, storage=False):
-    """Violations for a `cargo tree` listing; `storage` applies the exemption."""
+def audit_tree(packages):
+    """Violations for a `cargo tree` listing."""
     violations = []
     for name, source in packages:
         if forbidden(name):
@@ -91,21 +93,38 @@ def audit_tree(packages, storage=False):
             continue
         if name in ALLOWED and not source:
             continue
-        if storage and not source:
-            continue  # a registry crate reached through the storage feature
-        if storage and name in STORAGE_EXEMPT_GIT and source.startswith(STORAGE_EXEMPT_GIT[name]):
-            continue
         violations.append(f"tinywallet-bus -> {name} ({source or 'registry'})")
     return violations
+
+
+def tree_package_names(output):
+    """Extract package names from Cargo's versioned `--prefix none` lines."""
+    return [line.split()[0] for line in output.splitlines() if line.split()]
+
+
+def engine_tree_packages(crate):
+    """Return package names in one library's normal/build dependency tree."""
+    command = [
+        "cargo", "tree", "-p", crate, "--all-features", "-e", "normal,build",
+        "--prefix", "none",
+    ]
+    out = subprocess.run(command, check=True, capture_output=True, text=True).stdout
+    return tree_package_names(out)
+
+
+def engine_violations(names):
+    """Find engine packages by normalized Cargo package name."""
+    return sorted({name.replace("_", "-") for name in names} & ENGINE_FORBIDDEN)
 
 
 if __name__ == "__main__":
     failures = audit_tree(tree_packages())
     if failures:
-        print("Forbidden contract dependencies (default features):\n" + "\n".join(failures), file=sys.stderr)
+        print("Forbidden contract dependencies:\n" + "\n".join(failures), file=sys.stderr)
         sys.exit(1)
-    failures = audit_tree(tree_packages(STORAGE_FEATURE), storage=True)
-    if failures:
-        print("Forbidden contract dependencies (storage feature):\n" + "\n".join(failures), file=sys.stderr)
-        sys.exit(1)
-    print("tinywallet-bus: default closure is pure; the storage feature adds only the storage ports crate and registry crates")
+    for crate in LIBRARY_CRATES:
+        engines = engine_violations(engine_tree_packages(crate))
+        if engines:
+            print(f"{crate} normal/build tree contains storage engines: {', '.join(engines)}", file=sys.stderr)
+            sys.exit(1)
+    print("wallet library normal/build trees contain no storage engine crates")

@@ -27,30 +27,29 @@ class ContractBoundaryTests(unittest.TestCase):
         self.assertTrue(boundary.audit(metadata("serde", source=None)))
 
 
-class StorageExemptionTests(unittest.TestCase):
-    REGISTRY_CRATE = ("zstd", "")
-    PORTS = ("tinystoragedrivers-core", "https://github.com/tinyhumansai/tinystoragedrivers?tag=v1.0.0#141fd9ed")
+class EngineTreeTests(unittest.TestCase):
+    def test_versioned_cargo_tree_lines_are_checked_by_package_name(self):
+        output = """\
+tinywallet-module v0.24.1 (/work/tinywallet)
+rusqlite v0.40.2 (registry+https://github.com/rust-lang/crates.io-index)
+tinystoragedrivers-api v2.0.0 (https://github.com/senamakel/tinystoragedrivers)
+"""
+        names = boundary.tree_package_names(output)
+        self.assertEqual(
+            boundary.engine_violations(names),
+            ["rusqlite"],
+        )
 
-    def test_default_closure_rejects_the_storage_crates(self):
-        self.assertEqual(len(boundary.audit_tree([self.PORTS, self.REGISTRY_CRATE])), 2)
+    def test_storage_api_and_types_are_not_engine_crates(self):
+        self.assertEqual(
+            boundary.engine_violations(
+                ["tinystoragedrivers-api", "tinystoragedrivers-types"]
+            ),
+            [],
+        )
 
-    def test_default_closure_accepts_the_allow_list(self):
-        self.assertEqual(boundary.audit_tree([("serde", ""), ("thiserror", "")]), [])
-
-    def test_storage_feature_accepts_the_ports_crate_and_registry_crates(self):
-        self.assertEqual(boundary.audit_tree([self.PORTS, self.REGISTRY_CRATE], storage=True), [])
-
-    def test_storage_feature_still_rejects_implementations(self):
-        path = ("tinywallet-crypto", "/work/crates/tinywallet-crypto")
-        self.assertEqual(len(boundary.audit_tree([path], storage=True)), 1)
-
-    def test_storage_feature_rejects_forbidden_registry_crates(self):
-        for name in ("coins-bip32", "coins_bip32", "coins-core", "k256", "bitcoin"):
-            self.assertEqual(len(boundary.audit_tree([(name, "")], storage=True)), 1, name)
-
-    def test_storage_feature_rejects_a_foreign_git_source(self):
-        fake = ("tinystoragedrivers-core", "https://example.com/evil")
-        self.assertEqual(len(boundary.audit_tree([fake], storage=True)), 1)
+    def test_underscore_names_are_normalized_before_engine_matching(self):
+        self.assertEqual(boundary.engine_violations(["libsqlite3_sys"]), ["libsqlite3-sys"])
 
 
 if __name__ == "__main__":
