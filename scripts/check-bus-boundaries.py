@@ -25,10 +25,7 @@ ENGINE_FORBIDDEN = {
     "tinystoragedrivers-queue", "tinystoragedrivers-secrets", "tinystoragedrivers-connect",
     "tinystoragedrivers",
 }
-LIBRARY_CRATES = (
-    "tinywallet", "tinywallet-crypto", "tinywallet-x402", "tinywallet-bus",
-    "tinywallet-web3", "tinywallet-module",
-)
+LIBRARY_KINDS = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
 
 
 def forbidden(name):
@@ -102,6 +99,38 @@ def tree_package_names(output):
     return [line.split()[0] for line in output.splitlines() if line.split()]
 
 
+def workspace_library_crates(metadata):
+    """Enumerate every library package in this workspace, failing closed."""
+    members = metadata.get("workspace_members")
+    packages = metadata.get("packages")
+    if not isinstance(members, list) or not isinstance(packages, list):
+        raise ValueError("Cargo metadata omitted workspace members or packages")
+    member_ids = set(members)
+    names = sorted({
+        package["name"]
+        for package in packages
+        if package.get("id") in member_ids
+        and any(
+            LIBRARY_KINDS.intersection(target.get("kind", []))
+            for target in package.get("targets", [])
+        )
+    })
+    if not names:
+        raise ValueError("Cargo metadata found no workspace library packages")
+    return names
+
+
+def engine_library_crates():
+    """Read workspace library package identities without path assumptions."""
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--locked", "--format-version", "1", "--no-deps"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return workspace_library_crates(json.loads(metadata))
+
+
 def engine_tree_packages(crate):
     """Return package names in one library's normal/build dependency tree."""
     command = [
@@ -122,7 +151,7 @@ if __name__ == "__main__":
     if failures:
         print("Forbidden contract dependencies:\n" + "\n".join(failures), file=sys.stderr)
         sys.exit(1)
-    for crate in LIBRARY_CRATES:
+    for crate in engine_library_crates():
         engines = engine_violations(engine_tree_packages(crate))
         if engines:
             print(f"{crate} normal/build tree contains storage engines: {', '.join(engines)}", file=sys.stderr)

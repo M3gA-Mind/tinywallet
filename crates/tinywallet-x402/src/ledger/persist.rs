@@ -13,11 +13,13 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use tinystoragedrivers_api::{DocumentStore, StreamStore, Storage};
+use tinystoragedrivers_api::{DocumentStore, Storage, StreamStore};
 use tinystoragedrivers_types::{ErrorKind, Precondition, Version, WriteOptions};
 
-use super::schema::{self, BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, PAYMENTS_STREAM, StoredPayment};
 use super::blocking::Blocking;
+use super::schema::{
+    self, BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, PAYMENTS_STREAM, StoredPayment,
+};
 use super::types::PaymentRecord;
 
 const LOG_PREFIX: &str = "[x402::persist]";
@@ -176,10 +178,9 @@ impl Persist {
         let persist = Self { storage, bridge };
         let documents = Arc::clone(&persist.storage.documents);
         let streams = Arc::clone(&persist.storage.streams);
-        persist
-            .run("migrate x402 storage", async move {
-                schema::migrate(documents.as_ref(), streams.as_ref()).await
-            })?;
+        persist.run("migrate x402 storage", async move {
+            schema::migrate(documents.as_ref(), streams.as_ref()).await
+        })?;
         Ok(persist)
     }
 

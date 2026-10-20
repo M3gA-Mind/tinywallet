@@ -51,6 +51,37 @@ tinystoragedrivers-api v2.0.0 (https://github.com/senamakel/tinystoragedrivers)
     def test_underscore_names_are_normalized_before_engine_matching(self):
         self.assertEqual(boundary.engine_violations(["libsqlite3_sys"]), ["libsqlite3-sys"])
 
+    def test_workspace_library_enumeration_covers_every_library_kind(self):
+        kinds = sorted(boundary.LIBRARY_KINDS)
+        members = [f"workspace-{index}" for index in range(len(kinds))]
+        metadata_value = {
+            "workspace_members": members,
+            "packages": [
+                {
+                    "id": member,
+                    "name": f"library-{index}",
+                    "targets": [{"kind": [kind]}],
+                }
+                for index, (member, kind) in enumerate(zip(members, kinds, strict=True))
+            ]
+            + [
+                {"id": "binary", "name": "binary-only", "targets": [{"kind": ["bin"]}]},
+                {"id": "dependency", "name": "external-library", "targets": [{"kind": ["lib"]}]},
+            ],
+        }
+        self.assertEqual(
+            boundary.workspace_library_crates(metadata_value),
+            [f"library-{index}" for index in range(len(kinds))],
+        )
+
+    def test_workspace_library_enumeration_fails_closed_without_members(self):
+        with self.assertRaises(ValueError):
+            boundary.workspace_library_crates({"workspace_members": [], "packages": []})
+
+    def test_workspace_library_enumeration_fails_closed_on_missing_metadata(self):
+        with self.assertRaises(ValueError):
+            boundary.workspace_library_crates({"packages": []})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,7 +20,7 @@ pub enum StoredPaymentStatus {
 /// One payment as stored in `wallet.payments`: `snake_case`, every instant an
 /// epoch-millisecond `*_ms` field, no wrapper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StoredPayment {
+pub(crate) struct StoredPayment {
     /// Unique id of the attempt.
     pub id: String,
     /// The URL the payment bought access to.
@@ -68,7 +68,7 @@ pub struct StoredPayment {
 /// instants, and the hold metadata beside it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LegacyPayment {
+pub(crate) struct LegacyPayment {
     id: String,
     url: String,
     asset: String,

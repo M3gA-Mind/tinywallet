@@ -8,23 +8,21 @@ use tinystoragedrivers_types::{
 
 #[path = "schema_payment.rs"]
 mod payment;
-pub use payment::{LegacyPayment, StoredPayment};
 pub(super) use payment::StoredPaymentStatus;
+pub(crate) use payment::{LegacyPayment, StoredPayment};
 
-/// The owner prefix for the x402 ledger's storage names.
-pub const OWNER: &str = "wallet";
 /// Collection containing the single budget-hold document.
-pub const BUDGETS_COLLECTION: &str = "wallet.budgets";
+pub(super) const BUDGETS_COLLECTION: &str = "wallet.budgets";
 /// Schema version for [`BUDGETS_COLLECTION`].
-pub const BUDGETS_VERSION: u32 = 2;
+pub(super) const BUDGETS_VERSION: u32 = 2;
 /// Identifier of the budget-hold document.
-pub const HOLDS_ID: &str = "holds";
+pub(super) const HOLDS_ID: &str = "holds";
 /// Append-only payment history stream.
-pub const PAYMENTS_STREAM: &str = "wallet.payments";
+pub(super) const PAYMENTS_STREAM: &str = "wallet.payments";
 /// Previous budget collection name migrated on first open.
-pub const LEGACY_BUDGET_COLLECTION: &str = "x402_budget";
+const LEGACY_BUDGET_COLLECTION: &str = "x402_budget";
 /// Previous payment stream name migrated on first open.
-pub const LEGACY_PAYMENTS_STREAM: &str = "x402.payments";
+const LEGACY_PAYMENTS_STREAM: &str = "x402.payments";
 
 const MIGRATIONS_COLLECTION: &str = "wallet.migrations";
 const MIGRATIONS_ID: &str = "x402";
@@ -36,7 +34,10 @@ const BATCH_SIZE: usize = 512;
 /// pure collection declarations in the scope it has already bound.
 #[must_use]
 pub fn collections() -> Vec<CollectionSpec> {
-    vec![CollectionSpec::new(BUDGETS_COLLECTION), CollectionSpec::new(MIGRATIONS_COLLECTION)]
+    vec![
+        CollectionSpec::new(BUDGETS_COLLECTION),
+        CollectionSpec::new(MIGRATIONS_COLLECTION),
+    ]
 }
 
 /// Apply x402-owned migrations before the ledger reads or writes its history.
@@ -61,9 +62,9 @@ pub(super) async fn migrate(
     migrate_payments(streams).await?;
 
     let next = json!({ "version": BUDGETS_VERSION });
-    let precondition = state
-        .map(|record| Precondition::Version(record.version))
-        .unwrap_or(Precondition::Absent);
+    let precondition = state.map_or(Precondition::Absent, |record| {
+        Precondition::Version(record.version)
+    });
     match documents
         .put(MIGRATIONS_COLLECTION, MIGRATIONS_ID, next, precondition)
         .await
@@ -76,37 +77,28 @@ pub(super) async fn migrate(
                 .and_then(|record| record.doc.get("version"))
                 .and_then(Value::as_u64)
                 .is_some_and(|version| version >= BUDGETS_VERSION.into());
-            if completed {
-                Ok(())
-            } else {
-                Err(error)
-            }
+            if completed { Ok(()) } else { Err(error) }
         }
         Err(error) => Err(error),
     }
 }
 
 async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_types::Result<()> {
-    let Some(legacy) = documents
-        .get(LEGACY_BUDGET_COLLECTION, HOLDS_ID)
-        .await?
-    else {
+    let Some(legacy) = documents.get(LEGACY_BUDGET_COLLECTION, HOLDS_ID).await? else {
         return Ok(());
     };
     let holds = renamed_holds(&legacy.doc).unwrap_or_default();
     let migrated = json!({ "holds": holds.clone() });
-    match documents
-        .get(BUDGETS_COLLECTION, HOLDS_ID)
-        .await?
-    {
+    match documents.get(BUDGETS_COLLECTION, HOLDS_ID).await? {
         Some(existing) if existing.doc == migrated => Ok(()),
         Some(_) => Err(StorageError::backend(
             "wallet budget migration found conflicting target data",
         )),
         None => {
-            let mut options = WriteOptions::new()
-                .schema(BUDGETS_VERSION)
-                .created_ms(legacy.meta.created_ms);
+            // `created_ms` belongs to the host that performs the write, so a
+            // module migration may preserve application metadata, schema and
+            // expiry but must let the destination assign creation time.
+            let mut options = WriteOptions::new().schema(BUDGETS_VERSION);
             if let Some(expires_ms) = legacy.meta.expires_ms {
                 options = options.expires_ms(expires_ms);
             }
@@ -157,10 +149,6 @@ impl From<StoredPaymentStatus> for super::types::PaymentStatus {
     }
 }
 
-#[cfg(test)]
-#[path = "schema_tests.rs"]
-mod tests;
-
 async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types::Result<()> {
     let source_len = streams.len(LEGACY_PAYMENTS_STREAM).await?;
     let mut source = Vec::new();
@@ -170,10 +158,43 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
             .read_window(LEGACY_PAYMENTS_STREAM, offset, BATCH_SIZE)
             .await?;
         if window.is_empty() {
-            break;
+            return Err(StorageError::backend(
+                "wallet payment migration source ended before its reported length",
+            ));
         }
-        offset = window.last().map_or(offset, |entry| entry.offset.saturating_add(1));
+        for (index, entry) in window.iter().enumerate() {
+            let expected = offset
+                .checked_add(u64::try_from(index).map_err(|_| {
+                    StorageError::backend("wallet payment migration source offset overflowed")
+                })?)
+                .ok_or_else(|| {
+                    StorageError::backend("wallet payment migration source offset overflowed")
+                })?;
+            if entry.offset != expected {
+                return Err(StorageError::backend(
+                    "wallet payment migration source window was incomplete",
+                ));
+            }
+        }
+        let Some(last) = window.last() else {
+            return Err(StorageError::backend(
+                "wallet payment migration source ended before its reported length",
+            ));
+        };
+        offset = last.offset.checked_add(1).ok_or_else(|| {
+            StorageError::backend("wallet payment migration source offset overflowed")
+        })?;
+        if offset > source_len {
+            return Err(StorageError::backend(
+                "wallet payment migration source exceeded its reported length",
+            ));
+        }
         source.extend(window.into_iter().map(|entry| entry.value));
+    }
+    if streams.len(LEGACY_PAYMENTS_STREAM).await? != source_len {
+        return Err(StorageError::backend(
+            "wallet payment migration source changed while being read",
+        ));
     }
     let migrated = migrate_payments_stream(LEGACY_PAYMENTS_STREAM, source)?
         .map_or_else(Vec::new, |(_, entries)| entries);
@@ -182,14 +203,30 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
     }
 
     let target_len = streams.len(PAYMENTS_STREAM).await?;
-    if target_len > migrated.len() as u64 {
+    let target_len_usize = usize::try_from(target_len).map_err(|_| {
+        StorageError::backend("wallet payment migration target stream is too large")
+    })?;
+    let migrated_len = u64::try_from(migrated.len()).map_err(|_| {
+        StorageError::backend("wallet payment migration source stream is too large")
+    })?;
+    if target_len > migrated_len {
         return Err(StorageError::backend(
             "wallet payment migration found unexpected target entries",
         ));
     }
     let existing = streams
-        .read_window(PAYMENTS_STREAM, 0, target_len as usize)
+        .read_window(PAYMENTS_STREAM, 0, target_len_usize)
         .await?;
+    if u64::try_from(existing.len()).ok() != Some(target_len)
+        || existing
+            .iter()
+            .enumerate()
+            .any(|(index, entry)| u64::try_from(index).ok() != Some(entry.offset))
+    {
+        return Err(StorageError::backend(
+            "wallet payment migration target prefix was incomplete",
+        ));
+    }
     if existing
         .iter()
         .zip(migrated.iter())
@@ -199,7 +236,7 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
             "wallet payment migration found conflicting target data",
         ));
     }
-    let start = target_len as usize;
+    let start = target_len_usize;
     if start < migrated.len() {
         streams
             .append_batch_if_offset(PAYMENTS_STREAM, target_len, migrated[start..].to_vec())
@@ -237,7 +274,14 @@ fn renamed_holds(body: &Value) -> Option<Map<String, Value>> {
         .map(|(key, hold)| {
             let amount = hold.get("amount")?.as_u64()?;
             let expires_ms = hold.get("expires_at_ms")?.as_i64()?;
-            Some((key.clone(), json!({ "amount": amount, "expires_ms": expires_ms })))
+            Some((
+                key.clone(),
+                json!({ "amount": amount, "expires_ms": expires_ms }),
+            ))
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "schema_tests.rs"]
+mod tests;

@@ -9,12 +9,11 @@ use super::*;
 use std::sync::Arc;
 
 use tinybus::Connection;
-use tinystoragedrivers_busproxy::{PerCallerEndpoint, serve};
-use tinystoragedrivers_client::StorageServer;
-use tinystoragedrivers_api::{Storage, StreamStore};
 use tinystoragedrivers_api::StorageBackend;
-use tinystoragedrivers_types::{ErrorKind, Precondition, Scope};
+use tinystoragedrivers_api::{Storage, StreamStore};
+use tinystoragedrivers_busproxy::{PerCallerEndpoint, StorageServer, serve};
 use tinystoragedrivers_testkit::{Failing, FaultPlan};
+use tinystoragedrivers_types::{ErrorKind, Precondition, Scope};
 use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402SummaryRequest};
 use tinywallet_x402::ledger::{LedgerStorage, PaymentLedger, SpendingBudget};
 
@@ -35,7 +34,9 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     let backend = tinystoragedrivers_testkit::MemoryBackend::new();
-    let host = backend.for_scope(&Scope::new("wallet.module-bus-test").unwrap()).unwrap();
+    let host = backend
+        .for_scope(&Scope::new("wallet.module-bus-test").unwrap())
+        .unwrap();
     let served_scope = host.clone();
     let endpoint =
         PerCallerEndpoint::new(move |_sender| Some(StorageServer::new(served_scope.clone())));
@@ -378,9 +379,7 @@ fn unreadable_stream_storage() -> LedgerStorage {
     let storage = tinystoragedrivers_testkit::memory_storage(&scope);
     let faults = FaultPlan::new();
     faults.fail_operation_nth("streams.read_window", 1, ErrorKind::Backend);
-    let streams: Arc<dyn StreamStore> = Arc::new(Failing::with_plan(
-        Arc::clone(storage.streams()),
-        faults,
-    ));
+    let streams: Arc<dyn StreamStore> =
+        Arc::new(Failing::with_plan(Arc::clone(storage.streams()), faults));
     LedgerStorage::new(Arc::clone(storage.documents()), streams)
 }

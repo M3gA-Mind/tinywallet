@@ -249,12 +249,18 @@ fn renewal_fails_loudly_when_the_hold_document_is_unreadable() {
     Blocking::new()
         .unwrap()
         .run(async move {
+            let version = documents
+                .get(BUDGETS_COLLECTION, HOLDS_ID)
+                .await
+                .unwrap()
+                .expect("opening the ledger creates the hold document")
+                .version;
             documents
                 .put(
                     BUDGETS_COLLECTION,
                     HOLDS_ID,
                     serde_json::json!({"holds": "garbage"}),
-                    Precondition::Absent,
+                    Precondition::Version(version),
                 )
                 .await
                 .unwrap();

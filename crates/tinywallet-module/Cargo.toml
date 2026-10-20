@@ -2,7 +2,7 @@
 name = "tinywallet-module"
 version = "0.24.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "GPL-3.0-only"
 description = "Trusted TinyBus module adapter for TinyWallet."
 repository = "https://github.com/tinyhumansai/tinywallet"
@@ -100,8 +100,7 @@ linked = ["static-link"]
 workspace = true
 
 [dev-dependencies]
-tinystoragedrivers-client = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.0" }
-tinystoragedrivers-testkit = { git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.0" }
+tinystoragedrivers-testkit = { version = "2.0.1", git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
 # Encodes and decodes the Solana transaction fixtures in native tests.
 base64 = "0.23"
 # The native lifecycle fixture stages and hashes the actual cdylib to attest it.

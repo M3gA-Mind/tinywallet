@@ -33,7 +33,10 @@ pub(crate) fn faulty_storage() -> (LedgerStorage, Faults) {
         faults.append.clone(),
     ));
     let streams: Arc<dyn StreamStore> = Arc::new(Failing::with_plan(append, faults.read.clone()));
-    (LedgerStorage::new(Arc::clone(&base.documents), streams), faults)
+    (
+        LedgerStorage::new(Arc::clone(&base.documents), streams),
+        faults,
+    )
 }
 
 /// Fail the next append or read, according to the supplied schedule.
@@ -56,4 +59,3 @@ pub(crate) fn append_raw(storage: &LedgerStorage, values: Vec<Value>) {
         })
         .unwrap();
 }
-

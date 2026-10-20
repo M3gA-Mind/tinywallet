@@ -32,7 +32,9 @@ impl Blocking {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|error| StorageError::backend("cannot build the ledger storage runtime").with_source(error))?;
+            .map_err(|error| {
+                StorageError::backend("cannot build the ledger storage runtime").with_source(error)
+            })?;
         let (jobs, mut receiver) = mpsc::unbounded_channel::<Job>();
         thread::Builder::new()
             .name("tinywallet-storage".into())
@@ -47,7 +49,9 @@ impl Blocking {
                     while running.join_next().await.is_some() {}
                 });
             })
-            .map_err(|error| StorageError::backend("cannot start the ledger storage thread").with_source(error))?;
+            .map_err(|error| {
+                StorageError::backend("cannot start the ledger storage thread").with_source(error)
+            })?;
         Ok(Self { jobs })
     }
 
@@ -70,9 +74,8 @@ impl Blocking {
             .send(job)
             .map_err(|_| StorageError::backend("the ledger storage bridge has stopped"))?;
         let receive = || {
-            wait.recv().map_err(|_| {
-                StorageError::backend("the ledger storage bridge dropped a call")
-            })
+            wait.recv()
+                .map_err(|_| StorageError::backend("the ledger storage bridge dropped a call"))
         };
         if tokio::runtime::Handle::try_current().is_ok_and(|handle| {
             handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread

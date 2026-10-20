@@ -376,13 +376,10 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
 /// In-memory storage whose payments stream refuses every append: the ledger
 /// opens, holds budget, and then cannot durably record the authorization.
 fn failing_append_storage() -> tinywallet_x402::ledger::LedgerStorage {
-    use tinystoragedrivers_api::StreamStore;
     use tinystoragedrivers_testkit::{Failing, FaultPlan};
     use tinystoragedrivers_types::{ErrorKind, Scope};
 
-    let scoped = tinystoragedrivers_testkit::memory_storage(
-        &Scope::new("x402-fail").unwrap(),
-    );
+    let scoped = tinystoragedrivers_testkit::memory_storage(&Scope::new("x402-fail").unwrap());
     let faults = FaultPlan::new();
     faults.fail_operation_nth("streams.append", 1, ErrorKind::Backend);
     tinywallet_x402::ledger::LedgerStorage::new(
