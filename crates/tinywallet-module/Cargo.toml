@@ -2,7 +2,7 @@
 name = "tinywallet-module"
 version = "0.24.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "GPL-3.0-only"
 description = "Trusted TinyBus module adapter for TinyWallet."
 repository = "https://github.com/tinyhumansai/tinywallet"
@@ -80,9 +80,8 @@ zeroize = "1"
 # Storage over the bus: the module reaches the host's storage (x402 payments
 # stream and budget-hold documents) through the ports crate's bus transport, not
 # a process-local registry.
-tinystoragedrivers-core = { workspace = true }
-tinystoragedrivers-bus = { workspace = true }
-tinystoragedrivers-client = { workspace = true }
+tinystoragedrivers-types = { workspace = true }
+tinystoragedrivers-api = { workspace = true }
 tinystoragedrivers-busproxy = { workspace = true }
 # Diagnostics for the storage connection and hold-lease renewal.
 log = "0.4"
@@ -96,15 +95,12 @@ default = []
 # are always built without it.
 static-link = []
 linked = ["static-link"]
-# Test-artifact only (the module E2E builds the cdylib with it): when the host
-# has not provisioned x402 ledger storage, fall back to in-memory storage
-# instead of failing closed. Released modules are never built with it.
-e2e-memory-storage = []
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+tinystoragedrivers-testkit = { version = "2.0.1", git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
 # Encodes and decodes the Solana transaction fixtures in native tests.
 base64 = "0.23"
 # The native lifecycle fixture stages and hashes the actual cdylib to attest it.

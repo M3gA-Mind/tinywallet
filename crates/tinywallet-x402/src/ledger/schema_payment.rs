@@ -20,7 +20,7 @@ pub enum StoredPaymentStatus {
 /// One payment as stored in `wallet.payments`: `snake_case`, every instant an
 /// epoch-millisecond `*_ms` field, no wrapper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StoredPayment {
+pub(crate) struct StoredPayment {
     /// Unique id of the attempt.
     pub id: String,
     /// The URL the payment bought access to.
@@ -68,7 +68,7 @@ pub struct StoredPayment {
 /// instants, and the hold metadata beside it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LegacyPayment {
+pub(crate) struct LegacyPayment {
     id: String,
     url: String,
     asset: String,
@@ -162,12 +162,15 @@ pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     }
     let (year, month, day) = (digits(0, 4)?, digits(5, 2)?, digits(8, 2)?);
     let (hour, minute, second) = (digits(11, 2)?, digits(14, 2)?, digits(17, 2)?);
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap_year => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=days_in_month).contains(&day) || hour > 23 || minute > 59 || second > 60 {
         return None;
     }
     let mut at = 19;
@@ -189,7 +192,12 @@ pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let offset_minutes = match bytes.get(at)? {
         b'Z' | b'z' if at + 1 == bytes.len() => 0,
         sign @ (b'+' | b'-') if at + 6 == bytes.len() && separator(at + 3, b":") => {
-            let minutes = digits(at + 1, 2)? * 60 + digits(at + 4, 2)?;
+            let hours = digits(at + 1, 2)?;
+            let minute_part = digits(at + 4, 2)?;
+            if hours > 23 || minute_part > 59 {
+                return None;
+            }
+            let minutes = hours * 60 + minute_part;
             if *sign == b'-' { -minutes } else { minutes }
         }
         _ => return None,
@@ -204,3 +212,7 @@ pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset_minutes * 60;
     Some(seconds * 1_000 + millis)
 }
+
+#[cfg(test)]
+#[path = "schema_payment_tests.rs"]
+mod tests;
