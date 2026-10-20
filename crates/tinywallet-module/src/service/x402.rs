@@ -586,6 +586,13 @@ fn take_request_secrets(
 static LEDGER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[cfg(test)]
+fn memory_ledger_storage() -> ledger::LedgerStorage {
+    let scope = tinystoragedrivers_types::Scope::new("tinywallet.module-test")
+        .expect("the test scope is valid");
+    ledger::LedgerStorage::from_storage(&tinystoragedrivers_testkit::memory_storage(&scope))
+}
+
+#[cfg(test)]
 #[path = "x402_tests.rs"]
 mod tests;
 

@@ -1,7 +1,5 @@
 //! The x402 ledger's owner-local storage declarations and migrations.
 
-use std::sync::Arc;
-
 use serde_json::{Map, Value, json};
 use tinystoragedrivers_api::{DocumentStore, StreamStore};
 use tinystoragedrivers_types::{
@@ -10,7 +8,8 @@ use tinystoragedrivers_types::{
 
 #[path = "schema_payment.rs"]
 mod payment;
-pub use payment::{LegacyPayment, StoredPayment, StoredPaymentStatus};
+pub use payment::{LegacyPayment, StoredPayment};
+pub(super) use payment::StoredPaymentStatus;
 
 /// The owner prefix for the x402 ledger's storage names.
 pub const OWNER: &str = "wallet";
@@ -51,7 +50,7 @@ pub(super) async fn migrate(
     let state = documents.get(MIGRATIONS_COLLECTION, MIGRATIONS_ID).await?;
     let current = state
         .as_ref()
-        .and_then(|record| record.value.get("version"))
+        .and_then(|record| record.doc.get("version"))
         .and_then(Value::as_u64)
         .unwrap_or_default();
     if current >= BUDGETS_VERSION.into() {
@@ -70,11 +69,11 @@ pub(super) async fn migrate(
         .await
     {
         Ok(_) => Ok(()),
-        Err(error) if error.kind == ErrorKind::Conflict => {
+        Err(error) if error.kind() == ErrorKind::Conflict => {
             let latest = documents.get(MIGRATIONS_COLLECTION, MIGRATIONS_ID).await?;
             let completed = latest
                 .as_ref()
-                .and_then(|record| record.value.get("version"))
+                .and_then(|record| record.doc.get("version"))
                 .and_then(Value::as_u64)
                 .is_some_and(|version| version >= BUDGETS_VERSION.into());
             if completed {
@@ -94,13 +93,13 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
     else {
         return Ok(());
     };
-    let holds = renamed_holds(&legacy.value).unwrap_or_default();
+    let holds = renamed_holds(&legacy.doc).unwrap_or_default();
     let migrated = json!({ "holds": holds.clone() });
     match documents
         .get(BUDGETS_COLLECTION, HOLDS_ID)
         .await?
     {
-        Some(existing) if existing.value == migrated => Ok(()),
+        Some(existing) if existing.doc == migrated => Ok(()),
         Some(_) => Err(StorageError::backend(
             "wallet budget migration found conflicting target data",
         )),
@@ -122,9 +121,9 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
                 .await
             {
                 Ok(_) => Ok(()),
-                Err(error) if error.kind == ErrorKind::Conflict => {
+                Err(error) if error.kind() == ErrorKind::Conflict => {
                     let latest = documents.get(BUDGETS_COLLECTION, HOLDS_ID).await?;
-                    if latest.is_some_and(|record| record.value == json!({ "holds": holds })) {
+                    if latest.is_some_and(|record| record.doc == json!({ "holds": holds })) {
                         Ok(())
                     } else {
                         Err(error)
@@ -132,6 +131,28 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
                 }
                 Err(error) => Err(error),
             }
+        }
+    }
+}
+
+impl From<super::types::PaymentStatus> for StoredPaymentStatus {
+    fn from(status: super::types::PaymentStatus) -> Self {
+        match status {
+            super::types::PaymentStatus::Pending => Self::Pending,
+            super::types::PaymentStatus::Settled => Self::Settled,
+            super::types::PaymentStatus::Failed => Self::Failed,
+            super::types::PaymentStatus::Denied => Self::Denied,
+        }
+    }
+}
+
+impl From<StoredPaymentStatus> for super::types::PaymentStatus {
+    fn from(status: StoredPaymentStatus) -> Self {
+        match status {
+            StoredPaymentStatus::Pending => Self::Pending,
+            StoredPaymentStatus::Settled => Self::Settled,
+            StoredPaymentStatus::Failed => Self::Failed,
+            StoredPaymentStatus::Denied => Self::Denied,
         }
     }
 }

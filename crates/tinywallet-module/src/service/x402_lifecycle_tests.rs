@@ -67,7 +67,7 @@ async fn x402_service_lifecycle_records_approval_denial_and_cancellation() {
         .callbacks
         .as_ref()
         .unwrap()
-        .set_test_ledger_storage(tinywallet_x402::ledger::LedgerStorage::memory());
+        .set_test_ledger_storage(memory_ledger_storage());
     let handle = wallet
         .x402_configure(X402ConfigureRequest {
             config: X402ConfigResponse {

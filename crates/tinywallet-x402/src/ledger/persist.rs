@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use tinystoragedrivers_api::{DocumentStore, StreamStore, Storage};
-use tinystoragedrivers_types::{ErrorKind, Precondition, StorageError, Version, WriteOptions};
+use tinystoragedrivers_types::{ErrorKind, Precondition, Version, WriteOptions};
 
 use super::schema::{self, BUDGETS_COLLECTION, BUDGETS_VERSION, HOLDS_ID, PAYMENTS_STREAM, StoredPayment};
 use super::blocking::Blocking;
@@ -50,6 +50,16 @@ impl LedgerStorage {
     #[must_use]
     pub fn from_storage(storage: &Storage) -> Self {
         Self::new(storage.documents().clone(), storage.streams().clone())
+    }
+
+    /// Create a fresh real in-memory backend for this crate's unit tests.
+    #[cfg(test)]
+    #[must_use]
+    #[allow(clippy::expect_used, reason = "the test scope is a fixed valid label")]
+    pub(crate) fn memory() -> Self {
+        let scope = tinystoragedrivers_types::Scope::new("tinywallet.test")
+            .expect("the test scope is valid");
+        Self::from_storage(&tinystoragedrivers_testkit::memory_storage(&scope))
     }
 }
 
