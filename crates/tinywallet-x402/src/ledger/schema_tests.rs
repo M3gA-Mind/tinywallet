@@ -1101,3 +1101,37 @@ fn payment_migration_completes_a_matching_prefix_and_appends_only_its_suffix() {
     assert_eq!(entries[0].offset, 0);
     assert_eq!(entries[1].offset, 1);
 }
+
+#[test]
+fn payment_migration_accepts_an_already_complete_matching_target() {
+    let storage = test_storage();
+    let source = legacy_payments(2);
+    append_values(&storage, "x402.payments", source.clone());
+    let migrated = super::migrate_payments_stream("x402.payments", source)
+        .unwrap()
+        .unwrap()
+        .1;
+    append_values(&storage, "wallet.payments", migrated.clone());
+    let streams = Arc::clone(storage.streams());
+
+    Blocking::new()
+        .unwrap()
+        .run(async move { super::migrate_payments(streams.as_ref()).await })
+        .unwrap()
+        .unwrap();
+
+    let streams = Arc::clone(storage.streams());
+    let entries = Blocking::new()
+        .unwrap()
+        .run(async move { streams.read_window("wallet.payments", 0, 10).await })
+        .unwrap()
+        .unwrap();
+    assert_eq!(entries.len(), migrated.len());
+    assert_eq!(
+        entries
+            .into_iter()
+            .map(|entry| entry.value)
+            .collect::<Vec<_>>(),
+        migrated
+    );
+}

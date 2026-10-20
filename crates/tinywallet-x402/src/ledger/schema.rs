@@ -171,11 +171,6 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
         let window = streams
             .read_window(LEGACY_PAYMENTS_STREAM, offset, BATCH_SIZE)
             .await?;
-        if window.is_empty() {
-            return Err(StorageError::backend(
-                "wallet payment migration source ended before its reported length",
-            ));
-        }
         for (index, entry) in window.iter().enumerate() {
             let expected = offset
                 .checked_add(u64::try_from(index).map_err(|_| {
