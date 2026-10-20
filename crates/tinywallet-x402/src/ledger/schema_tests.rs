@@ -1026,6 +1026,7 @@ fn malformed_legacy_payment_offsets_do_not_mark_migration_complete() {
 fn payment_migration_rejects_stream_read_errors_and_oversized_windows() {
     for fault in [
         ReadFault::ReadError("x402.payments"),
+        ReadFault::ReadError("wallet.payments"),
         ReadFault::Overshoot("x402.payments"),
     ] {
         let storage = test_storage();
