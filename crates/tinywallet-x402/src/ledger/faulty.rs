@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use tinystoragedrivers_api::StreamStore;
 use tinystoragedrivers_testkit::{Failing, FaultPlan};
-use tinystoragedrivers_types::{ErrorKind, Scope};
+use tinystoragedrivers_types::ErrorKind;
 
 use super::blocking::Blocking;
 use super::persist::LedgerStorage;
@@ -57,8 +57,3 @@ pub(crate) fn append_raw(storage: &LedgerStorage, values: Vec<Value>) {
         .unwrap();
 }
 
-/// A fixed scope used only by in-memory test fixtures.
-#[allow(dead_code)]
-fn test_scope() -> Scope {
-    Scope::new("tinywallet.test").unwrap()
-}

@@ -565,10 +565,10 @@ fn a_record_written_without_a_thread_still_loads() {
 fn a_payment_is_kept_in_memory_when_the_append_fails() {
     let (storage, faults) = faulty_storage();
     let mut ledger = ledger_in(&storage);
-    faults.append.store(true, Ordering::SeqCst);
+    super::faulty::fail_next(&faults.append, "streams.append");
     ledger.record_payment(record(5, PaymentStatus::Settled, now(), SESSION));
     assert_eq!(ledger.recent_payments(10).len(), 1);
-    faults.append.store(false, Ordering::SeqCst);
+    faults.append.clear();
     assert!(
         ledger_in(&storage).recent_payments(10).is_empty(),
         "nothing reached the stream"
@@ -579,7 +579,7 @@ fn a_payment_is_kept_in_memory_when_the_append_fails() {
 fn a_fallible_record_is_not_visible_until_it_is_saved() {
     let (storage, faults) = faulty_storage();
     let mut ledger = ledger_in(&storage);
-    faults.append.store(true, Ordering::SeqCst);
+    super::faulty::fail_next(&faults.append, "streams.append");
 
     assert!(
         ledger
@@ -594,7 +594,7 @@ fn a_failed_durable_commit_keeps_the_reservation_held() {
     let (storage, faults) = faulty_storage();
     let mut ledger = ledger_in(&storage);
     let reservation = ledger.reserve(5).unwrap().unwrap();
-    faults.append.store(true, Ordering::SeqCst);
+    super::faulty::fail_next(&faults.append, "streams.append");
 
     assert!(
         ledger
@@ -611,7 +611,7 @@ fn a_failed_durable_commit_keeps_the_reservation_held() {
 #[test]
 fn a_ledger_that_cannot_read_its_history_refuses_to_open() {
     let (storage, faults) = faulty_storage();
-    faults.read.store(true, Ordering::SeqCst);
+    super::faulty::fail_next(&faults.read, "streams.read_window");
     let error = PaymentLedger::open(storage, SESSION, budget()).unwrap_err();
     assert!(error.contains("read payments stream"), "{error}");
 }
@@ -620,7 +620,7 @@ fn a_ledger_that_cannot_read_its_history_refuses_to_open() {
 fn a_reservation_fails_closed_when_the_stream_cannot_be_read() {
     let (storage, faults) = faulty_storage();
     let mut ledger = ledger_in(&storage);
-    faults.read.store(true, Ordering::SeqCst);
+    super::faulty::fail_next(&faults.read, "streams.read_window");
     assert!(ledger.reserve_at(now(), 1_000).is_err());
     assert_eq!(ledger.reserved_atomic(), 0, "nothing was held");
 }
