@@ -7,11 +7,13 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::Value;
-use tinystoragedrivers_core::{
-    Blocking, Capabilities, CollectionSpec, DocumentStore, Filter, Page, Precondition, Query,
-    Result, Sort, Version, Versioned, WriteOptions, async_trait,
+use tinystoragedrivers_api::{DocumentStore, async_trait};
+use tinystoragedrivers_types::{
+    Capabilities, CollectionSpec, Filter, Page, Precondition, Query, Result, Sort, Version,
+    Versioned, WriteOptions,
 };
 
+use super::blocking::Blocking;
 use super::persist::{HOLD_TTL_MS, HoldsDoc, Persist};
 use super::schema::{BUDGETS_COLLECTION, HOLDS_ID};
 use super::*;
@@ -252,7 +254,7 @@ fn renewal_fails_loudly_when_the_hold_document_is_unreadable() {
                     BUDGETS_COLLECTION,
                     HOLDS_ID,
                     serde_json::json!({"holds": "garbage"}),
-                    Precondition::None,
+                    Precondition::Absent,
                 )
                 .await
                 .unwrap();

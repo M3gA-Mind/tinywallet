@@ -8,10 +8,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
 use super::faulty::{append_raw, faulty_storage};
+use super::blocking::Blocking;
 use super::persist::{HoldsDoc, Persist, stored_payment};
 use super::schema::{BUDGETS_COLLECTION, HOLDS_ID};
 use super::*;
-use tinystoragedrivers_core::{Blocking, Version};
+use tinystoragedrivers_types::{Precondition, Version};
 
 const SESSION: &str = "session-a";
 static NEXT_TEST_RECORD: AtomicU64 = AtomicU64::new(1);
@@ -745,7 +746,7 @@ fn corrupt_the_hold_document(storage: &LedgerStorage) {
                     BUDGETS_COLLECTION,
                     HOLDS_ID,
                     serde_json::json!({"holds": 5}),
-                    tinystoragedrivers_core::Precondition::None,
+                    Precondition::Absent,
                 )
                 .await
                 .unwrap();
