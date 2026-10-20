@@ -32,9 +32,7 @@ impl Blocking {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|error| {
-                StorageError::backend("cannot build the ledger storage runtime").with_source(error)
-            })?;
+            .map_err(runtime_start_error)?;
         let (jobs, mut receiver) = mpsc::unbounded_channel::<Job>();
         thread::Builder::new()
             .name("tinywallet-storage".into())
@@ -49,9 +47,7 @@ impl Blocking {
                     while running.join_next().await.is_some() {}
                 });
             })
-            .map_err(|error| {
-                StorageError::backend("cannot start the ledger storage thread").with_source(error)
-            })?;
+            .map_err(thread_start_error)?;
         Ok(Self { jobs })
     }
 
@@ -86,3 +82,15 @@ impl Blocking {
         }
     }
 }
+
+fn runtime_start_error(error: std::io::Error) -> StorageError {
+    StorageError::backend("cannot build the ledger storage runtime").with_source(error)
+}
+
+fn thread_start_error(error: std::io::Error) -> StorageError {
+    StorageError::backend("cannot start the ledger storage thread").with_source(error)
+}
+
+#[cfg(test)]
+#[path = "blocking_tests.rs"]
+mod tests;

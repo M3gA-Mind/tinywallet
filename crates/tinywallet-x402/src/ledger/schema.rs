@@ -90,7 +90,9 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
     let holds = renamed_holds(&legacy.doc).unwrap_or_default();
     let migrated = json!({ "holds": holds.clone() });
     match documents.get(BUDGETS_COLLECTION, HOLDS_ID).await? {
-        Some(existing) if existing.doc == migrated => Ok(()),
+        Some(existing) if budget_target_matches(&existing, &migrated, legacy.meta.expires_ms) => {
+            Ok(())
+        }
         Some(_) => Err(StorageError::backend(
             "wallet budget migration found conflicting target data",
         )),
@@ -106,7 +108,7 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
                 .put_with(
                     BUDGETS_COLLECTION,
                     HOLDS_ID,
-                    migrated,
+                    migrated.clone(),
                     Precondition::Absent,
                     options,
                 )
@@ -115,7 +117,9 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
                 Ok(_) => Ok(()),
                 Err(error) if error.kind() == ErrorKind::Conflict => {
                     let latest = documents.get(BUDGETS_COLLECTION, HOLDS_ID).await?;
-                    if latest.is_some_and(|record| record.doc == json!({ "holds": holds })) {
+                    if latest.is_some_and(|record| {
+                        budget_target_matches(&record, &migrated, legacy.meta.expires_ms)
+                    }) {
                         Ok(())
                     } else {
                         Err(error)
@@ -125,6 +129,16 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
             }
         }
     }
+}
+
+fn budget_target_matches(
+    record: &tinystoragedrivers_types::Versioned<Value>,
+    migrated: &Value,
+    expires_ms: Option<i64>,
+) -> bool {
+    record.doc == *migrated
+        && record.meta.schema == BUDGETS_VERSION
+        && record.meta.expires_ms == expires_ms
 }
 
 impl From<super::types::PaymentStatus> for StoredPaymentStatus {

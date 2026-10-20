@@ -10,6 +10,8 @@ ALLOWED = {
     "itoa", "memchr", "zmij",
 }
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+TSD_TYPES = "tinystoragedrivers-types"
+TSD_TYPES_SOURCE = "https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#"
 
 # Chain, key and crypto implementations never enter the bus closure, not even
 # through transitive dependencies.
@@ -34,6 +36,15 @@ def forbidden(name):
     return normalized in FORBIDDEN_NAMES or normalized.startswith(FORBIDDEN_PREFIXES)
 
 
+def dependency_allowed(name, source):
+    """Whether a bus dependency is registry vocabulary or the pinned TSD DTO crate."""
+    if name in ALLOWED and source == REGISTRY:
+        return True
+    if not isinstance(source, str):
+        return False
+    return name == TSD_TYPES and source.removeprefix("git+").startswith(TSD_TYPES_SOURCE)
+
+
 def audit(metadata):
     packages = {package["id"]: package for package in metadata["packages"]}
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
@@ -49,7 +60,7 @@ def audit(metadata):
             continue
         seen.add(identity)
         package = packages[identity]
-        if len(path) > 1 and (package["name"] not in ALLOWED or package.get("source") != REGISTRY):
+        if len(path) > 1 and not dependency_allowed(package["name"], package.get("source")):
             violations.append(" -> ".join(path))
         for dependency in nodes[identity]["deps"]:
             if any(kind["kind"] in (None, "build") for kind in dependency["dep_kinds"]):
@@ -89,6 +100,8 @@ def audit_tree(packages):
             violations.append(f"tinywallet-bus -> {name} (forbidden)")
             continue
         if name in ALLOWED and not source:
+            continue
+        if name == TSD_TYPES and source.removeprefix("git+").startswith(TSD_TYPES_SOURCE):
             continue
         violations.append(f"tinywallet-bus -> {name} ({source or 'registry'})")
     return violations

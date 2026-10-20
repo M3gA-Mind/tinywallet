@@ -23,6 +23,7 @@
 
 pub mod mnemonic;
 pub mod names;
+pub mod storage;
 #[cfg(feature = "wire")]
 pub mod tools;
 pub mod version;
@@ -34,6 +35,7 @@ mod error;
 pub mod transfer;
 pub use chain::Chain;
 pub use error::{Error, Result};
+pub use storage::collections as storage_collections;
 pub use transfer::TronTransfer;
 
 pub use mnemonic::{

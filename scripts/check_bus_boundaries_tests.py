@@ -26,6 +26,26 @@ class ContractBoundaryTests(unittest.TestCase):
     def test_local_package_cannot_impersonate_serde(self):
         self.assertTrue(boundary.audit(metadata("serde", source=None)))
 
+    def test_pinned_tsd_types_git_source_is_allowed(self):
+        self.assertEqual(
+            boundary.audit(metadata(boundary.TSD_TYPES, source="git+" + boundary.TSD_TYPES_SOURCE + "e3224a8")),
+            [],
+        )
+
+    def test_unapproved_tsd_types_source_is_rejected(self):
+        self.assertTrue(
+            boundary.audit(metadata(boundary.TSD_TYPES, source="git+https://github.com/attacker/tinystoragedrivers#deadbeef"))
+        )
+
+    def test_tree_allows_only_the_v201_fork_source_for_tsd_types(self):
+        self.assertEqual(
+            boundary.audit_tree([(boundary.TSD_TYPES, boundary.TSD_TYPES_SOURCE + "e3224a8")]),
+            [],
+        )
+        self.assertTrue(
+            boundary.audit_tree([(boundary.TSD_TYPES, "https://github.com/tinyhumansai/tinystoragedrivers#v2")])
+        )
+
 
 class EngineTreeTests(unittest.TestCase):
     def test_versioned_cargo_tree_lines_are_checked_by_package_name(self):
