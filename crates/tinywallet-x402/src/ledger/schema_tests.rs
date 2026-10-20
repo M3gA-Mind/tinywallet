@@ -1,21 +1,21 @@
-//! The wallet schema's v1 records, migrated by the contract crate's steps, load
-//! into the ledger.
+//! Tests for owner-local x402 schema declarations and open-time migrations.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::sync::Arc;
-
 use serde_json::{Value, json};
-use tinystoragedrivers_core::{
-    Blocking, MemoryStorage, MigrateOptions, Registry, Scope, ScopedStorage, StorageBackend,
-};
+use tinystoragedrivers_types::{Precondition, Scope, WriteOptions};
 
 use super::super::{LedgerStorage, PaymentLedger, PaymentStatus, SpendingBudget};
-use super::storage_schema;
+use super::{BUDGETS_COLLECTION, HOLDS_ID, collections};
+use crate::ledger::blocking::Blocking;
 
-const V1_PAYMENT_MS: i64 = 1_773_576_000_000; // 2026-03-15T12:00:00Z
+const V1_PAYMENT_MS: i64 = 1_773_576_000_000;
 
-fn v1_payment() -> Value {
+fn test_storage() -> tinystoragedrivers_api::Storage {
+    tinystoragedrivers_testkit::memory_storage(&Scope::new("wallet.migration-test").unwrap())
+}
+
+fn legacy_payment() -> Value {
     json!({
         "id": "pay-1",
         "url": "https://api.example.com/data",
@@ -34,52 +34,27 @@ fn v1_payment() -> Value {
     })
 }
 
-fn scoped() -> (MemoryStorage, ScopedStorage) {
-    let backend = MemoryStorage::new();
-    let scoped = backend
-        .for_scope(&Scope::local().module("wallet").unwrap())
-        .unwrap();
-    (backend, scoped)
-}
-
-/// Declare the v2 items on `backend` and run the steps over `scoped`.
-fn migrate(backend: &MemoryStorage, scoped: &ScopedStorage) -> Registry {
-    let registry = Registry::compose([storage_schema()]).unwrap();
-    let bridge = Blocking::new().unwrap();
-    let backend = backend.clone();
-    let scoped = scoped.clone();
-    bridge
-        .run(async move {
-            registry.prepare(&backend).await.unwrap();
-            registry
-                .migrate(&scoped, &MigrateOptions::new())
-                .await
-                .unwrap();
-            registry
-        })
-        .unwrap()
-}
-
-fn append_v1(scoped: &ScopedStorage, entries: Vec<Value>) {
-    let streams = Arc::clone(scoped.streams());
-    Blocking::new()
-        .unwrap()
-        .run(async move {
-            for entry in entries {
-                streams.append("x402.payments", entry).await.unwrap();
-            }
-        })
-        .unwrap();
+#[test]
+fn host_declarations_are_pure_wallet_collection_specs() {
+    let declared = collections();
+    assert_eq!(declared.len(), 2);
+    assert!(declared.iter().all(|collection| collection.name.starts_with("wallet.")));
+    assert!(declared.iter().any(|collection| collection.name == BUDGETS_COLLECTION));
 }
 
 #[test]
-fn migrated_payments_count_against_the_budget_of_a_reopened_ledger() {
-    let (backend, scoped) = scoped();
-    append_v1(&scoped, vec![v1_payment()]);
-    migrate(&backend, &scoped);
+fn opening_the_ledger_migrates_legacy_payments_before_reading_them() {
+    let storage = test_storage();
+    let streams = std::sync::Arc::clone(storage.streams());
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            streams.append("x402.payments", legacy_payment()).await.unwrap();
+        })
+        .unwrap();
 
     let ledger = PaymentLedger::open(
-        LedgerStorage::from_scoped(&scoped),
+        LedgerStorage::from_storage(&storage),
         "session-a",
         SpendingBudget::default(),
     )
@@ -91,50 +66,66 @@ fn migrated_payments_count_against_the_budget_of_a_reopened_ledger() {
     assert_eq!(records[0].amount_atomic, 2500);
     assert_eq!(records[0].timestamp.timestamp_millis(), V1_PAYMENT_MS);
     assert_eq!(records[0].thread_id.as_deref(), Some("thread-1"));
-}
 
-#[test]
-fn a_ledger_refuses_to_open_while_unmigrated_payments_remain() {
-    let (_backend, scoped) = scoped();
-    append_v1(&scoped, vec![v1_payment()]);
-
-    let opened = PaymentLedger::open(
-        LedgerStorage::from_scoped(&scoped),
+    let reopened = PaymentLedger::open(
+        LedgerStorage::from_storage(&storage),
         "session-a",
         SpendingBudget::default(),
-    );
-    let Err(error) = opened else {
-        panic!("legacy payments must block opening");
-    };
-    assert!(error.contains("unmigrated x402.payments"), "{error}");
+    )
+    .unwrap();
+    assert_eq!(reopened.recent_payments(10), records);
 }
 
 #[test]
-fn a_ledger_refuses_to_open_while_legacy_budget_holds_remain() {
-    let (_backend, scoped) = scoped();
-    let documents = Arc::clone(scoped.documents());
+fn opening_the_ledger_migrates_legacy_holds_and_keeps_record_metadata() {
+    let storage = test_storage();
+    let documents = std::sync::Arc::clone(storage.documents());
     Blocking::new()
         .unwrap()
         .run(async move {
             documents
-                .put(
+                .put_with(
                     "x402_budget",
-                    "holds",
-                    json!({ "holds": {} }),
-                    tinystoragedrivers_core::Precondition::None,
+                    HOLDS_ID,
+                    json!({
+                        "holds": {
+                            "old-writer:7": {
+                                "amount": 321,
+                                "expires_at_ms": 1_800_000_000_000
+                            }
+                        }
+                    }),
+                    Precondition::Absent,
+                    WriteOptions::new()
+                        .schema(1)
+                        .created_ms(1_700_000_000_000)
+                        .expires_ms(1_900_000_000_000),
                 )
                 .await
                 .unwrap();
         })
         .unwrap();
 
-    let opened = PaymentLedger::open(
-        LedgerStorage::from_scoped(&scoped),
+    let _ledger = PaymentLedger::open(
+        LedgerStorage::from_storage(&storage),
         "session-a",
         SpendingBudget::default(),
+    )
+    .unwrap();
+    let documents = std::sync::Arc::clone(storage.documents());
+    let migrated = Blocking::new()
+        .unwrap()
+        .run(async move { documents.get(BUDGETS_COLLECTION, HOLDS_ID).await.unwrap().unwrap() })
+        .unwrap();
+    assert_eq!(
+        migrated.doc,
+        json!({
+            "holds": {
+                "old-writer:7": { "amount": 321, "expires_ms": 1_800_000_000_000_i64 }
+            }
+        })
     );
-    let Err(error) = opened else {
-        panic!("legacy holds must block opening");
-    };
-    assert!(error.contains("legacy x402 budget holds"), "{error}");
+    assert_eq!(migrated.meta.schema, 2);
+    assert_eq!(migrated.meta.created_ms, 1_700_000_000_000);
+    assert_eq!(migrated.meta.expires_ms, Some(1_900_000_000_000));
 }
