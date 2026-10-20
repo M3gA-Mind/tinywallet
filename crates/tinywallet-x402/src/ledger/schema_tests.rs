@@ -873,12 +873,11 @@ fn budget_migration_conflict_retry_rejects_matching_bodies_with_wrong_metadata()
             }}})
         );
         match action {
-            RaceAction::MatchingBudget => unreachable!(),
             RaceAction::WrongBudgetSchema => assert_eq!(target.meta.schema, 1),
             RaceAction::WrongBudgetExpiry => {
                 assert_eq!(target.meta.expires_ms, Some(1_900_000_000_001));
             }
-            RaceAction::CompleteMarker => unreachable!(),
+            RaceAction::MatchingBudget | RaceAction::CompleteMarker => unreachable!(),
         }
         assert_migration_not_marked(&storage);
     }
