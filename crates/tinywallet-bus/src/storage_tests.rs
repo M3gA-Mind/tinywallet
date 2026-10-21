@@ -28,7 +28,10 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
     assert_eq!(payment.id, "payment-1");
     assert_eq!(payment.status, StoredPaymentStatus::Settled);
     assert_eq!(payment.timestamp_ms, 1_773_576_000_250);
-    assert_eq!(payment.authorization_valid_until_ms, Some(1_773_576_001_999));
+    assert_eq!(
+        payment.authorization_valid_until_ms,
+        Some(1_773_576_001_999)
+    );
     assert_eq!(payment.authorization_expired_at_ms, Some(1_773_576_002_000));
     assert_eq!(payment.solana_last_valid_block_height, Some(42));
     assert_eq!(payment.authorization_expiry_observed_height, Some(43));
@@ -39,7 +42,10 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
     let current = serde_json::to_value(payment).unwrap();
     assert_eq!(current["amount_atomic"], 12345);
     assert_eq!(current["timestamp_ms"], 1_773_576_000_250_i64);
-    assert_eq!(current["authorization_valid_until_ms"], 1_773_576_001_999_i64);
+    assert_eq!(
+        current["authorization_valid_until_ms"],
+        1_773_576_001_999_i64
+    );
     assert_eq!(current["tx_signature"], "0xabc");
     assert!(current.get("timestamp").is_none());
 }
