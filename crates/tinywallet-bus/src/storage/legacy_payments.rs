@@ -75,6 +75,7 @@ pub struct StoredPaymentRecord {
 /// retained. RFC 3339 instants become epoch milliseconds, truncating
 /// sub-millisecond precision. The caller owns source ordering and should keep
 /// repeated IDs because they can represent successive payment states.
+#[must_use]
 pub fn convert_legacy_payment(legacy: LegacyPayment) -> StoredPaymentRecord {
     legacy.into()
 }
