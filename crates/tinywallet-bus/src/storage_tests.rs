@@ -1,6 +1,12 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use super::legacy_payments::{StoredPaymentStatus, convert_legacy_payment};
+use super::legacy_payments::{
+    LegacyPayment, StoredPaymentStatus, convert_legacy_payment,
+};
+
+fn convert(value: serde_json::Value) -> Result<super::legacy_payments::StoredPaymentRecord, serde_json::Error> {
+    serde_json::from_value::<LegacyPayment>(value).map(convert_legacy_payment)
+}
 
 #[test]
 fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() {
@@ -24,7 +30,7 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
         "committed_hold": "hold-1"
     });
 
-    let payment = convert_legacy_payment(legacy).unwrap();
+    let payment = convert(legacy).unwrap();
     assert_eq!(payment.id, "payment-1");
     assert_eq!(payment.status, StoredPaymentStatus::Settled);
     assert_eq!(payment.timestamp_ms, 1_773_576_000_250);
@@ -66,8 +72,8 @@ fn legacy_payment_conversion_defaults_optional_fields_and_preserves_repeated_ids
             "sessionId": "session"
         })
     };
-    let pending = convert_legacy_payment(row("pending", "2026-03-15T12:00:00Z")).unwrap();
-    let settled = convert_legacy_payment(row("settled", "2026-03-15T12:00:01Z")).unwrap();
+    let pending = convert(row("pending", "2026-03-15T12:00:00Z")).unwrap();
+    let settled = convert(row("settled", "2026-03-15T12:00:01Z")).unwrap();
     assert_eq!(pending.id, settled.id);
     assert_eq!(pending.status, StoredPaymentStatus::Pending);
     assert_eq!(settled.status, StoredPaymentStatus::Settled);
@@ -104,7 +110,7 @@ fn legacy_payment_conversion_rejects_malformed_required_and_optional_data() {
     ] {
         let mut malformed = base.clone();
         malformed[field] = value;
-        assert!(convert_legacy_payment(malformed).is_err(), "field {field}");
+        assert!(convert(malformed).is_err(), "field {field}");
     }
-    assert!(convert_legacy_payment(serde_json::json!([])).is_err());
+    assert!(convert(serde_json::json!([])).is_err());
 }

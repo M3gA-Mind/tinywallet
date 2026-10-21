@@ -6,7 +6,6 @@
 //! uses the same conversion during its own stream migration.
 
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 
 /// Payment lifecycle state in the canonical `wallet.payments` record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,39 +75,69 @@ pub struct StoredPaymentRecord {
 /// retained. RFC 3339 instants become epoch milliseconds, truncating
 /// sub-millisecond precision. The caller owns source ordering and should keep
 /// repeated IDs because they can represent successive payment states.
-pub fn convert_legacy_payment(value: Value) -> Result<StoredPaymentRecord, serde_json::Error> {
-    let legacy: LegacyPayment = serde_json::from_value(value)?;
-    Ok(legacy.into())
+pub fn convert_legacy_payment(legacy: LegacyPayment) -> StoredPaymentRecord {
+    legacy.into()
 }
 
-#[derive(Debug, Deserialize)]
+/// Typed row from the previous camelCase `x402.payments` stream.
+///
+/// Deserialize the source row into this type before passing it to
+/// [`convert_legacy_payment`]. Timestamp fields are parsed and normalized
+/// during deserialization, so malformed or unsupported instants are rejected
+/// before a canonical record is produced.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LegacyPayment {
-    id: String,
-    url: String,
-    asset: String,
-    amount_atomic: u64,
-    amount_display: String,
-    recipient: String,
-    network: String,
+pub struct LegacyPayment {
+    /// Stable ID shared by successive states of the same payment attempt.
+    pub id: String,
+    /// The URL the payment bought access to.
+    pub url: String,
+    /// The asset paid in.
+    pub asset: String,
+    /// Amount in atomic units.
+    pub amount_atomic: u64,
+    /// Human-readable amount.
+    pub amount_display: String,
+    /// Payment recipient.
+    pub recipient: String,
+    /// CAIP-2 network identifier.
+    pub network: String,
     #[serde(default)]
-    tx_signature: Option<String>,
-    status: StoredPaymentStatus,
-    #[serde(deserialize_with = "instant_ms")]
-    timestamp: i64,
-    #[serde(default, deserialize_with = "optional_instant_ms")]
-    authorization_valid_until: Option<i64>,
+    /// Settlement transaction, if available.
+    pub tx_signature: Option<String>,
+    /// Payment lifecycle state.
+    pub status: StoredPaymentStatus,
+    #[serde(rename = "timestamp", deserialize_with = "instant_ms")]
+    /// Timestamp of this state, normalized to epoch milliseconds.
+    pub timestamp_ms: i64,
+    #[serde(
+        default,
+        rename = "authorizationValidUntil",
+        deserialize_with = "optional_instant_ms"
+    )]
+    /// Authorization expiration, normalized to epoch milliseconds.
+    pub authorization_valid_until_ms: Option<i64>,
     #[serde(default)]
-    solana_last_valid_block_height: Option<u64>,
-    #[serde(default, deserialize_with = "optional_instant_ms")]
-    authorization_expired_at: Option<i64>,
+    /// Solana's `lastValidBlockHeight` for the exported transaction.
+    pub solana_last_valid_block_height: Option<u64>,
+    #[serde(
+        default,
+        rename = "authorizationExpiredAt",
+        deserialize_with = "optional_instant_ms"
+    )]
+    /// Time when the authorization was observed expired, in epoch milliseconds.
+    pub authorization_expired_at_ms: Option<i64>,
     #[serde(default)]
-    authorization_expiry_observed_height: Option<u64>,
-    session_id: String,
+    /// Block height at which expiry was observed.
+    pub authorization_expiry_observed_height: Option<u64>,
+    /// Session that initiated the payment.
+    pub session_id: String,
     #[serde(default)]
-    thread_id: Option<String>,
+    /// Conversation thread that initiated the payment, if available.
+    pub thread_id: Option<String>,
     #[serde(default, rename = "committed_hold")]
-    committed_hold: Option<String>,
+    /// Budget hold committed by this payment, if available.
+    pub committed_hold: Option<String>,
 }
 
 impl From<LegacyPayment> for StoredPaymentRecord {
@@ -123,10 +152,10 @@ impl From<LegacyPayment> for StoredPaymentRecord {
             network: legacy.network,
             tx_signature: legacy.tx_signature,
             status: legacy.status,
-            timestamp_ms: legacy.timestamp,
-            authorization_valid_until_ms: legacy.authorization_valid_until,
+            timestamp_ms: legacy.timestamp_ms,
+            authorization_valid_until_ms: legacy.authorization_valid_until_ms,
             solana_last_valid_block_height: legacy.solana_last_valid_block_height,
-            authorization_expired_at_ms: legacy.authorization_expired_at,
+            authorization_expired_at_ms: legacy.authorization_expired_at_ms,
             authorization_expiry_observed_height: legacy.authorization_expiry_observed_height,
             session_id: legacy.session_id,
             thread_id: legacy.thread_id,

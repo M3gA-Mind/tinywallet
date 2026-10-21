@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn owner_migration_converter_emits_a_current_stored_payment_body() {
-    let payment = convert_legacy_payment(serde_json::json!({
+    let legacy: LegacyPayment = serde_json::from_value(serde_json::json!({
         "id": "legacy-attempt",
         "url": "https://merchant.example/item",
         "asset": "USD",
@@ -17,6 +17,7 @@ fn owner_migration_converter_emits_a_current_stored_payment_body() {
         "sessionId": "session"
     }))
     .unwrap();
+    let payment = convert_legacy_payment(legacy);
 
     let encoded = serde_json::to_value(&payment).unwrap();
     let decoded: StoredPayment = serde_json::from_value(encoded.clone()).unwrap();

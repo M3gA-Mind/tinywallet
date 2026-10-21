@@ -2,7 +2,8 @@
 //! bus contract so host importers and the module migration share one mapping.
 
 pub(crate) use tinywallet_bus::storage::legacy_payments::{
-    StoredPaymentRecord as StoredPayment, StoredPaymentStatus, convert_legacy_payment,
+    LegacyPayment, StoredPaymentRecord as StoredPayment, StoredPaymentStatus,
+    convert_legacy_payment,
 };
 
 #[cfg(test)]
