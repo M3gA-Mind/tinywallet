@@ -1,10 +1,10 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use super::legacy_payments::{
-    LegacyPayment, StoredPaymentStatus, convert_legacy_payment,
-};
+use super::legacy_payments::{LegacyPayment, StoredPaymentStatus, convert_legacy_payment};
 
-fn convert(value: serde_json::Value) -> Result<super::legacy_payments::StoredPaymentRecord, serde_json::Error> {
+fn convert(
+    value: serde_json::Value,
+) -> Result<super::legacy_payments::StoredPaymentRecord, serde_json::Error> {
     serde_json::from_value::<LegacyPayment>(value).map(convert_legacy_payment)
 }
 
