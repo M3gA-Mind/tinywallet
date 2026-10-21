@@ -9,7 +9,7 @@ use tinystoragedrivers_types::{
 #[path = "schema_payment.rs"]
 mod payment;
 pub(super) use payment::StoredPaymentStatus;
-pub(crate) use payment::{LegacyPayment, StoredPayment};
+pub(crate) use payment::{StoredPayment, convert_legacy_payment};
 
 /// Collection containing the single budget-hold document.
 pub(super) const BUDGETS_COLLECTION: &str = "wallet.budgets";
@@ -263,9 +263,9 @@ fn migrate_payments_stream(
     }
     let mut migrated = Vec::with_capacity(entries.len());
     for entry in entries {
-        if let Ok(legacy) = serde_json::from_value::<LegacyPayment>(entry) {
+        if let Ok(payment) = convert_legacy_payment(entry) {
             migrated.push(
-                serde_json::to_value(StoredPayment::from(legacy))
+                serde_json::to_value(payment)
                     .map_err(|error| StorageError::invalid_input(error.to_string()))?,
             );
         }
