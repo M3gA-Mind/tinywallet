@@ -13,3 +13,8 @@ pub fn collections() -> Vec<CollectionSpec> {
         CollectionSpec::new("wallet.migrations"),
     ]
 }
+
+#[cfg(feature = "wire")]
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod tests;
