@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use super::legacy_payments::{LegacyPayment, StoredPaymentStatus, convert_legacy_payment};
+use super::legacy_payments::{convert_legacy_payment, LegacyPayment, StoredPaymentStatus};
 
 fn convert(
     value: serde_json::Value,
@@ -57,6 +57,33 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
 }
 
 #[test]
+fn legacy_payment_conversion_preserves_rfc3339_timestamp_edge_cases() {
+    let row = |timestamp: &str| {
+        serde_json::json!({
+            "id": "payment-time",
+            "url": "https://merchant.example/item",
+            "asset": "USD",
+            "amountAtomic": 1,
+            "amountDisplay": "1",
+            "recipient": "recipient",
+            "network": "eip155:1",
+            "status": "pending",
+            "timestamp": timestamp,
+            "sessionId": "session"
+        })
+    };
+
+    for (timestamp, expected_ms) in [
+        ("2026-03-15t15:00:00.250000+03:00", 1_773_576_000_250),
+        ("2026-03-15 12:00:00.9z", 1_773_576_000_900),
+        ("2026-03-15T12:00:60Z", 1_773_576_060_000),
+    ] {
+        assert_eq!(convert(row(timestamp)).unwrap().timestamp_ms, expected_ms);
+    }
+    assert!(convert(row("2024-02-29T00:00:00Z")).is_ok());
+}
+
+#[test]
 fn legacy_payment_conversion_defaults_optional_fields_and_preserves_repeated_ids() {
     let row = |status: &str, timestamp: &str| {
         serde_json::json!({
@@ -100,7 +127,22 @@ fn legacy_payment_conversion_rejects_malformed_required_and_optional_data() {
 
     for (field, value) in [
         ("timestamp", serde_json::json!("yesterday")),
+        ("timestamp", serde_json::json!("2026-13-15T12:00:00Z")),
+        ("timestamp", serde_json::json!("2026-03-00T12:00:00Z")),
+        ("timestamp", serde_json::json!("2026-02-29T12:00:00Z")),
+        ("timestamp", serde_json::json!("2024-02-31T12:00:00Z")),
+        ("timestamp", serde_json::json!("2026-03-15T24:00:00Z")),
+        ("timestamp", serde_json::json!("2026-03-15T12:60:00Z")),
+        ("timestamp", serde_json::json!("2026-03-15T12:00:61Z")),
+        ("timestamp", serde_json::json!("2026-03-15T12:00:00.")),
+        ("timestamp", serde_json::json!("2026-03-15T12:00:00+01:0x")),
         ("timestamp", serde_json::json!("2026-03-15T12:00:00+24:00")),
+        ("timestamp", serde_json::json!("2026-03-15T12:00:00+01:60")),
+        (
+            "timestamp",
+            serde_json::json!("2026-03-15T12:00:00+01:00tail"),
+        ),
+        ("timestamp", serde_json::json!("2026/03/15T12:00:00Z")),
         (
             "authorizationValidUntil",
             serde_json::json!("not-a-timestamp"),
