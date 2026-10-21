@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use super::legacy_payments::{PaymentStatus, convert_legacy_payment};
+use super::legacy_payments::{StoredPaymentStatus, convert_legacy_payment};
 
 #[test]
 fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() {
@@ -26,7 +26,7 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
 
     let payment = convert_legacy_payment(legacy).unwrap();
     assert_eq!(payment.id, "payment-1");
-    assert_eq!(payment.status, PaymentStatus::Settled);
+    assert_eq!(payment.status, StoredPaymentStatus::Settled);
     assert_eq!(payment.timestamp_ms, 1_773_576_000_250);
     assert_eq!(payment.authorization_valid_until_ms, Some(1_773_576_001_999));
     assert_eq!(payment.authorization_expired_at_ms, Some(1_773_576_002_000));
@@ -63,8 +63,8 @@ fn legacy_payment_conversion_defaults_optional_fields_and_preserves_repeated_ids
     let pending = convert_legacy_payment(row("pending", "2026-03-15T12:00:00Z")).unwrap();
     let settled = convert_legacy_payment(row("settled", "2026-03-15T12:00:01Z")).unwrap();
     assert_eq!(pending.id, settled.id);
-    assert_eq!(pending.status, PaymentStatus::Pending);
-    assert_eq!(settled.status, PaymentStatus::Settled);
+    assert_eq!(pending.status, StoredPaymentStatus::Pending);
+    assert_eq!(settled.status, StoredPaymentStatus::Settled);
     assert_eq!(pending.tx_signature, None);
     assert_eq!(pending.authorization_valid_until_ms, None);
     assert_eq!(pending.thread_id, None);
