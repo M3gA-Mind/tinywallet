@@ -29,9 +29,7 @@ fn owner_migration_converter_emits_a_current_stored_payment_body() {
     assert!(encoded.get("timestamp").is_none());
 }
 
-fn convert(
-    value: serde_json::Value,
-) -> Result<StoredPayment, serde_json::Error> {
+fn convert(value: serde_json::Value) -> Result<StoredPayment, serde_json::Error> {
     serde_json::from_value::<LegacyPayment>(value).map(convert_legacy_payment)
 }
 

@@ -196,3 +196,7 @@ fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset_minutes * 60;
     Some(seconds * 1_000 + millis)
 }
+
+#[cfg(test)]
+#[path = "schema_payment_tests.rs"]
+mod tests;
