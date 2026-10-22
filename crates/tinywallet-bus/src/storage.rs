@@ -2,6 +2,10 @@
 
 use tinystoragedrivers_types::CollectionSpec;
 
+#[cfg(feature = "wire")]
+use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "wire")]
 /// Payment lifecycle state in the canonical `wallet.payments` record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -16,6 +20,7 @@ pub enum StoredPaymentStatus {
     Denied,
 }
 
+#[cfg(feature = "wire")]
 /// Canonical body stored in the `wallet.payments` stream.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredPaymentRecord {

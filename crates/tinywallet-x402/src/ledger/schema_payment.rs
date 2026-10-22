@@ -5,6 +5,8 @@ use serde::Deserialize;
 use serde::de::Deserializer;
 use tinywallet_bus::storage::{StoredPaymentRecord, StoredPaymentStatus};
 
+pub(crate) type StoredPayment = StoredPaymentRecord;
+
 /// Convert one previous camelCase `x402.payments` body to the current typed
 /// `wallet.payments` storage contract.
 ///
