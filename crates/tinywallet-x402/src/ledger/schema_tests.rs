@@ -849,6 +849,21 @@ fn owner_migration_accepts_a_competing_completed_marker() {
 }
 
 #[test]
+fn owner_migration_accepts_an_already_existing_matching_marker() {
+    let storage = test_storage();
+    let documents = RacingDocuments {
+        inner: Arc::clone(storage.documents()),
+        action: RaceAction::ExistingMarker,
+    };
+    let streams = Arc::clone(storage.streams());
+    Blocking::new()
+        .unwrap()
+        .run(async move { super::migrate(&documents, streams.as_ref()).await })
+        .unwrap()
+        .unwrap();
+}
+
+#[test]
 fn budget_migration_conflict_retry_rejects_matching_bodies_with_wrong_metadata() {
     for action in [RaceAction::WrongBudgetSchema, RaceAction::WrongBudgetExpiry] {
         let storage = test_storage();
@@ -906,7 +921,10 @@ fn budget_migration_conflict_retry_rejects_matching_bodies_with_wrong_metadata()
             RaceAction::WrongBudgetExpiry => {
                 assert_eq!(target.meta.expires_ms, Some(1_900_000_000_001));
             }
-            RaceAction::MatchingBudget | RaceAction::CompleteMarker => unreachable!(),
+            RaceAction::CompleteMarker
+            | RaceAction::ExistingMarker
+            | RaceAction::MatchingBudget
+            | RaceAction::ExistingBudget => unreachable!(),
         }
         assert_migration_not_marked(&storage);
     }
@@ -942,6 +960,41 @@ fn budget_migration_accepts_a_matching_concurrent_write_after_conflict() {
         .unwrap()
         .run(async move { super::migrate_budgets(&documents).await })
         .unwrap();
+    assert!(result.is_ok());
+}
+
+#[test]
+fn budget_migration_accepts_an_already_existing_matching_document() {
+    let storage = test_storage();
+    let documents = Arc::clone(storage.documents());
+    Blocking::new()
+        .unwrap()
+        .run(async move {
+            documents
+                .put_with(
+                    "x402_budget",
+                    HOLDS_ID,
+                    json!({ "holds": { "old": {
+                        "amount": 12,
+                        "expires_at_ms": 1_800_000_000_000_i64
+                    }}}),
+                    Precondition::Absent,
+                    WriteOptions::new().schema(1),
+                )
+                .await
+        })
+        .unwrap()
+        .unwrap();
+    let documents = RacingDocuments {
+        inner: Arc::clone(storage.documents()),
+        action: RaceAction::ExistingBudget,
+    };
+
+    let result = Blocking::new()
+        .unwrap()
+        .run(async move { super::migrate_budgets(&documents).await })
+        .unwrap();
+
     assert!(result.is_ok());
 }
 
