@@ -1042,6 +1042,30 @@ fn incomplete_legacy_payment_window_does_not_mark_migration_complete() {
 }
 
 #[test]
+fn payment_migration_copies_a_large_legacy_stream_across_bounded_batches() {
+    let storage = test_storage();
+    let count = 1_025;
+    append_values(&storage, "x402.payments", legacy_payments(count));
+    let streams = Arc::clone(storage.streams());
+
+    Blocking::new()
+        .unwrap()
+        .run(async move { super::migrate_payments(streams.as_ref()).await })
+        .unwrap()
+        .unwrap();
+
+    let streams = Arc::clone(storage.streams());
+    assert_eq!(
+        Blocking::new()
+            .unwrap()
+            .run(async move { streams.len("wallet.payments").await })
+            .unwrap()
+            .unwrap(),
+        count as u64
+    );
+}
+
+#[test]
 fn incomplete_existing_payment_prefix_does_not_mark_migration_complete() {
     let storage = test_storage();
     let source = legacy_payments(2);

@@ -320,7 +320,7 @@ fn migrate_payment_batch(
                 );
             }
             Err(error) => {
-                let offset = source_offset.checked_add(index as u64).unwrap_or(u64::MAX);
+                let offset = source_offset.saturating_add(index as u64);
                 log::warn!(
                     "[x402::ledger] skipping invalid legacy payment at offset {offset}: {error}"
                 );
