@@ -219,6 +219,7 @@ enum ReadFault {
     ReadError(&'static str),
     Overshoot(&'static str),
     AppendError(&'static str),
+    AppendConflictAfterWrite(&'static str),
 }
 
 #[derive(Debug)]
@@ -255,6 +256,15 @@ impl StreamStore for FaultyReads {
         if matches!(self.fault, ReadFault::AppendError(name) if stream == name) {
             return Err(tinystoragedrivers_types::StorageError::backend(
                 "injected stream append failure",
+            ));
+        }
+        if matches!(self.fault, ReadFault::AppendConflictAfterWrite(name) if stream == name) {
+            self.inner
+                .append_batch_if_offset(stream, expected_next_offset, values)
+                .await?;
+            return Err(tinystoragedrivers_types::StorageError::new(
+                ErrorKind::Conflict,
+                "simulated competing migration append",
             ));
         }
         self.inner
@@ -1026,7 +1036,6 @@ fn malformed_legacy_payment_offsets_do_not_mark_migration_complete() {
 fn payment_migration_rejects_stream_read_errors_and_oversized_windows() {
     for fault in [
         ReadFault::ReadError("x402.payments"),
-        ReadFault::ReadError("wallet.payments"),
         ReadFault::Overshoot("x402.payments"),
     ] {
         let storage = test_storage();
@@ -1047,6 +1056,27 @@ fn payment_migration_rejects_stream_read_errors_and_oversized_windows() {
 }
 
 #[test]
+fn payment_migration_propagates_errors_reading_an_existing_target_prefix() {
+    let storage = test_storage();
+    append_values(&storage, "x402.payments", legacy_payments(1));
+    append_values(&storage, "wallet.payments", vec![json!({ "wrong": true })]);
+    let streams: Arc<dyn StreamStore> = Arc::new(FaultyReads {
+        inner: Arc::clone(storage.streams()),
+        fault: ReadFault::ReadError("wallet.payments"),
+        len_calls: AtomicUsize::new(0),
+    });
+    let documents = Arc::clone(storage.documents());
+
+    let result = Blocking::new()
+        .unwrap()
+        .run(async move { super::migrate(documents.as_ref(), streams.as_ref()).await })
+        .unwrap();
+
+    assert!(result.is_err());
+    assert_migration_not_marked(&storage);
+}
+
+#[test]
 fn payment_migration_propagates_target_append_failure_without_marking_complete() {
     let storage = test_storage();
     append_values(&storage, "x402.payments", legacy_payments(1));
@@ -1063,6 +1093,26 @@ fn payment_migration_propagates_target_append_failure_without_marking_complete()
 
     assert!(matches!(result, Ok(Err(_))));
     assert_migration_not_marked(&storage);
+}
+
+#[test]
+fn payment_migration_accepts_a_matching_concurrent_append() {
+    let storage = test_storage();
+    append_values(&storage, "x402.payments", legacy_payments(1));
+    let streams: Arc<dyn StreamStore> = Arc::new(FaultyReads {
+        inner: Arc::clone(storage.streams()),
+        fault: ReadFault::AppendConflictAfterWrite("wallet.payments"),
+        len_calls: AtomicUsize::new(0),
+    });
+    let documents = Arc::clone(storage.documents());
+
+    let result = Blocking::new()
+        .unwrap()
+        .run(async move { super::migrate(documents.as_ref(), streams.as_ref()).await })
+        .unwrap();
+
+    assert!(result.is_ok());
+    assert_eq!(read_values(&storage, "wallet.payments").len(), 1);
 }
 
 #[test]
