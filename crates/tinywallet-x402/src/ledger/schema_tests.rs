@@ -21,7 +21,9 @@ const V1_PAYMENT_MS: i64 = 1_773_576_000_000;
 #[derive(Debug, Clone, Copy)]
 enum RaceAction {
     CompleteMarker,
+    ExistingMarker,
     MatchingBudget,
+    ExistingBudget,
     WrongBudgetSchema,
     WrongBudgetExpiry,
 }
@@ -67,6 +69,15 @@ impl DocumentStore for RacingDocuments {
         {
             return Err(tinystoragedrivers_types::StorageError::new(
                 ErrorKind::Conflict,
+                "simulated competing migration completion",
+            ));
+        }
+        if matches!(self.action, RaceAction::ExistingMarker)
+            && collection == "wallet.migrations"
+            && id == "x402"
+        {
+            return Err(tinystoragedrivers_types::StorageError::new(
+                ErrorKind::AlreadyExists,
                 "simulated competing migration completion",
             ));
         }
@@ -133,14 +144,22 @@ impl DocumentStore for RacingDocuments {
             match action {
                 RaceAction::WrongBudgetSchema => options = options.schema(1),
                 RaceAction::WrongBudgetExpiry => options = options.expires_ms(1_900_000_000_001),
-                RaceAction::CompleteMarker | RaceAction::MatchingBudget => {}
+                RaceAction::CompleteMarker
+                | RaceAction::ExistingMarker
+                | RaceAction::MatchingBudget
+                | RaceAction::ExistingBudget => {}
             }
             self.inner
                 .put_with(collection, id, doc.clone(), precondition, options)
                 .await?;
             if !matches!(action, RaceAction::CompleteMarker) {
+                let kind = if matches!(action, RaceAction::ExistingBudget) {
+                    ErrorKind::AlreadyExists
+                } else {
+                    ErrorKind::Conflict
+                };
                 return Err(tinystoragedrivers_types::StorageError::new(
-                    ErrorKind::Conflict,
+                    kind,
                     "simulated competing budget migration",
                 ));
             }

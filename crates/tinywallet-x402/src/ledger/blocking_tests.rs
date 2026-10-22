@@ -1,10 +1,9 @@
 //! Tests for the dedicated runtime used by blocking x402 callers.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use super::*;
 
 #[test]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 fn bridge_debug_and_startup_errors_keep_their_context() {
     let bridge = Blocking::new().unwrap();
     assert_eq!(format!("{bridge:?}"), "Blocking { .. }");
@@ -24,6 +23,7 @@ fn bridge_debug_and_startup_errors_keep_their_context() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 fn bridge_reports_a_stopped_worker_and_reentrant_calls() {
     let (jobs, receiver) = mpsc::unbounded_channel();
     drop(receiver);
@@ -44,6 +44,7 @@ fn bridge_reports_a_stopped_worker_and_reentrant_calls() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 fn bridge_runs_from_current_and_multithread_tokio_contexts() {
     let bridge = Blocking::new().unwrap();
     let current = tokio::runtime::Builder::new_current_thread()

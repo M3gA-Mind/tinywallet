@@ -1,10 +1,9 @@
 //! Tests for the x402 owner's conversion of legacy payment records.
 
-#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
-
 use super::*;
 
 #[test]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 fn owner_migration_converter_emits_a_current_stored_payment_body() {
     let legacy: LegacyPayment = serde_json::from_value(serde_json::json!({
         "id": "legacy-attempt",
@@ -34,6 +33,7 @@ fn convert(value: serde_json::Value) -> Result<StoredPayment, serde_json::Error>
 }
 
 #[test]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() {
     let legacy = serde_json::json!({
         "id": "payment-1",
@@ -82,6 +82,7 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
 }
 
 #[test]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 fn legacy_payment_conversion_preserves_rfc3339_timestamp_edge_cases() {
     let row = |timestamp: &str| {
         serde_json::json!({
@@ -109,6 +110,7 @@ fn legacy_payment_conversion_preserves_rfc3339_timestamp_edge_cases() {
 }
 
 #[test]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 fn legacy_payment_conversion_defaults_optional_fields_and_preserves_repeated_ids() {
     let row = |status: &str, timestamp: &str| {
         serde_json::json!({
@@ -136,6 +138,7 @@ fn legacy_payment_conversion_defaults_optional_fields_and_preserves_repeated_ids
 }
 
 #[test]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 fn legacy_payment_conversion_rejects_malformed_required_and_optional_data() {
     let base = serde_json::json!({
         "id": "payment-1",
