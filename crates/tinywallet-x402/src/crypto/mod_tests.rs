@@ -174,6 +174,24 @@ async fn the_valid_before_time_is_now_plus_the_timeout() {
 }
 
 #[tokio::test]
+async fn a_server_timeout_cannot_stretch_the_authorization_past_five_minutes() {
+    let mut requirement = evm_requirement();
+    requirement.max_timeout_seconds = u64::MAX;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let proof = evm_proof(
+        build_evm(FakePaymentSigner::default(), &requirement)
+            .await
+            .unwrap(),
+    );
+    let valid_before: u64 = proof.authorization.valid_before.parse().unwrap();
+    assert!(valid_before >= now + 300, "{valid_before} vs {now}");
+    assert!(valid_before <= now + 300 + 5, "{valid_before} vs {now}");
+}
+
+#[tokio::test]
 async fn each_payment_gets_a_fresh_nonce() {
     let requirement = evm_requirement();
     let first = evm_proof(
