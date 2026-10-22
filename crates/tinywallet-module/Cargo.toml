@@ -100,7 +100,7 @@ linked = ["static-link"]
 workspace = true
 
 [dev-dependencies]
-tinystoragedrivers-testkit = { version = "2.0.1", git = "https://github.com/senamakel/tinystoragedrivers", tag = "v2.0.1" }
+tinystoragedrivers-testkit = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 # Encodes and decodes the Solana transaction fixtures in native tests.
 base64 = "0.23"
 # The native lifecycle fixture stages and hashes the actual cdylib to attest it.

@@ -11,7 +11,8 @@ ALLOWED = {
 }
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 TSD_TYPES = "tinystoragedrivers-types"
-TSD_TYPES_SOURCE = "https://github.com/senamakel/tinystoragedrivers?tag=v2.0.1#"
+TSD_TYPES_REV = "05eaada962decbab33bafa4763d2bd1a67f6b456"
+TSD_TYPES_SOURCE = f"https://github.com/tinyhumansai/tinystoragedrivers?rev={TSD_TYPES_REV}#"
 
 # Chain, key and crypto implementations never enter the bus closure, not even
 # through transitive dependencies.
@@ -36,13 +37,26 @@ def forbidden(name):
     return normalized in FORBIDDEN_NAMES or normalized.startswith(FORBIDDEN_PREFIXES)
 
 
+def is_canonical_tsd_source(source, *, require_full_hash=False):
+    """Whether Cargo resolved TSD types from the canonical pinned revision."""
+    if not isinstance(source, str):
+        return False
+    resolved = source.removeprefix("git+")
+    if not resolved.startswith(TSD_TYPES_SOURCE):
+        return False
+    commit = resolved[len(TSD_TYPES_SOURCE):]
+    minimum_length = len(TSD_TYPES_REV) if require_full_hash else 8
+    return (
+        minimum_length <= len(commit) <= len(TSD_TYPES_REV)
+        and TSD_TYPES_REV.startswith(commit)
+    )
+
+
 def dependency_allowed(name, source):
     """Whether a bus dependency is registry vocabulary or the pinned TSD DTO crate."""
     if name in ALLOWED and source == REGISTRY:
         return True
-    if not isinstance(source, str):
-        return False
-    return name == TSD_TYPES and source.removeprefix("git+").startswith(TSD_TYPES_SOURCE)
+    return name == TSD_TYPES and is_canonical_tsd_source(source, require_full_hash=True)
 
 
 def audit(metadata):
@@ -73,8 +87,8 @@ def tree_packages(feature=None):
     """(name, source) of every normal/build dependency of the bus alone.
 
     `cargo tree -p` resolves features for the selected package only, so a
-    workspace sibling that enables `storage` cannot leak into the default run
-    the way it does in `cargo metadata`.
+    workspace sibling's dependencies cannot leak into the bus closure the way
+    they do in full-workspace metadata.
     """
     command = ["cargo", "tree", "-p", "tinywallet-bus", "-e", "normal,build", "--prefix", "none", "-f", "{p}"]
     if feature:
@@ -101,7 +115,7 @@ def audit_tree(packages):
             continue
         if name in ALLOWED and not source:
             continue
-        if name == TSD_TYPES and source.removeprefix("git+").startswith(TSD_TYPES_SOURCE):
+        if name == TSD_TYPES and is_canonical_tsd_source(source):
             continue
         violations.append(f"tinywallet-bus -> {name} ({source or 'registry'})")
     return violations
