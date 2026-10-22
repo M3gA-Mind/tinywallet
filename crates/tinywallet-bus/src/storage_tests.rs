@@ -1,11 +1,14 @@
+//! Tests for the legacy x402 payment conversion and storage contract.
+
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-use super::legacy_payments::{LegacyPayment, StoredPaymentStatus, convert_legacy_payment};
+use super::*;
 
 fn convert(
     value: serde_json::Value,
-) -> Result<super::legacy_payments::StoredPaymentRecord, serde_json::Error> {
-    serde_json::from_value::<LegacyPayment>(value).map(convert_legacy_payment)
+) -> Result<legacy_payments::StoredPaymentRecord, serde_json::Error> {
+    serde_json::from_value::<legacy_payments::LegacyPayment>(value)
+        .map(legacy_payments::convert_legacy_payment)
 }
 
 #[test]
@@ -32,7 +35,7 @@ fn legacy_payment_conversion_preserves_current_fields_and_normalizes_instants() 
 
     let payment = convert(legacy).unwrap();
     assert_eq!(payment.id, "payment-1");
-    assert_eq!(payment.status, StoredPaymentStatus::Settled);
+    assert_eq!(payment.status, legacy_payments::StoredPaymentStatus::Settled);
     assert_eq!(payment.timestamp_ms, 1_773_576_000_250);
     assert_eq!(
         payment.authorization_valid_until_ms,
@@ -102,8 +105,8 @@ fn legacy_payment_conversion_defaults_optional_fields_and_preserves_repeated_ids
     let pending = convert(row("pending", "2026-03-15T12:00:00Z")).unwrap();
     let settled = convert(row("settled", "2026-03-15T12:00:01Z")).unwrap();
     assert_eq!(pending.id, settled.id);
-    assert_eq!(pending.status, StoredPaymentStatus::Pending);
-    assert_eq!(settled.status, StoredPaymentStatus::Settled);
+    assert_eq!(pending.status, legacy_payments::StoredPaymentStatus::Pending);
+    assert_eq!(settled.status, legacy_payments::StoredPaymentStatus::Settled);
     assert_eq!(pending.tx_signature, None);
     assert_eq!(pending.authorization_valid_until_ms, None);
     assert_eq!(pending.thread_id, None);
