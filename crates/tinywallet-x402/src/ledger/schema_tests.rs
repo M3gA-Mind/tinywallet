@@ -394,6 +394,12 @@ fn ledger_and_bus_declare_the_same_collections() {
 }
 
 #[test]
+fn migration_offsets_report_overflow() {
+    assert_eq!(offset_after(10, 5, "offset overflow").unwrap(), 15);
+    assert!(offset_after(u64::MAX, 1, "offset overflow").is_err());
+}
+
+#[test]
 fn opening_the_ledger_migrates_legacy_payments_before_reading_them() {
     let storage = test_storage();
     let streams = std::sync::Arc::clone(storage.streams());
