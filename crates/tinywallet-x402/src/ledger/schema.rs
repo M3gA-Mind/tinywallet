@@ -8,8 +8,8 @@ use tinystoragedrivers_types::{
 
 #[path = "schema_payment.rs"]
 mod payment;
-pub(super) use payment::StoredPaymentStatus;
 pub(crate) use payment::{LegacyPayment, StoredPayment, convert_legacy_payment};
+pub(super) use tinywallet_bus::storage::StoredPaymentStatus;
 
 /// Collection containing the single budget-hold document.
 pub(super) const BUDGETS_COLLECTION: &str = "wallet.budgets";
