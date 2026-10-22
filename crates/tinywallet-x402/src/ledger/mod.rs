@@ -7,7 +7,7 @@
 //!
 //! # Persistence
 //!
-//! The ledger persists through the `tinystoragedrivers-core` ports only; the
+//! The ledger persists through the runtime-neutral `tinystoragedrivers-api` ports; the
 //! host hands in a [`LedgerStorage`] and decides the backend. Records are
 //! appended to the `wallet.payments` stream. It is append-only: a payment that
 //! changes status is appended again with the same id, and readers see every
@@ -16,9 +16,8 @@
 //! ledger blind to its history would admit payments past the budget.
 //!
 //! Entries are `snake_case` objects with every instant an epoch-millisecond
-//! `*_ms` field, and the ledger holds records at that precision. The names and
-//! the steps that migrate the v1 `x402_budget` collection and `x402.payments`
-//! stream are declared by [`storage_schema`].
+//! `*_ms` field. The ledger applies its own v1 to v2 migration when opened.
+//! Hosts can inspect [`collections`] to ensure the module-bound declarations.
 //!
 //! # Budgets
 //!
@@ -59,6 +58,7 @@
 //! [`with_ledger`] / [`with_ledger_mut`]. The handle is the only shared state in
 //! this crate.
 
+mod blocking;
 #[cfg(test)]
 pub(crate) mod faulty;
 mod global;
@@ -76,7 +76,7 @@ pub use global::{
 };
 pub use persist::{HOLD_RENEW_EVERY, LedgerStorage};
 pub use reservation::{Reservation, reserve};
-pub use schema::storage_schema;
+pub use schema::collections;
 pub use store::PaymentLedger;
 pub use types::{
     BudgetCheck, BudgetRefusal, PaymentRecord, PaymentStatus, ReservationId, SpendingBudget,

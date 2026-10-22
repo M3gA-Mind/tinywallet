@@ -9,19 +9,18 @@ use super::*;
 use std::sync::Arc;
 
 use tinybus::Connection;
-use tinystoragedrivers_busproxy::{PerCallerEndpoint, serve};
-use tinystoragedrivers_client::StorageServer;
-use tinystoragedrivers_core::{
-    DocumentStore, MemoryStorage, Precondition, Result as StorageResult, Scope, ScopedStorage,
-    StorageBackend, StreamEntry, StreamStore, async_trait,
-};
+use tinystoragedrivers_api::StorageBackend;
+use tinystoragedrivers_api::{Storage, StreamStore};
+use tinystoragedrivers_busproxy::{PerCallerEndpoint, StorageServer, serve};
+use tinystoragedrivers_testkit::{Failing, FaultPlan};
+use tinystoragedrivers_types::{ErrorKind, Precondition, Scope};
 use tinywallet_bus::wire::{X402CloseRequest, X402ConfigureRequest, X402SummaryRequest};
 use tinywallet_x402::ledger::{LedgerStorage, PaymentLedger, SpendingBudget};
 
 struct Fixture {
     wallet: crate::service::Wallet,
     /// The host's own handle on the scope the module is bound to.
-    host: ScopedStorage,
+    host: Storage,
     _served: tinystoragedrivers_busproxy::ServedStorage,
     broker: tokio::task::JoinHandle<tinybus::Result<()>>,
 }
@@ -34,8 +33,10 @@ async fn fixture() -> Fixture {
     let host_connection = Connection::connect(bus.connect().await.unwrap())
         .await
         .unwrap();
-    let backend = MemoryStorage::new();
-    let host = backend.for_scope(&Scope::local()).unwrap();
+    let backend = tinystoragedrivers_testkit::MemoryBackend::new();
+    let host = backend
+        .for_scope(&Scope::new("wallet.module-bus-test").unwrap())
+        .unwrap();
     let served_scope = host.clone();
     let endpoint =
         PerCallerEndpoint::new(move |_sender| Some(StorageServer::new(served_scope.clone())));
@@ -68,7 +69,7 @@ fn config(session: &str) -> X402ConfigResponse {
 
 fn host_ledger(fixture: &Fixture) -> PaymentLedger {
     PaymentLedger::open(
-        LedgerStorage::from_scoped(&fixture.host),
+        LedgerStorage::from_storage(&fixture.host),
         "host-side",
         SpendingBudget {
             per_request_max_atomic: 100,
@@ -239,8 +240,6 @@ async fn a_failed_reconfigure_keeps_the_previous_service_usable() {
     fixture.broker.abort();
 }
 
-// With `e2e-memory-storage` a missing host falls back to memory by design.
-#[cfg(not(feature = "e2e-memory-storage"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configure_fails_closed_when_storage_goes_away_for_the_replacement() {
     let _guard = LEDGER_TEST_LOCK.lock().await;
@@ -374,41 +373,13 @@ async fn concurrent_reservations_over_the_bus_do_not_starve_the_runtime() {
     fixture.broker.abort();
 }
 
-/// Memory storage whose payments stream refuses every read.
+/// Memory storage whose payments stream refuses its next read.
 fn unreadable_stream_storage() -> LedgerStorage {
-    #[derive(Debug)]
-    struct NoRead(Arc<dyn StreamStore>);
-
-    #[async_trait]
-    impl StreamStore for NoRead {
-        async fn append(&self, s: &str, v: serde_json::Value) -> StorageResult<u64> {
-            self.0.append(s, v).await
-        }
-        async fn append_batch(&self, s: &str, v: Vec<serde_json::Value>) -> StorageResult<u64> {
-            self.0.append_batch(s, v).await
-        }
-        async fn read_window(&self, _: &str, _: u64, _: usize) -> StorageResult<Vec<StreamEntry>> {
-            Err(tinystoragedrivers_core::StorageError::backend(
-                "injected read failure",
-            ))
-        }
-        async fn len(&self, s: &str) -> StorageResult<u64> {
-            self.0.len(s).await
-        }
-        async fn truncate_before(&self, s: &str, o: u64) -> StorageResult<u64> {
-            self.0.truncate_before(s, o).await
-        }
-        async fn delete_stream(&self, s: &str) -> StorageResult<bool> {
-            self.0.delete_stream(s).await
-        }
-        async fn streams(&self, p: &str) -> StorageResult<Vec<String>> {
-            self.0.streams(p).await
-        }
-    }
-
-    let scoped = MemoryStorage::new()
-        .for_scope(&Scope::new("x402-unreadable").unwrap())
-        .unwrap();
-    let documents: Arc<dyn DocumentStore> = Arc::clone(scoped.documents());
-    LedgerStorage::new(documents, Arc::new(NoRead(Arc::clone(scoped.streams()))))
+    let scope = Scope::new("x402-unreadable").unwrap();
+    let storage = tinystoragedrivers_testkit::memory_storage(&scope);
+    let faults = FaultPlan::new();
+    faults.fail_operation_nth("streams.read_window", 1, ErrorKind::Backend);
+    let streams: Arc<dyn StreamStore> =
+        Arc::new(Failing::with_plan(Arc::clone(storage.streams()), faults));
+    LedgerStorage::new(Arc::clone(storage.documents()), streams)
 }

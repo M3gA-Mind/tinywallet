@@ -237,11 +237,11 @@ impl X402Runtime {
         })
         .await?;
         #[cfg(test)]
-        if let Some((pause_once, reached, release)) = &self.commit_handoff {
-            if pause_once.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                reached.notify_one();
-                release.notified().await;
-            }
+        if let Some((pause_once, reached, release)) = &self.commit_handoff
+            && pause_once.swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            reached.notify_one();
+            release.notified().await;
         }
         let payment_id = format!("x402_{}", uuid::Uuid::new_v4());
         let response = X402PreparePaymentResponse {
@@ -584,6 +584,14 @@ fn take_request_secrets(
 
 #[cfg(test)]
 static LEDGER_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+fn memory_ledger_storage() -> ledger::LedgerStorage {
+    let scope = tinystoragedrivers_types::Scope::new("tinywallet.module-test")
+        .expect("the test scope is valid");
+    ledger::LedgerStorage::from_storage(&tinystoragedrivers_testkit::memory_storage(&scope))
+}
 
 #[cfg(test)]
 #[path = "x402_tests.rs"]

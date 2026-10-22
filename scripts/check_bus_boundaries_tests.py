@@ -26,31 +26,106 @@ class ContractBoundaryTests(unittest.TestCase):
     def test_local_package_cannot_impersonate_serde(self):
         self.assertTrue(boundary.audit(metadata("serde", source=None)))
 
+    def test_canonical_pinned_tsd_types_git_source_is_allowed(self):
+        self.assertEqual(
+            boundary.audit(
+                metadata(
+                    boundary.TSD_TYPES,
+                    source="git+" + boundary.TSD_TYPES_SOURCE
+                    + "05eaada962decbab33bafa4763d2bd1a67f6b456",
+                )
+            ),
+            [],
+        )
 
-class StorageExemptionTests(unittest.TestCase):
-    REGISTRY_CRATE = ("zstd", "")
-    PORTS = ("tinystoragedrivers-core", "https://github.com/tinyhumansai/tinystoragedrivers?tag=v1.0.0#141fd9ed")
+    def test_fork_tsd_types_source_is_rejected(self):
+        self.assertTrue(
+            boundary.audit(
+                metadata(
+                    boundary.TSD_TYPES,
+                    source="git+https://github.com/senamakel/tinystoragedrivers"
+                    "?tag=v2.1.0#3332061434c01872b0161191268166c12563af87",
+                )
+            )
+        )
 
-    def test_default_closure_rejects_the_storage_crates(self):
-        self.assertEqual(len(boundary.audit_tree([self.PORTS, self.REGISTRY_CRATE])), 2)
+    def test_tree_allows_only_the_canonical_pinned_source_for_tsd_types(self):
+        self.assertEqual(
+            boundary.audit_tree([(boundary.TSD_TYPES, boundary.TSD_TYPES_SOURCE + "05eaada962decbab33bafa4763d2bd1a67f6b456")]),
+            [],
+        )
+        self.assertTrue(
+            boundary.audit_tree(
+                [(boundary.TSD_TYPES, boundary.TSD_TYPES_SOURCE + "deadbeef")]
+            )
+        )
+        self.assertTrue(
+            boundary.audit_tree(
+                [
+                    (
+                        boundary.TSD_TYPES,
+                        "https://github.com/senamakel/tinystoragedrivers"
+                        "?tag=v2.1.0#3332061434c01872b0161191268166c12563af87",
+                    )
+                ]
+            )
+        )
 
-    def test_default_closure_accepts_the_allow_list(self):
-        self.assertEqual(boundary.audit_tree([("serde", ""), ("thiserror", "")]), [])
 
-    def test_storage_feature_accepts_the_ports_crate_and_registry_crates(self):
-        self.assertEqual(boundary.audit_tree([self.PORTS, self.REGISTRY_CRATE], storage=True), [])
+class EngineTreeTests(unittest.TestCase):
+    def test_versioned_cargo_tree_lines_are_checked_by_package_name(self):
+        output = """\
+tinywallet-module v0.24.1 (/work/tinywallet)
+rusqlite v0.40.2 (registry+https://github.com/rust-lang/crates.io-index)
+tinystoragedrivers-api v2.1.0 (https://github.com/tinyhumansai/tinystoragedrivers)
+"""
+        names = boundary.tree_package_names(output)
+        self.assertEqual(
+            boundary.engine_violations(names),
+            ["rusqlite"],
+        )
 
-    def test_storage_feature_still_rejects_implementations(self):
-        path = ("tinywallet-crypto", "/work/crates/tinywallet-crypto")
-        self.assertEqual(len(boundary.audit_tree([path], storage=True)), 1)
+    def test_storage_api_and_types_are_not_engine_crates(self):
+        self.assertEqual(
+            boundary.engine_violations(
+                ["tinystoragedrivers-api", "tinystoragedrivers-types"]
+            ),
+            [],
+        )
 
-    def test_storage_feature_rejects_forbidden_registry_crates(self):
-        for name in ("coins-bip32", "coins_bip32", "coins-core", "k256", "bitcoin"):
-            self.assertEqual(len(boundary.audit_tree([(name, "")], storage=True)), 1, name)
+    def test_underscore_names_are_normalized_before_engine_matching(self):
+        self.assertEqual(boundary.engine_violations(["libsqlite3_sys"]), ["libsqlite3-sys"])
 
-    def test_storage_feature_rejects_a_foreign_git_source(self):
-        fake = ("tinystoragedrivers-core", "https://example.com/evil")
-        self.assertEqual(len(boundary.audit_tree([fake], storage=True)), 1)
+    def test_workspace_library_enumeration_covers_every_library_kind(self):
+        kinds = sorted(boundary.LIBRARY_KINDS)
+        members = [f"workspace-{index}" for index in range(len(kinds))]
+        metadata_value = {
+            "workspace_members": members,
+            "packages": [
+                {
+                    "id": member,
+                    "name": f"library-{index}",
+                    "targets": [{"kind": [kind]}],
+                }
+                for index, (member, kind) in enumerate(zip(members, kinds, strict=True))
+            ]
+            + [
+                {"id": "binary", "name": "binary-only", "targets": [{"kind": ["bin"]}]},
+                {"id": "dependency", "name": "external-library", "targets": [{"kind": ["lib"]}]},
+            ],
+        }
+        self.assertEqual(
+            boundary.workspace_library_crates(metadata_value),
+            [f"library-{index}" for index in range(len(kinds))],
+        )
+
+    def test_workspace_library_enumeration_fails_closed_without_members(self):
+        with self.assertRaises(ValueError):
+            boundary.workspace_library_crates({"workspace_members": [], "packages": []})
+
+    def test_workspace_library_enumeration_fails_closed_on_missing_metadata(self):
+        with self.assertRaises(ValueError):
+            boundary.workspace_library_crates({"packages": []})
 
 
 if __name__ == "__main__":

@@ -1,102 +1,86 @@
-//! The payment record as it is stored, and the v1 shape it migrates from.
+//! Owner-local conversion from legacy x402 payment rows to the shared
+//! `wallet.payments` storage record.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::Deserialize;
+use serde::de::Deserializer;
+use tinywallet_bus::storage::{StoredPaymentRecord, StoredPaymentStatus};
 
-/// Where a stored payment stands. The same four states, spelled the same way,
-/// as the implementation's public status type, which converts to and from this.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StoredPaymentStatus {
-    /// Signed and sent, not yet settled.
-    Pending,
-    /// A trusted settlement receipt confirms payment.
-    Settled,
-    /// A trusted result established that the payment did not settle.
-    Failed,
-    /// Refused before anything was signed.
-    Denied,
+pub(crate) type StoredPayment = StoredPaymentRecord;
+
+/// Convert one previous camelCase `x402.payments` body to the current typed
+/// `wallet.payments` storage contract.
+///
+/// The legacy row's ID and all optional payment and authorization data are
+/// retained. RFC 3339 instants become epoch milliseconds, truncating
+/// sub-millisecond precision. The caller owns source ordering and should keep
+/// repeated IDs because they can represent successive payment states.
+#[must_use]
+pub(crate) fn convert_legacy_payment(legacy: LegacyPayment) -> StoredPaymentRecord {
+    legacy.into()
 }
 
-/// One payment as stored in `wallet.payments`: `snake_case`, every instant an
-/// epoch-millisecond `*_ms` field, no wrapper.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StoredPayment {
-    /// Unique id of the attempt.
+/// Typed row from the previous camelCase `x402.payments` stream.
+///
+/// Deserialize the source row into this type before passing it to
+/// [`convert_legacy_payment`]. Timestamp fields are parsed and normalized
+/// during deserialization, so malformed or unsupported instants are rejected
+/// before a canonical record is produced.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyPayment {
+    /// Stable ID shared by successive states of the same payment attempt.
     pub id: String,
     /// The URL the payment bought access to.
     pub url: String,
     /// The asset paid in.
     pub asset: String,
-    /// The amount in atomic units of `asset`.
+    /// Amount in atomic units.
     pub amount_atomic: u64,
-    /// The amount formatted for people.
+    /// Human-readable amount.
     pub amount_display: String,
-    /// Who was paid.
+    /// Payment recipient.
     pub recipient: String,
-    /// The network, in CAIP-2 form.
+    /// CAIP-2 network identifier.
     pub network: String,
-    /// The settlement transaction, once reported.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    /// Settlement transaction, if available.
     pub tx_signature: Option<String>,
-    /// Where the payment stands.
+    /// Payment lifecycle state.
     pub status: StoredPaymentStatus,
-    /// When this state was written, in epoch milliseconds.
+    #[serde(rename = "timestamp", deserialize_with = "instant_ms")]
+    /// Timestamp of this state, normalized to epoch milliseconds.
     pub timestamp_ms: i64,
-    /// When an exported authorization becomes unusable, in epoch milliseconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "authorizationValidUntil",
+        deserialize_with = "optional_instant_ms"
+    )]
+    /// Authorization expiration, normalized to epoch milliseconds.
     pub authorization_valid_until_ms: Option<i64>,
+    #[serde(default)]
     /// Solana's `lastValidBlockHeight` for the exported transaction.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solana_last_valid_block_height: Option<u64>,
-    /// When the authorization was observed expired, in epoch milliseconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "authorizationExpiredAt",
+        deserialize_with = "optional_instant_ms"
+    )]
+    /// Time when the authorization was observed expired, in epoch milliseconds.
     pub authorization_expired_at_ms: Option<i64>,
-    /// The block height at which the expiry was observed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    /// Block height at which expiry was observed.
     pub authorization_expiry_observed_height: Option<u64>,
-    /// The session that made the payment.
+    /// Session that initiated the payment.
     pub session_id: String,
-    /// The conversation thread, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    /// Conversation thread that initiated the payment, if available.
     pub thread_id: Option<String>,
-    /// The budget hold this entry committed, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "committed_hold")]
+    /// Budget hold committed by this payment, if available.
     pub committed_hold: Option<String>,
 }
 
-/// A v1 `x402.payments` entry: the camelCase wire record with RFC 3339
-/// instants, and the hold metadata beside it.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyPayment {
-    id: String,
-    url: String,
-    asset: String,
-    amount_atomic: u64,
-    amount_display: String,
-    recipient: String,
-    network: String,
-    #[serde(default)]
-    tx_signature: Option<String>,
-    status: StoredPaymentStatus,
-    #[serde(deserialize_with = "instant_ms")]
-    timestamp: i64,
-    #[serde(default, deserialize_with = "optional_instant_ms")]
-    authorization_valid_until: Option<i64>,
-    #[serde(default)]
-    solana_last_valid_block_height: Option<u64>,
-    #[serde(default, deserialize_with = "optional_instant_ms")]
-    authorization_expired_at: Option<i64>,
-    #[serde(default)]
-    authorization_expiry_observed_height: Option<u64>,
-    session_id: String,
-    #[serde(default)]
-    thread_id: Option<String>,
-    #[serde(default, rename = "committed_hold")]
-    committed_hold: Option<String>,
-}
-
-impl From<LegacyPayment> for StoredPayment {
+impl From<LegacyPayment> for StoredPaymentRecord {
     fn from(legacy: LegacyPayment) -> Self {
         Self {
             id: legacy.id,
@@ -108,10 +92,10 @@ impl From<LegacyPayment> for StoredPayment {
             network: legacy.network,
             tx_signature: legacy.tx_signature,
             status: legacy.status,
-            timestamp_ms: legacy.timestamp,
-            authorization_valid_until_ms: legacy.authorization_valid_until,
+            timestamp_ms: legacy.timestamp_ms,
+            authorization_valid_until_ms: legacy.authorization_valid_until_ms,
             solana_last_valid_block_height: legacy.solana_last_valid_block_height,
-            authorization_expired_at_ms: legacy.authorization_expired_at,
+            authorization_expired_at_ms: legacy.authorization_expired_at_ms,
             authorization_expiry_observed_height: legacy.authorization_expiry_observed_height,
             session_id: legacy.session_id,
             thread_id: legacy.thread_id,
@@ -138,10 +122,10 @@ fn optional_instant_ms<'de, D: Deserializer<'de>>(
         .transpose()
 }
 
-/// An RFC 3339 instant (`2026-03-15T12:00:00.250Z`, or with a `+hh:mm`
-/// offset) as epoch milliseconds, by integer arithmetic only. Fractions finer
-/// than a millisecond are truncated.
-pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
+/// Parse an RFC 3339 instant using integer arithmetic, truncating fractions
+/// finer than milliseconds without introducing a date/time dependency into
+/// the bus contract crate.
+fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let bytes = text.as_bytes();
     let digits = |from: usize, len: usize| -> Option<i64> {
         let part = bytes.get(from..from + len)?;
@@ -162,12 +146,15 @@ pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     }
     let (year, month, day) = (digits(0, 4)?, digits(5, 2)?, digits(8, 2)?);
     let (hour, minute, second) = (digits(11, 2)?, digits(14, 2)?, digits(17, 2)?);
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap_year => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=days_in_month).contains(&day) || hour > 23 || minute > 59 || second > 60 {
         return None;
     }
     let mut at = 19;
@@ -189,7 +176,12 @@ pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let offset_minutes = match bytes.get(at)? {
         b'Z' | b'z' if at + 1 == bytes.len() => 0,
         sign @ (b'+' | b'-') if at + 6 == bytes.len() && separator(at + 3, b":") => {
-            let minutes = digits(at + 1, 2)? * 60 + digits(at + 4, 2)?;
+            let hours = digits(at + 1, 2)?;
+            let minute_part = digits(at + 4, 2)?;
+            if hours > 23 || minute_part > 59 {
+                return None;
+            }
+            let minutes = hours * 60 + minute_part;
             if *sign == b'-' { -minutes } else { minutes }
         }
         _ => return None,
@@ -204,3 +196,7 @@ pub(super) fn parse_rfc3339_ms(text: &str) -> Option<i64> {
     let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset_minutes * 60;
     Some(seconds * 1_000 + millis)
 }
+
+#[cfg(test)]
+#[path = "schema_payment_tests.rs"]
+mod tests;
