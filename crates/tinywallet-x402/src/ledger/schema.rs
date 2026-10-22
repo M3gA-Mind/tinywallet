@@ -165,14 +165,15 @@ impl From<StoredPaymentStatus> for super::types::PaymentStatus {
 
 async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types::Result<()> {
     let source_len = streams.len(LEGACY_PAYMENTS_STREAM).await?;
-    let mut source = Vec::new();
-    let mut offset = 0;
-    while offset < source_len {
+    let mut source_offset = 0;
+    let mut target_offset = 0;
+    while source_offset < source_len {
+        let batch_start = source_offset;
         let window = streams
-            .read_window(LEGACY_PAYMENTS_STREAM, offset, BATCH_SIZE)
+            .read_window(LEGACY_PAYMENTS_STREAM, source_offset, BATCH_SIZE)
             .await?;
         for (index, entry) in window.iter().enumerate() {
-            let expected = offset
+            let expected = source_offset
                 .checked_add(u64::try_from(index).map_err(|_| {
                     StorageError::backend("wallet payment migration source offset overflowed")
                 })?)
@@ -190,68 +191,102 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
                 "wallet payment migration source ended before its reported length",
             ));
         };
-        offset = last.offset.checked_add(1).ok_or_else(|| {
+        source_offset = last.offset.checked_add(1).ok_or_else(|| {
             StorageError::backend("wallet payment migration source offset overflowed")
         })?;
-        if offset > source_len {
+        if source_offset > source_len {
             return Err(StorageError::backend(
                 "wallet payment migration source exceeded its reported length",
             ));
         }
-        source.extend(window.into_iter().map(|entry| entry.value));
+        let values = window.into_iter().map(|entry| entry.value).collect();
+        let migrated = migrate_payment_batch(values, batch_start)?;
+        append_migration_batch(streams, target_offset, &migrated).await?;
+        target_offset = target_offset
+            .checked_add(u64::try_from(migrated.len()).map_err(|_| {
+                StorageError::backend("wallet payment migration target offset overflowed")
+            })?)
+            .ok_or_else(|| {
+                StorageError::backend("wallet payment migration target offset overflowed")
+            })?;
     }
     if streams.len(LEGACY_PAYMENTS_STREAM).await? != source_len {
         return Err(StorageError::backend(
             "wallet payment migration source changed while being read",
         ));
     }
-    let migrated = migrate_payments_stream(LEGACY_PAYMENTS_STREAM, source)?
-        .map_or_else(Vec::new, |(_, entries)| entries);
-    if migrated.is_empty() {
-        return Ok(());
-    }
-
-    let target_len = streams.len(PAYMENTS_STREAM).await?;
-    let target_len_usize = usize::try_from(target_len).map_err(|_| {
-        StorageError::backend("wallet payment migration target stream is too large")
-    })?;
-    let migrated_len = u64::try_from(migrated.len()).map_err(|_| {
-        StorageError::backend("wallet payment migration source stream is too large")
-    })?;
-    if target_len > migrated_len {
+    let final_target_len = streams.len(PAYMENTS_STREAM).await?;
+    if final_target_len != target_offset {
         return Err(StorageError::backend(
             "wallet payment migration found unexpected target entries",
         ));
     }
-    let existing = streams
-        .read_window(PAYMENTS_STREAM, 0, target_len_usize)
-        .await?;
-    if u64::try_from(existing.len()).ok() != Some(target_len)
-        || existing
-            .iter()
-            .enumerate()
-            .any(|(index, entry)| u64::try_from(index).ok() != Some(entry.offset))
-    {
-        return Err(StorageError::backend(
-            "wallet payment migration target prefix was incomplete",
-        ));
-    }
-    if existing
-        .iter()
-        .zip(migrated.iter())
-        .any(|(entry, value)| entry.value != *value)
-    {
-        return Err(StorageError::backend(
-            "wallet payment migration found conflicting target data",
-        ));
-    }
-    let start = target_len_usize;
-    if start < migrated.len() {
-        streams
-            .append_batch_if_offset(PAYMENTS_STREAM, target_len, migrated[start..].to_vec())
-            .await?;
-    }
     Ok(())
+}
+
+async fn append_migration_batch(
+    streams: &dyn StreamStore,
+    target_offset: u64,
+    migrated: &[Value],
+) -> tinystoragedrivers_types::Result<()> {
+    if migrated.is_empty() {
+        return Ok(());
+    }
+    let target_len = streams.len(PAYMENTS_STREAM).await?;
+    if target_len < target_offset {
+        return Err(StorageError::backend(
+            "wallet payment migration target stream changed while being written",
+        ));
+    }
+    let already_written = usize::try_from((target_len - target_offset).min(migrated.len() as u64))
+        .map_err(|_| {
+            StorageError::backend("wallet payment migration target stream is too large")
+        })?;
+    if already_written > 0 {
+        let existing = streams
+            .read_window(PAYMENTS_STREAM, target_offset, already_written)
+            .await?;
+        if existing.len() != already_written
+            || existing.iter().enumerate().any(|(index, entry)| {
+                target_offset.checked_add(index as u64) != Some(entry.offset)
+                    || entry.value != migrated[index]
+            })
+        {
+            return Err(StorageError::backend(
+                "wallet payment migration found conflicting target data",
+            ));
+        }
+    }
+    if already_written == migrated.len() {
+        return Ok(());
+    }
+    let append_offset = target_offset
+        .checked_add(already_written as u64)
+        .ok_or_else(|| {
+            StorageError::backend("wallet payment migration target offset overflowed")
+        })?;
+    match streams
+        .append_batch_if_offset(
+            PAYMENTS_STREAM,
+            append_offset,
+            migrated[already_written..].to_vec(),
+        )
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::Conflict => {
+            let latest = streams
+                .read_window(PAYMENTS_STREAM, target_offset, migrated.len())
+                .await?;
+            let completed = latest.len() == migrated.len()
+                && latest.iter().enumerate().all(|(index, entry)| {
+                    target_offset.checked_add(index as u64) == Some(entry.offset)
+                        && entry.value == migrated[index]
+                });
+            if completed { Ok(()) } else { Err(error) }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn migrate_payments_stream(
@@ -261,17 +296,35 @@ fn migrate_payments_stream(
     if source != LEGACY_PAYMENTS_STREAM {
         return Ok(None);
     }
+    Ok(Some((
+        PAYMENTS_STREAM.to_owned(),
+        migrate_payment_batch(entries, 0)?,
+    )))
+}
+
+fn migrate_payment_batch(
+    entries: Vec<Value>,
+    source_offset: u64,
+) -> tinystoragedrivers_types::Result<Vec<Value>> {
     let mut migrated = Vec::with_capacity(entries.len());
-    for entry in entries {
-        if let Ok(legacy) = serde_json::from_value::<LegacyPayment>(entry) {
-            let payment = convert_legacy_payment(legacy);
-            migrated.push(
-                serde_json::to_value(payment)
-                    .map_err(|error| StorageError::invalid_input(error.to_string()))?,
-            );
+    for (index, entry) in entries.into_iter().enumerate() {
+        match serde_json::from_value::<LegacyPayment>(entry) {
+            Ok(legacy) => {
+                let payment = convert_legacy_payment(legacy);
+                migrated.push(
+                    serde_json::to_value(payment)
+                        .map_err(|error| StorageError::invalid_input(error.to_string()))?,
+                );
+            }
+            Err(error) => {
+                let offset = source_offset.checked_add(index as u64).unwrap_or(u64::MAX);
+                log::warn!(
+                    "[x402::ledger] skipping invalid legacy payment at offset {offset}: {error}"
+                );
+            }
         }
     }
-    Ok(Some((PAYMENTS_STREAM.to_owned(), migrated)))
+    Ok(migrated)
 }
 
 fn renamed_holds(body: &Value) -> Option<Map<String, Value>> {
