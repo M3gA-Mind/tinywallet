@@ -1110,7 +1110,9 @@ async fn a_server_that_hangs_up_on_the_retry_is_a_transport_error() {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
-    let header = challenge_header(&challenge(vec![solana_requirement()]));
+    let mut on_this_origin = challenge(vec![solana_requirement()]);
+    on_this_origin.resource.url = format!("{url}/thing");
+    let header = challenge_header(&on_this_origin);
     tokio::spawn(async move {
         // First connection: answer the 402 and close.
         let (mut socket, _) = listener.accept().await.unwrap();
