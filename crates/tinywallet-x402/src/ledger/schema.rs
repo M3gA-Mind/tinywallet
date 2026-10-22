@@ -167,6 +167,9 @@ impl From<StoredPaymentStatus> for super::types::PaymentStatus {
 
 async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types::Result<()> {
     let source_len = streams.len(LEGACY_PAYMENTS_STREAM).await?;
+    if source_len == 0 {
+        return Ok(());
+    }
     let mut source_offset = 0;
     let mut target_offset = 0;
     while source_offset < source_len {
