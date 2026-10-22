@@ -1,3 +1,5 @@
+//! Tests for the x402 owner's conversion of legacy payment records.
+
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use super::*;

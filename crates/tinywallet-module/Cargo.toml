@@ -100,6 +100,7 @@ linked = ["static-link"]
 workspace = true
 
 [dev-dependencies]
+# Testkit-backed module storage fixtures exercise the host's v2 storage ports.
 tinystoragedrivers-testkit = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
 # Encodes and decodes the Solana transaction fixtures in native tests.
 base64 = "0.23"

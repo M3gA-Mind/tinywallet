@@ -1,3 +1,5 @@
+//! Tests for the dedicated runtime used by blocking x402 callers.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
