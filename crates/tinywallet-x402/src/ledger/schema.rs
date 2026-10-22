@@ -178,13 +178,11 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
             .read_window(LEGACY_PAYMENTS_STREAM, source_offset, BATCH_SIZE)
             .await?;
         for (index, entry) in window.iter().enumerate() {
-            let expected = source_offset
-                .checked_add(u64::try_from(index).map_err(|_| {
-                    StorageError::backend("wallet payment migration source offset overflowed")
-                })?)
-                .ok_or_else(|| {
-                    StorageError::backend("wallet payment migration source offset overflowed")
-                })?;
+            let expected = offset_after(
+                source_offset,
+                index,
+                "wallet payment migration source offset overflowed",
+            )?;
             if entry.offset != expected {
                 return Err(StorageError::backend(
                     "wallet payment migration source window was incomplete",
@@ -196,9 +194,11 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
                 "wallet payment migration source ended before its reported length",
             ));
         };
-        source_offset = last.offset.checked_add(1).ok_or_else(|| {
-            StorageError::backend("wallet payment migration source offset overflowed")
-        })?;
+        source_offset = offset_after(
+            last.offset,
+            1,
+            "wallet payment migration source offset overflowed",
+        )?;
         if source_offset > source_len {
             return Err(StorageError::backend(
                 "wallet payment migration source exceeded its reported length",
@@ -207,13 +207,11 @@ async fn migrate_payments(streams: &dyn StreamStore) -> tinystoragedrivers_types
         let values = window.into_iter().map(|entry| entry.value).collect();
         let migrated = migrate_payment_batch(values, batch_start)?;
         append_migration_batch(streams, target_offset, &migrated).await?;
-        target_offset = target_offset
-            .checked_add(u64::try_from(migrated.len()).map_err(|_| {
-                StorageError::backend("wallet payment migration target offset overflowed")
-            })?)
-            .ok_or_else(|| {
-                StorageError::backend("wallet payment migration target offset overflowed")
-            })?;
+        target_offset = offset_after(
+            target_offset,
+            migrated.len(),
+            "wallet payment migration target offset overflowed",
+        )?;
     }
     if streams.len(LEGACY_PAYMENTS_STREAM).await? != source_len {
         return Err(StorageError::backend(
@@ -265,11 +263,11 @@ async fn append_migration_batch(
     if already_written == migrated.len() {
         return Ok(());
     }
-    let append_offset = target_offset
-        .checked_add(already_written as u64)
-        .ok_or_else(|| {
-            StorageError::backend("wallet payment migration target offset overflowed")
-        })?;
+    let append_offset = offset_after(
+        target_offset,
+        already_written,
+        "wallet payment migration target offset overflowed",
+    )?;
     match streams
         .append_batch_if_offset(
             PAYMENTS_STREAM,
@@ -292,6 +290,17 @@ async fn append_migration_batch(
         }
         Err(error) => Err(error),
     }
+}
+
+fn offset_after(
+    offset: u64,
+    increment: usize,
+    error_message: &'static str,
+) -> tinystoragedrivers_types::Result<u64> {
+    let increment = u64::try_from(increment).map_err(|_| StorageError::backend(error_message))?;
+    offset
+        .checked_add(increment)
+        .ok_or_else(|| StorageError::backend(error_message))
 }
 
 #[cfg(test)]
