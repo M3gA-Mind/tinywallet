@@ -655,7 +655,9 @@ async fn a_retry_that_never_answers_keeps_the_valid_authorization_pending() {
     let _dir = init_ledger();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
-    let header = challenge_header(&challenge(vec![evm_requirement()]));
+    let mut on_this_origin = challenge(vec![evm_requirement()]);
+    on_this_origin.resource.url = format!("{url}/thing");
+    let header = challenge_header(&on_this_origin);
     tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut buffer = [0u8; 4096];

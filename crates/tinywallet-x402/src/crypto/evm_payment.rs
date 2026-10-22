@@ -13,6 +13,11 @@ use crate::wire::{
     PaymentRequirements, X402_VERSION,
 };
 
+/// The longest an EIP-3009 authorization stays valid, whatever
+/// `maxTimeoutSeconds` the server asks for: an unbounded value would sign a
+/// transfer that never expires.
+const MAX_AUTHORIZATION_SECS: u64 = 300;
+
 /// Build an EVM payment using EIP-3009 `transferWithAuthorization`.
 ///
 /// Signs the typed data with the wallet's EVM key and returns the proof for the
@@ -95,7 +100,7 @@ pub(super) fn evm_payment_authorization(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-        .saturating_add(req.max_timeout_seconds);
+        .saturating_add(req.max_timeout_seconds.min(MAX_AUTHORIZATION_SECS));
     let valid_before = eip712::u256_from_u64(valid_before_secs);
     let nonce = fresh_nonce();
 
