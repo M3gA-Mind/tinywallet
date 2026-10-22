@@ -1112,7 +1112,15 @@ fn payment_migration_accepts_a_matching_concurrent_append() {
         .unwrap();
 
     assert!(result.is_ok());
-    assert_eq!(read_values(&storage, "wallet.payments").len(), 1);
+    let streams = Arc::clone(storage.streams());
+    assert_eq!(
+        Blocking::new()
+            .unwrap()
+            .run(async move { streams.len("wallet.payments").await })
+            .unwrap()
+            .unwrap(),
+        1
+    );
 }
 
 #[test]
