@@ -15,7 +15,7 @@ pub(crate) type StoredPayment = StoredPaymentRecord;
 /// sub-millisecond precision. The caller owns source ordering and should keep
 /// repeated IDs because they can represent successive payment states.
 #[must_use]
-pub fn convert_legacy_payment(legacy: LegacyPayment) -> StoredPaymentRecord {
+pub(crate) fn convert_legacy_payment(legacy: LegacyPayment) -> StoredPaymentRecord {
     legacy.into()
 }
 
