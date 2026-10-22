@@ -70,7 +70,7 @@ pub(super) async fn migrate(
         .await
     {
         Ok(_) => Ok(()),
-        Err(error) if error.kind() == ErrorKind::Conflict => {
+        Err(error) if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) => {
             let latest = documents.get(MIGRATIONS_COLLECTION, MIGRATIONS_ID).await?;
             let completed = latest
                 .as_ref()
@@ -115,7 +115,9 @@ async fn migrate_budgets(documents: &dyn DocumentStore) -> tinystoragedrivers_ty
                 .await
             {
                 Ok(_) => Ok(()),
-                Err(error) if error.kind() == ErrorKind::Conflict => {
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::Conflict | ErrorKind::AlreadyExists) =>
+                {
                     let latest = documents.get(BUDGETS_COLLECTION, HOLDS_ID).await?;
                     if latest.is_some_and(|record| {
                         budget_target_matches(&record, &migrated, legacy.meta.expires_ms)
@@ -289,6 +291,7 @@ async fn append_migration_batch(
     }
 }
 
+#[cfg(test)]
 fn migrate_payments_stream(
     source: &str,
     entries: Vec<Value>,
