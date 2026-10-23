@@ -693,7 +693,10 @@ async fn networks_are_labelled_for_people() {
     let server = TestServer::start(ServerConfig::default()).await;
     let cases = [
         ("eip155:8453", "Base"),
+        ("eip155:84532", "Base Sepolia"),
         ("eip155:1", "Ethereum"),
+        ("eip155:10", "EVM"),
+        ("eip155:137", "EVM"),
         ("eip155:42161", "EVM"),
         ("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "Solana"),
         ("cosmos:hub", "cosmos:hub"),

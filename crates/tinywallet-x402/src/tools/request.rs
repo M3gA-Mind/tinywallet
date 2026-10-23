@@ -16,8 +16,9 @@ use crate::ledger::{self, PaymentRecord, PaymentStatus};
 use crate::protocol::{PaymentBuilder, ProxyPolicy, handle_402_and_pay, settles};
 use crate::thread::{NoThread, ThreadScope};
 use crate::wire::{
-    HEADER_PAYMENT_REQUIRED, HEADER_PAYMENT_REQUIRED_V1, HEADER_PAYMENT_RESPONSE,
-    HEADER_PAYMENT_SIGNATURE, SettlementResponse,
+    BASE_MAINNET_CAIP2, BASE_SEPOLIA_CAIP2, ETHEREUM_MAINNET_CAIP2, HEADER_PAYMENT_REQUIRED,
+    HEADER_PAYMENT_REQUIRED_V1, HEADER_PAYMENT_RESPONSE, HEADER_PAYMENT_SIGNATURE,
+    SettlementResponse,
 };
 
 const LOG_PREFIX: &str = "[tool.x402_request]";
@@ -482,16 +483,13 @@ pub(super) async fn format_response_with_payment(
     let status = response.status().as_u16();
     let body = truncate_body(response.text().await.unwrap_or_default());
 
-    let chain_label = if network.starts_with("eip155:8453") {
-        "Base"
-    } else if network.starts_with("eip155:1") {
-        "Ethereum"
-    } else if network.starts_with("eip155:") {
-        "EVM"
-    } else if network.starts_with("solana:") {
-        "Solana"
-    } else {
-        network
+    let chain_label = match network {
+        BASE_MAINNET_CAIP2 => "Base",
+        BASE_SEPOLIA_CAIP2 => "Base Sepolia",
+        ETHEREUM_MAINNET_CAIP2 => "Ethereum",
+        n if n.starts_with("eip155:") => "EVM",
+        n if n.starts_with("solana:") => "Solana",
+        n => n,
     };
 
     let tx_line = tx_sig

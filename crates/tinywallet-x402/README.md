@@ -72,7 +72,7 @@ configuration of its own.
 - `X402Error` gains `NonReplayableBody`, `UnsupportedNetwork` and
   `UnsupportedAsset` (the enum is `non_exhaustive`).
 - New: `ledger::{reserve, Reservation, ReservationId, BudgetRefusal}`,
-  `PaymentLedger::{reserve, release, commit_reservation, reserved_atomic,
+  `PaymentLedger::{reserve, release, try_commit_reservation, reserved_atomic,
   session_id}`; `check_budget` now counts held reservations. `PaymentRecord`
   gains `thread_id: Option<String>` (serde default; struct literals need it).
 - New: `wire::{check_usdc, AssetCheck, SUPPORTED_USDC}`; `thread::{ThreadScope,

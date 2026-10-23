@@ -215,8 +215,9 @@ pub struct X402PaymentResult {
     /// bound it to the transaction payload.
     pub solana_last_valid_block_height: Option<u64>,
     /// The budget held for this payment. Keep it alive until the outcome is
-    /// recorded, then [`commit`](Reservation::commit) it with the final record;
-    /// dropping it releases the hold without recording anything.
+    /// recorded, then [`commit_durable`](Reservation::commit_durable) it with
+    /// the final record; dropping it releases the hold without recording
+    /// anything.
     pub reservation: Reservation,
 }
 
