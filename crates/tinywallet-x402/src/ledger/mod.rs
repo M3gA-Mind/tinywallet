@@ -94,3 +94,7 @@ mod authorization_test;
 #[cfg(test)]
 #[path = "mod_holds_tests.rs"]
 mod holds_test;
+
+#[cfg(test)]
+#[path = "mod_paging_tests.rs"]
+mod paging_test;

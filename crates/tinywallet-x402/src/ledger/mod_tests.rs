@@ -267,23 +267,6 @@ fn records_survive_a_restart() {
 }
 
 #[test]
-fn records_past_one_read_window_survive_a_restart() {
-    // The payments stream is read back 512 records at a time.
-    let dir = LedgerStorage::memory();
-    {
-        let mut ledger = ledger_in(&dir);
-        for amount in 1..=513 {
-            ledger.record_payment(record(amount, PaymentStatus::Settled, now(), SESSION));
-        }
-    }
-    let reopened = ledger_in(&dir);
-    let recent = reopened.recent_payments(1_000);
-    assert_eq!(recent.len(), 513);
-    assert_eq!(recent[0].amount_atomic, 513, "the record past the window");
-    assert_eq!(recent[512].amount_atomic, 1);
-}
-
-#[test]
 fn previous_release_writer_data_opens_and_accepts_a_new_append() {
     let fixture: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("fixtures/v0.24.1-payment.json")).unwrap();
