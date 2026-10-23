@@ -65,7 +65,7 @@ fn tool_with(proxy: Arc<FakeProxyPolicy>) -> X402RequestTool {
     .with_request_guard(Arc::new(FixtureGuard))
 }
 
-fn tool() -> X402RequestTool {
+pub(super) fn tool() -> X402RequestTool {
     tool_with(Arc::new(FakeProxyPolicy::default()))
 }
 
@@ -125,7 +125,7 @@ fn receipt(success: bool, transaction: &str) -> String {
     )
 }
 
-fn paid_config(requirement: PaymentRequirements) -> ServerConfig {
+pub(super) fn paid_config(requirement: PaymentRequirements) -> ServerConfig {
     ServerConfig {
         challenge: Some(challenge(vec![requirement])),
         receipt: Some(receipt(true, "0xabc123")),
@@ -134,24 +134,24 @@ fn paid_config(requirement: PaymentRequirements) -> ServerConfig {
     }
 }
 
-fn init_ledger() -> ledger::LedgerStorage {
+pub(super) fn init_ledger() -> ledger::LedgerStorage {
     let storage = ledger::LedgerStorage::memory();
     ledger::init_global(storage.clone(), "tool-test", SpendingBudget::default()).unwrap();
     storage
 }
 
-fn records() -> Vec<PaymentRecord> {
+pub(super) fn records() -> Vec<PaymentRecord> {
     // Oldest first.
     let mut records = ledger::with_ledger(|l| l.recent_payments(50)).unwrap();
     records.reverse();
     records
 }
 
-fn text(result: &ToolResult) -> String {
+pub(super) fn text(result: &ToolResult) -> String {
     result.text()
 }
 
-async fn run(tool: &X402RequestTool, args: serde_json::Value) -> ToolResult {
+pub(super) async fn run(tool: &X402RequestTool, args: serde_json::Value) -> ToolResult {
     tool.execute(args).await.unwrap()
 }
 
@@ -518,41 +518,6 @@ async fn a_solana_402_is_labelled_solana() {
     let result = run(&tool(), json!({"url": server.url})).await;
     assert!(text(&result).contains("x402 payment: 0.010000 USDC on Solana"));
     ledger::reset_global();
-}
-
-#[tokio::test]
-async fn a_receipt_for_another_network_or_amount_does_not_settle_the_payment() {
-    let _guard = ledger::TEST_LOCK.lock().await;
-    for (network, amount) in [("eip155:84532", None), ("eip155:8453", Some("1"))] {
-        let _dir = init_ledger();
-        let receipt = B64.encode(
-            serde_json::to_vec(&SettlementResponse {
-                success: true,
-                transaction: "0xother".into(),
-                network: network.into(),
-                payer: None,
-                error_reason: None,
-                amount: amount.map(Into::into),
-                extensions: serde_json::Map::new(),
-            })
-            .unwrap(),
-        );
-        let server = TestServer::start(ServerConfig {
-            receipt: Some(receipt),
-            ..paid_config(evm_requirement())
-        })
-        .await;
-        let result = run(&tool(), json!({"url": server.url})).await;
-        assert!(!result.is_error, "{}", text(&result));
-        let records = records();
-        assert_eq!(
-            records.last().unwrap().status,
-            PaymentStatus::Pending,
-            "a {network} receipt for {amount:?} settled a 2500 payment on eip155:8453"
-        );
-        assert_eq!(records.last().unwrap().tx_signature, None);
-        ledger::reset_global();
-    }
 }
 
 #[tokio::test]
