@@ -13,7 +13,7 @@ use tinywallet_crypto::rpc::Transport;
 
 use crate::crypto::{CryptoPayments, PaymentSigner};
 use crate::ledger::{self, PaymentRecord, PaymentStatus};
-use crate::protocol::{PaymentBuilder, ProxyPolicy, handle_402_and_pay};
+use crate::protocol::{PaymentBuilder, ProxyPolicy, handle_402_and_pay, settles};
 use crate::thread::{NoThread, ThreadScope};
 use crate::wire::{
     HEADER_PAYMENT_REQUIRED, HEADER_PAYMENT_REQUIRED_V1, HEADER_PAYMENT_RESPONSE,
@@ -374,8 +374,9 @@ impl X402RequestTool {
             .get(HEADER_PAYMENT_RESPONSE)
             .and_then(|v| v.to_str().ok())
             .and_then(|b64| B64.decode(b64).ok())
-            .and_then(|bytes| serde_json::from_slice::<SettlementResponse>(&bytes).ok());
-        let settled_status = if receipt.as_ref().is_some_and(|receipt| receipt.success) {
+            .and_then(|bytes| serde_json::from_slice::<SettlementResponse>(&bytes).ok())
+            .filter(|receipt| settles(receipt, &payment.network, payment.amount_atomic));
+        let settled_status = if receipt.is_some() {
             PaymentStatus::Settled
         } else {
             // An error response or elapsed authorization deadline does not
@@ -383,7 +384,7 @@ impl X402RequestTool {
             PaymentStatus::Pending
         };
         let tx_sig = receipt
-            .filter(|receipt| receipt.success && !receipt.transaction.is_empty())
+            .filter(|receipt| !receipt.transaction.is_empty())
             .map(|receipt| receipt.transaction);
         if settled_status != PaymentStatus::Pending
             && ledger::with_ledger_mut(|ledger| {
