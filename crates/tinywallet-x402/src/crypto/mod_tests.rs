@@ -356,11 +356,14 @@ fn the_recovery_id_is_offset_and_checked() {
     assert_eq!(eip712_signature(&raw).unwrap()[64], 28);
     raw[64] = 0;
     assert_eq!(eip712_signature(&raw).unwrap()[64], 27);
-    raw[64] = 250;
-    assert_eq!(
-        eip712_signature(&raw).unwrap_err().to_string(),
-        "x402 wallet: recovery id out of range"
-    );
+    for id in [2, 3, 27, 250] {
+        raw[64] = id;
+        assert_eq!(
+            eip712_signature(&raw).unwrap_err().to_string(),
+            "x402 wallet: recovery id out of range",
+            "recovery id {id}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

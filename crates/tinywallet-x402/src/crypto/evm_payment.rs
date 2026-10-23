@@ -56,10 +56,13 @@ pub(super) fn eip712_signature(signature: &[u8]) -> Result<[u8; 65], X402Error> 
             "the wallet module returned a malformed signature".to_string(),
         ));
     };
+    // A secp256k1 recovery id is 0 or 1; anything else is not a signature
+    // any verifier will accept.
+    if raw[64] > 1 {
+        return Err(X402Error::Wallet("recovery id out of range".to_string()));
+    }
     let mut sig_bytes = raw;
-    sig_bytes[64] = raw[64]
-        .checked_add(27)
-        .ok_or_else(|| X402Error::Wallet("recovery id out of range".to_string()))?;
+    sig_bytes[64] = raw[64] + 27;
     Ok(sig_bytes)
 }
 
