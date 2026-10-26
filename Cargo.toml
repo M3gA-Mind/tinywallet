@@ -58,12 +58,12 @@ resolver = "3"
 # tinyagents) patches this exact URL to its own copy, so the two unify into
 # one package and `tinytools::Tool` stays one type. Keep the rev equal to the
 # tinytools gitlink tinyagents pins.
-tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "bd60b9b52f1998b4483b9cf107a72d3338e672f8" }
+tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "41cc80ac9acf37a14f20be94f60ee552749f1540" }
 # Runtime-neutral contracts shared with the host's stable TSD release.
-tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
-tinystoragedrivers-api = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-types = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
+tinystoragedrivers-api = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
 # The module connects to host-owned storage through the TinyBus adapter.
-tinystoragedrivers-busproxy = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-busproxy = { version = "2.1.0", git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "bf1f0a97fbe6165a6edd9521659c7f6859700761" }
 
 [dependencies]
 # The wire contract. Split out so a host that has moved signing into the
@@ -104,7 +104,7 @@ ripemd = { version = "0.2", optional = true }
 # BIP-32 on secp256k1, backed by the pure-Rust `k256` rather than the
 # `secp256k1` C library. Deriving a key wrong is silent and unrecoverable, so
 # this stays delegated to a vetted implementation — see `src/key/bip32.rs`.
-coins-bip32 = { version = "0.13", optional = true }
+coins-bip32 = { version = "0.17", optional = true }
 # Keccak-256 for the EVM and Tron addresses key derivation produces.
 #
 # PINNED TO 0.10, and not by accident — do not let dependabot move it.
@@ -121,9 +121,9 @@ sha3 = { version = "0.12", optional = true }
 async-trait = { version = "0.1", optional = true }
 # BIP-39 mnemonic -> seed. Pinned to the same 0.8 line OpenHuman used before
 # this extraction, so a wallet derived by the old code derives identically here.
-coins-bip39 = { version = "0.13", optional = true }
+coins-bip39 = { version = "0.17", optional = true }
 # OS-seeded cryptographic randomness for BIP-39 mnemonic generation.
-rand = { version = "0.9", default-features = false, features = ["std", "std_rng"], optional = true }
+rand = { version = "0.10", default-features = false, features = ["std", "std_rng", "sys_rng", "thread_rng"], optional = true }
 # HMAC-SHA512, the whole of SLIP-0010's ed25519 derivation.
 #
 # On 0.13 because `src/key/slip10.rs` builds `Hmac<Sha512>` and `Sha512` now
