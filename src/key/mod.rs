@@ -256,7 +256,9 @@ pub fn generate_mnemonic(word_count: usize) -> Result<String> {
     let count = WordCount::try_from(word_count)
         .map_err(|_| Error::InvalidMnemonicWordCount { count: word_count })?;
     let mut rng = rand::rng();
-    Ok(Mnemonic::<English>::random(count, &mut rng).to_phrase().to_string())
+    Ok(Mnemonic::<English>::random(count, &mut rng)
+        .to_phrase()
+        .to_string())
 }
 
 /// Turn a BIP-39 phrase into its 64-byte seed.
