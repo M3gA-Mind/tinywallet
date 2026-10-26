@@ -11,7 +11,7 @@ ALLOWED = {
 }
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 TSD_TYPES = "tinystoragedrivers-types"
-TSD_TYPES_REV = "05eaada962decbab33bafa4763d2bd1a67f6b456"
+TSD_TYPES_REV = "bf1f0a97fbe6165a6edd9521659c7f6859700761"
 TSD_TYPES_SOURCE = f"https://github.com/tinyhumansai/tinystoragedrivers?rev={TSD_TYPES_REV}#"
 
 # Chain, key and crypto implementations never enter the bus closure, not even
